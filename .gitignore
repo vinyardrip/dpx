@@ -1,0 +1,41 @@
+# DPX .gitignore
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Editor artifacts
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Backup files (created by sed -i on macOS)
+*.bak
+
+# DPX backup files
+*.dpx-backup
+
+# User configuration (contains passwords, local paths)
+# Never commit ~/.config/dpx/dpx.conf
+
+# Production database dumps (contain client data)
+db_prod/
+
+# DDEV project config (belongs to individual projects, not the tool)
+.ddev/
+
+# Temporary files
+/tmp/
+*.tmp
+
+# Archives
+*.tar.gz
+*.zip
+
+# Node.js (if any tooling is added later)
+node_modules/
+
+PLAN.md
+
