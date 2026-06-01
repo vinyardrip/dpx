@@ -185,6 +185,9 @@ cmd_refresh() {
 
             print_step "3" "Замена URL на локальные значения (WP-CLI)"
             ddev_wp_search_replace "$prod_url" "$local_url" "$project_path" || exit 1
+
+            # Полная очистка кэша (handlers + transients + Redis + файловый кэш)
+            db_wp_clear_cache "$project_path"
         else
             # --- Joomla, OpenCart, другие PHP проекты ---
             print_step "2-3" "Подготовка и импорт базы данных с заменой URL"

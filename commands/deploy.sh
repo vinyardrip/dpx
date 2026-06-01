@@ -191,6 +191,9 @@ cmd_deploy() {
 
             print_step "5" "Замена URL в базе данных (WP-CLI)"
             ddev_wp_search_replace "$prod_url" "$local_url" "$project_path" || exit 1
+
+            # Полная очистка кэша (handlers + transients + Redis + файловый кэш)
+            db_wp_clear_cache "$project_path"
         else
             # Joomla, OpenCart, etc: импорт с заменой URL в файле
             print_step "4-5" "Подготовка и импорт базы данных с заменой URL"

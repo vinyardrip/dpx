@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =================================================================
 # DPX Database Module - импорт, экспорт, замена URL
-# Версия: v1.4.24 — Reorder tunnel steps, X-Forwarded-Host, nuke file cache
+# Версия: v1.4.25 — Plugin Engine, Nginx Hot-Patch, db_wp_clear_cache refactor
 # =================================================================
 
 # Защита от повторного подключения
@@ -230,10 +230,11 @@ db_import_with_replace() {
 }
 
 # =================================================================
-# CLEAR CACHE — Ядерный сброс кэша WordPress (v1.4.24)
+# CLEAR CACHE — Ядерный сброс кэша WordPress (v1.4.25)
 #
-# WP-CLI используется ТОЛЬКО для cache flush.
-# Добавлено физическое удаление статического файлового кэша (W3TC, WP Rocket).
+# Делегирует специфичную очистку плагинов/тем в cms_flush_advanced_caches()
+# (Plugin Engine: lib/cms/wp-handlers/*.sh).
+# Здесь остаётся только базовая WP-очистка и файловый кэш.
 # =================================================================
 
 db_wp_clear_cache() {
@@ -241,26 +242,20 @@ db_wp_clear_cache() {
 
     if [[ -z "$project_path" || ! -d "$project_path" ]]; then return 1; fi
 
-    # Шаг 1: Flatsome транзиенты через SQL
-    (
-        cd "$project_path" || exit 1
-        ddev exec test -d /var/www/html/wp-content/themes/flatsome 2>/dev/null
-    ) 2>/dev/null && {
-        print_step "auto" "Flatsome transients cleanup (SQL)..." >&2
-        db_sql_delete_transients "$project_path" "flatsome_%"
-    }
+    # Делегируем очистку специфичных кэшей (Elementor, Flatsome и т.д.) в CMS-модуль
+    cms_flush_advanced_caches "$project_path" "wordpress"
 
-    # Шаг 2: WP-CLI cache operations
-    print_step "auto" "Удаление транзиентов и очистка кэша (Redis + WP-CLI)..." >&2
+    # WP-CLI: транзиенты + Redis flush
+    # Примечание: wp cache flush уже выполняется внутри cms_flush_advanced_caches()
+    print_step "auto" "Удаление транзиентов и очистка Redis..." >&2
     (
         cd "$project_path" || exit 1
         ddev exec php -d display_errors=0 -d error_reporting=0 /usr/local/bin/wp transient delete --all --allow-root >/dev/null 2>&1
         ddev redis-cli flushall >/dev/null 2>&1
-        ddev exec php -d display_errors=0 -d error_reporting=0 /usr/local/bin/wp cache flush --allow-root >/dev/null 2>&1
     ) || true
 
-    # Шаг 3: Ядерная очистка статических файловых кэшей
-    print_step "auto" "Очистка файлового кэша (W3TC, Hummingbird, WP Rocket)..." >&2
+    # Ядерная очистка статических файловых кэшей
+    print_step "auto" "Очистка файлового кэша WordPress..." >&2
     (
         cd "$project_path" || exit 1
         ddev exec rm -rf /var/www/html/wp-content/cache/* 2>/dev/null

@@ -299,6 +299,11 @@ install() {
         exit 1
     fi
 
+    # --- Проверка прав для глобальной установки ---
+    if [[ "$install_mode" == "global" && $EUID -ne 0 ]]; then
+        print_warning "Глобальная установка (/usr/local/bin) может потребовать sudo."
+    fi
+
     # --- Настройка прав доступа ---
     print_header "Настройка прав доступа"
     chmod +x "${script_dir}/${TOOL_NAME}.sh"
@@ -329,7 +334,7 @@ install() {
 
     # --- Создание символической ссылки ---
     print_header "Создание символической ссылки"
-    mkdir -p "$bin_dir"
+    mkdir -p "$bin_dir" 2>/dev/null || sudo mkdir -p "$bin_dir"
 
     local link_target="${script_dir}/${TOOL_NAME}.sh"
     local link_name="${bin_dir}/${TOOL_NAME}"

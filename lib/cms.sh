@@ -260,6 +260,58 @@ configure_opencart_config() {
 }
 
 # =================================================================
+# СБРОС СПЕЦИФИЧНЫХ КЭШЕЙ — ДИСПЕТЧЕР ОБРАБОТЧИКОВ
+# Вызывается после смены URL (tunnel, refresh, deploy, to-prod).
+#
+# Архитектура: Plugin Engine
+#   Каждый обработчик — отдельный файл в lib/cms/wp-handlers/*.sh
+#   Обработчик сам проверяет наличие плагина/темы и решает, что делать.
+#   Для добавления нового плагина достаточно закинуть .sh файл — ядро не трогается.
+#
+# Соглашение для обработчиков:
+#   - Переменная: $_CMS_HANDLER_PROJECT_PATH — путь к проекту
+#   - Вывод: >&2 для логов, ошибки маскируются через || true
+#   - Детектор: каждая handler-файл СНАЧАЛА проверяет наличие плагина, затем действует
+# =================================================================
+
+cms_flush_advanced_caches() {
+    local project_path="$1"
+    local cms_type="${2:-wordpress}"
+    local handlers_dir="${DPX_ROOT}/lib/cms/wp-handlers"
+
+    # Не WordPress — расширенная очистка не требуется
+    [[ "$cms_type" != "wordpress" ]] && return 0
+
+    # Нет папки с обработчиками — ничего не делаем
+    [[ ! -d "$handlers_dir" ]] && return 0
+
+    print_info "Выполняется глубокая очистка и адаптация CMS..." >&2
+
+    # Экспортируем путь для обработчиков (соглашение: $_CMS_HANDLER_PROJECT_PATH)
+    local _CMS_HANDLER_PROJECT_PATH="$project_path"
+
+    # Запускаем все плагины-обработчики
+    local handler
+    for handler in "${handlers_dir}"/*.sh; do
+        [[ -f "$handler" ]] || continue
+        # source внутри subshell — изоляция: ошибка в обработчике не убьёт диспетчер
+        (
+            _CMS_HANDLER_PROJECT_PATH="$_CMS_HANDLER_PROJECT_PATH"
+            source "$handler"
+        ) 2>/dev/null || true
+    done
+
+    # Общий сброс объектного кэша WordPress (Redis/Memcached/file-based)
+    (
+        cd "$project_path" 2>/dev/null && \
+        ddev exec php -d display_errors=0 -d error_reporting=0 \
+            /usr/local/bin/wp cache flush --allow-root --quiet 2>/dev/null
+    ) 2>/dev/null || true
+
+    return 0
+}
+
+# =================================================================
 # ЭКСПОРТ КОНСТАНТ
 # =================================================================
 
