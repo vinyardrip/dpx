@@ -521,7 +521,7 @@ dpx tunnel --provider cloudflare --project-name mysite
 
 #### Как работает туннель для WordPress
 
-**Порядок операций (v1.4.24):** старт туннеля → замена URL в БД → патч `wp-config.php`. Этот порядок критичен: WP-CLI игнорирует `wp search-replace` для `WP_HOME`/`WP_SITEURL`, если эти константы уже определены в wp-config. Поэтому БД мутируется первой, а конфиг патчится после.
+**Порядок операций (v1.4.0):** старт туннеля → замена URL в БД → патч `wp-config.php`. Этот порядок критичен: WP-CLI игнорирует `wp search-replace` для `WP_HOME`/`WP_SITEURL`, если эти константы уже определены в wp-config. Поэтому БД мутируется первой, а конфиг патчится после.
 
 1. **DPX_SMART_TUNNEL** — в `wp-config.php` внедряется PHP-блок сразу после `<?php`. Блок читает `X-Forwarded-Host` от Cloudflare и подменяет `HTTP_HOST`, чтобы WordPress генерировал URL с доменом туннеля (а не локальным `.lo`). Также проверяет `X-Forwarded-Proto` для корректного определения HTTPS. Если домен не заканчивается на локальный TLD — динамически определяет `WP_HOME`/`WP_SITEURL`. Существующие `define('WP_HOME', ...)` в конфиге автоматически оборачиваются в `if (!defined('WP_HOME'))` для предотвращения конфликта констант.
 
@@ -607,7 +607,7 @@ dpx info
 
 ```
 dpx/
-├── .version                # 1.4.24 (Single Source of Truth)
+├── .version                # 1.4.0 (Single Source of Truth)
 ├── .gitignore
 ├── LICENSE                 # MIT
 ├── PLAN.md                 # Контекст-снапшот проекта
