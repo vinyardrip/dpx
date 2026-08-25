@@ -46,6 +46,78 @@ db_get_prefix() {
 }
 
 # =================================================================
+# ДИНАМИЧЕСКОЕ ОПРЕДЕЛЕНИЕ ИМЕНИ БД ИЗ КОНФИГА CMS [FIX refresh]
+#
+# Извлекает имя базы данных без вызова контейнера:
+#   WordPress : define('DB_NAME', '...');      из wp-config.php
+#   Joomla    : public $db = '...';            из configuration.php
+#   OpenCart  : define('DB_DATABASE', '...');  из config.php
+#
+# Приоритет: regex по конфигу -> WP-CLI (только WordPress, best effort:
+# `ddev wp config get DB_NAME` точнее для нестандартных конфигов).
+#
+# КОНТРАКТ: STDOUT — имя БД (может быть пустым); UI — в STDERR.
+# Пустой вывод = определить не удалось, caller делает fallback
+# на имя проекта.
+# =================================================================
+
+db_get_db_name() {
+    local project_path="$1"
+    local cms_type="${2:-}"
+
+    if [[ -z "$cms_type" ]]; then
+        cms_type=$(detect_cms_type "$project_path" 2>/dev/null || echo "$CMS_TYPE_PHP")
+    fi
+
+    local config_file db_name=""
+
+    case "$cms_type" in
+        "$CMS_TYPE_WORDPRESS")
+            config_file="$project_path/wp-config.php"
+            if [[ -f "$config_file" ]]; then
+                # Варианты: define('DB_NAME','x'); define( "DB_NAME", "x" ); и т.п.
+                db_name=$(grep -E "define[[:space:]]*\([[:space:]]*['\"]DB_NAME['\"]" "$config_file" 2>/dev/null \
+                    | head -1 \
+                    | sed -E "s/.*define[[:space:]]*\([[:space:]]*['\"]DB_NAME['\"][[:space:]]*,[[:space:]]*['\"]([^'\"]+)['\"].*/\\1/")
+            fi
+            ;;
+        "$CMS_TYPE_JOOMLA")
+            config_file="$project_path/configuration.php"
+            if [[ -f "$config_file" ]]; then
+                # public $db = 'xyz'; — с любым количеством пробелов
+                db_name=$(grep -E 'public[[:space:]]+\$db[[:space:]]*=' "$config_file" 2>/dev/null \
+                    | head -1 \
+                    | sed -E "s/.*=[[:space:]]*['\"]([^'\"]*)['\"].*/\\1/")
+            fi
+            ;;
+        "$CMS_TYPE_OPENCART" | "$CMS_TYPE_OCSTORE")
+            config_file="$project_path/config.php"
+            if [[ -f "$config_file" ]]; then
+                db_name=$(grep -E "define[[:space:]]*\([[:space:]]*['\"]DB_DATABASE['\"]" "$config_file" 2>/dev/null \
+                    | head -1 \
+                    | sed -E "s/.*define[[:space:]]*\([[:space:]]*['\"]DB_DATABASE['\"][[:space:]]*,[[:space:]]*['\"]([^'\"]+)['\"].*/\\1/")
+            fi
+            ;;
+    esac
+
+    # WP-CLI fallback: только если regex не сработал и это WordPress
+    if [[ -z "$db_name" && "$cms_type" == "$CMS_TYPE_WORDPRESS" ]]; then
+        db_name=$(cd "$project_path" 2>/dev/null \
+            && ddev wp config get DB_NAME --allow-root 2>/dev/null \
+            | grep -v '^Deprecated:' | head -1) || db_name=""
+    fi
+
+    # Валидация: имя БД — только безопасные символы (защита от мусора)
+    if [[ -n "$db_name" && ! "$db_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        print_error "db_get_db_name: некорректное имя БД '$db_name' — игнорируется." >&2
+        echo ""
+        return 0
+    fi
+
+    echo "$db_name"
+}
+
+# =================================================================
 # SQL-ONLY: Чтение option из БД напрямую через ddev mysql
 #
 # НИКАКОГО WP-CLI. Чистый SQL к MySQL.
@@ -140,16 +212,42 @@ get_db_local_path() {
 # ИМПОРТ И ЭКСПОРТ (БЕЗ ПРИНУДИТЕЛЬНОГО GZIP)
 # =================================================================
 
+# Импорт дампа в БД проекта.
+#
+# [ISSUE 2] Перед импортом выполняется soft-restart контейнеров
+# (ddev_soft_restart): сбрасывает MySQL-соединения и состояние
+# InnoDB, снимая lock timeouts и ошибки буферов на горячих
+# импортах (частые Joomla-обновления, структурные патчи).
+#
+# АРГУМЕНТЫ:
+#   $1 — путь к дампу (.sql / .sql.gz)
+#   $2 — project_path
+#   $3 — pre_flush: "true" (по умолчанию) выполнить soft-restart,
+#        "false" — пропустить (например, серия мелких импортов).
 db_import() {
     local sql_file="$1"
     local project_path="$2"
+    local pre_flush="${3:-true}"
 
     [[ -n "$project_path" ]] && cd "$project_path" || return 1
     validate_file "$sql_file" "SQL файл" || return 1
 
     print_step "auto" "Импорт базы данных [$(basename "$sql_file")]"
 
-    if ddev import-db --file="$sql_file" >/dev/null 2>&1; then
+    # Имя DDEV-проекта = имя директории проекта (см. projects_list)
+    local project_name
+    project_name=$(basename "$project_path")
+
+    # [ISSUE 2] Сброс состояния MySQL перед горячим импортом
+    if [[ "$pre_flush" == "true" ]]; then
+        print_info "Soft-restart контейнеров (сброс соединений MySQL)..." >&2
+        if ! ddev_soft_restart "$project_name"; then
+            print_warning "Soft-restart не удался — продолжаем без сброса состояния."
+        fi
+    fi
+
+    # [ISSUE 2] Импорт через обертку с фолбэком (--name/--src -> cd/--file)
+    if ddev_import_db "$project_name" "$project_path" "$sql_file"; then
         print_success "База данных импортирована."
         return 0
     else
@@ -235,12 +333,23 @@ db_import_with_replace() {
 # Делегирует специфичную очистку плагинов/тем в cms_flush_advanced_caches()
 # (Plugin Engine: lib/cms/wp-handlers/*.sh).
 # Здесь остаётся только базовая WP-очистка и файловый кэш.
+#
+# [ISSUE 1] Защитный предохранитель: функция строго WordPress-specific.
+# Для не-WP проектов — no-op с понятным сообщением (никакого wp-cli).
 # =================================================================
 
 db_wp_clear_cache() {
     local project_path="$1"
 
     if [[ -z "$project_path" || ! -d "$project_path" ]]; then return 1; fi
+
+    # [ISSUE 1] Defense-in-depth: не-WP проект -> пропускаем WP-рутину
+    local detected_cms
+    detected_cms=$(detect_cms_type "$project_path" 2>/dev/null || echo "unknown")
+    if [[ "$detected_cms" != "$CMS_TYPE_WORDPRESS" ]]; then
+        print_info "Проект не является WordPress ($(get_cms_name "$detected_cms")) — очистка кэша WP пропущена." >&2
+        return 0
+    fi
 
     # Делегируем очистку специфичных кэшей (Elementor, Flatsome и т.д.) в CMS-модуль
     cms_flush_advanced_caches "$project_path" "wordpress"
@@ -261,6 +370,63 @@ db_wp_clear_cache() {
         ddev exec rm -rf /var/www/html/wp-content/cache/* 2>/dev/null
         ddev exec rm -rf /var/www/html/wp-content/wphb-cache/* 2>/dev/null
     ) || true
+}
+
+# =================================================================
+# POST-IMPORT ДИСПЕТЧЕР ПО ТИПУ CMS (v1.4.26) [ISSUE 1]
+#
+# Единая точка пост-обработки после импорта/восстановления БД.
+# WordPress-рутина вызывается ТОЛЬКО для wordpress; для остальных
+# типов — свои действия и понятные сообщения.
+#
+# АРГУМЕНТЫ:
+#   $1 — project_path
+#   $2 — cms_type (wordpress|joomla|opencart|php)
+# =================================================================
+
+db_post_import_cms() {
+    local project_path="$1"
+    local cms_type="${2:-}"
+
+    # Тип не передан — определяем по структуре файлов проекта
+    if [[ -z "$cms_type" ]]; then
+        cms_type=$(detect_cms_type "$project_path" 2>/dev/null || echo "$CMS_TYPE_PHP")
+    fi
+
+    case "$cms_type" in
+        "$CMS_TYPE_WORDPRESS")
+            print_info "Проект WordPress: проверка доступности и очистка кэшей..." >&2
+            (
+                cd "$project_path" || exit 1
+                if ddev exec wp core is-installed >/dev/null 2>&1; then
+                    print_success "WordPress доступен."
+                    db_wp_clear_cache "$project_path"
+                else
+                    print_warning "WordPress недоступен (wp core is-installed вернул ошибку)."
+                    print_info   "Проверьте wp-config.php и статус контейнера: ddev describe"
+                fi
+            ) >&2
+            ;;
+        "$CMS_TYPE_JOOMLA")
+            print_info "Проект Joomla: очистка кэшей Joomla (cache/, administrator/cache/)..." >&2
+            (
+                cd "$project_path" || exit 1
+                find cache administrator/cache -mindepth 1 ! -name 'index.html' -delete 2>/dev/null
+            ) >&2
+            print_success "Joomla: кэш очищен. Проверьте configuration.php при проблемах подключения к БД."
+            ;;
+        "$CMS_TYPE_OPENCART")
+            print_info "Проект OpenCart: очистка system/storage/cache и modification..." >&2
+            (
+                cd "$project_path" || exit 1
+                find system/storage/cache system/storage/modification -mindepth 1 ! -name 'index.html' -delete 2>/dev/null
+            ) >&2
+            print_success "OpenCart: кэш модификаций очищен. Обновите тему в админке при необходимости."
+            ;;
+        *)
+            print_info "Тип проекта: $(get_cms_name "$cms_type") — пост-обработка кэша не требуется." >&2
+            ;;
+    esac
 }
 
 # =================================================================
@@ -665,8 +831,8 @@ db_generate_export_filename() {
 
 export -f get_db_prod_path get_db_local_path db_import db_export
 export -f db_backup_local db_import_with_replace db_wp_export_safe
-export -f db_wp_smart_replace db_wp_clear_cache
+export -f db_wp_smart_replace db_wp_clear_cache db_post_import_cms
 export -f db_create_snapshot db_restore_snapshot db_smart_replace_tunnel
 export -f db_get_prod_filepath db_generate_export_filename
 export -f db_get_prefix db_sql_get_option db_sql_delete_transients
-export -f db_sql_count_old_url
+export -f db_sql_count_old_url db_get_db_name

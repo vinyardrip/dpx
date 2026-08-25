@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =================================================================
 # DPX Command: tunnel - проброс туннеля для показа проекта заказчику
-# Провайдеры: cloudflared (рабочий), ngrok (заглушка)
+# Провайдеры: cloudflared (Cloudflare Tunnel), ngrok — оба полностью рабочие
 # Архитектура: DPX_SMART_TUNNEL — самоактивирующийся блок
-# Версия: v1.5.6 — Absolute Host Forcing (bypasses Traefik Host spoofing)
+# Версия: v1.6.0 — ngrok provider (API-driven URL extraction + fallback parsers)
 # =================================================================
 
 # Подключаем модули
@@ -22,6 +22,25 @@ readonly TUNNEL_MARKER_END="/** END_DPX_SMART_TUNNEL */"
 readonly TUNNEL_PROVIDER_CLOUDFLARE="cloudflare"
 readonly TUNNEL_PROVIDER_NGROK="ngrok"
 readonly WP_CONFIG_PROTECTED_TAIL=10
+
+# =================================================================
+# NGROK DRIVER — НАСТРАИВАЕМЫЕ ПАРАМЕТРЫ (v1.6.0)
+#
+# TUNNEL_NGROK_API_PORT     порт локального ngrok API (inspect);
+#                           переопределяется через DPX_NGROK_API_PORT;
+#                           при заданном значении в команду добавляется
+#                           --web-addr (поддерживается ngrok v3).
+# TUNNEL_NGROK_MAX_WAIT     бюджет ожидания публичного URL, секунд;
+#                           DPX_NGROK_MAX_WAIT.
+# TUNNEL_NGROK_POLL_INTERVAL интервал опроса API, секунд; DPX_NGROK_POLL_INTERVAL.
+#
+# Переменные НЕ readonly намеренно: тесты подменяют интервал,
+# чтобы не ждать полный таймаут.
+# =================================================================
+
+TUNNEL_NGROK_API_PORT="${DPX_NGROK_API_PORT:-4040}"
+TUNNEL_NGROK_MAX_WAIT="${DPX_NGROK_MAX_WAIT:-10}"
+TUNNEL_NGROK_POLL_INTERVAL="${DPX_NGROK_POLL_INTERVAL:-0.5}"
 
 # =================================================================
 # CROSS-PLATFORM PATH NORMALIZATION (v1.4.11)
@@ -64,7 +83,7 @@ show_tunnel_help() {
  ${COLOR_BOLD}Опции:${COLOR_RESET}
     --project-name NAME    Имя проекта DDEV
     --cms-type TYPE        Тип CMS (wordpress, joomla, opencart, php)
-    --provider PROVIDER    Провайдер туннеля (cloudflare, ngrok)
+    --provider PROVIDER    Провайдер туннеля: cloudflare | ngrok (оба рабочие)
     -y, --yes              Пропустить подтверждения
     -h, --help             Показать эту справку
 EOF
@@ -213,9 +232,174 @@ tunnel_cloudflare_stop() {
     fi
 }
 
-tunnel_ngrok_check()  { print_warning "ngrok: не реализован."; return 1; }
-tunnel_ngrok_start()  { print_error "ngrok: не реализовано."; return 1; }
-tunnel_ngrok_stop()   { :; }
+# =================================================================
+# NGROK DRIVER (v1.6.0)
+#
+# Контракт идентичен cloudflare-драйверу:
+#   start(target_url, log_file, host_header) -> _DPX_TUNNEL_PID/_DPX_TUNNEL_URL;
+#   stop(pid) — TERM, grace, KILL.
+#
+# Публичный URL извлекается из локального API ngrok
+# (http://127.0.0.1:<port>/api/tunnels) с цепочкой парсеров:
+#   jq -> python3 -> grep/cut fallback.
+# Выбирается ТОЛЬКО https:// endpoint (спецификация DPX).
+# =================================================================
+
+# Парсер JSON через jq: первый https-endpoint из массива tunnels.
+_tunnel_ngrok_parse_jq() {
+    local payload="$1"
+    printf '%s' "$payload" | jq -r '[.tunnels[]? | select(.public_url? | startswith("https"))][0].public_url // empty' 2>/dev/null
+}
+
+# Парсер JSON через python3 (fallback, когда jq отсутствует).
+_tunnel_ngrok_parse_python() {
+    local payload="$1"
+    python3 - "$payload" 2>/dev/null << 'PYEOF'
+import json, sys
+try:
+    data = json.loads(sys.argv[1])
+    for t in data.get("tunnels", []):
+        u = t.get("public_url", "")
+        if isinstance(u, str) and u.startswith("https"):
+            print(u)
+            break
+except Exception:
+    pass
+PYEOF
+}
+
+# Последний рубеж: grep+cut по сырому JSON (без внешних зависимостей).
+_tunnel_ngrok_parse_grep() {
+    local payload="$1"
+    printf '%s' "$payload" \
+        | grep -oE '"public_url"[[:space:]]*:[[:space:]]*"https://[^"]+"' \
+        | head -1 \
+        | cut -d'"' -f4
+}
+
+# Диспетчер парсеров по доступности инструментов.
+tunnel_ngrok_parse_api() {
+    local payload="$1"
+    if command -v jq >/dev/null 2>&1; then
+        _tunnel_ngrok_parse_jq "$payload" && return 0
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        _tunnel_ngrok_parse_python "$payload" && return 0
+    fi
+    _tunnel_ngrok_parse_grep "$payload"
+}
+
+# GET локального inspect-API; пустой вывод при любой ошибке сети.
+tunnel_ngrok_fetch_api() {
+    curl -sf --max-time 2 "http://127.0.0.1:${TUNNEL_NGROK_API_PORT}/api/tunnels" 2>/dev/null || true
+}
+
+# Цикл ожидания публичного URL с общим бюджетом TUNNEL_NGROK_MAX_WAIT.
+# Ранний выход, если процесс ngrok умер (ошибка конфигурации/authtoken).
+tunnel_ngrok_wait_public_url() {
+    local deadline=$(( SECONDS + TUNNEL_NGROK_MAX_WAIT ))
+    local payload url=""
+
+    while (( SECONDS < deadline )); do
+        if [[ -n "${_DPX_TUNNEL_PID:-}" ]] && ! kill -0 "${_DPX_TUNNEL_PID}" 2>/dev/null; then
+            return 1
+        fi
+
+        payload="$(tunnel_ngrok_fetch_api)"
+        if [[ -n "$payload" ]]; then
+            url="$(tunnel_ngrok_parse_api "$payload")"
+            if [[ -n "$url" ]]; then
+                printf '%s\n' "$url"
+                return 0
+            fi
+        fi
+
+        printf '.' >&2
+        sleep "$TUNNEL_NGROK_POLL_INTERVAL"
+    done
+
+    return 1
+}
+
+tunnel_ngrok_check() {
+    if ! command -v ngrok >/dev/null 2>&1; then
+        print_error "ngrok не найден."
+        print_info "Установка:"
+        print_info "  macOS:          brew install ngrok"
+        print_info "  Ubuntu/Debian:  snap install ngrok  (или .deb с ngrok.com/download)"
+        print_info "  Arch:           yay -S ngrok"
+        print_info "После установки авторизуйтесь: ngrok config add-authtoken <TOKEN>"
+        return 1
+    fi
+    if ! command -v curl >/dev/null 2>&1; then
+        print_error "curl не найден — ngrok-драйверу нужен доступ к локальному API."
+        return 1
+    fi
+    print_success "ngrok найден: $(ngrok --version 2>&1 | head -1)"
+    return 0
+}
+
+tunnel_ngrok_start() {
+    local target_url="$1"
+    local log_file="$2"
+    local host_header="${3:-}"
+
+    local -a cmd=(ngrok http)
+
+    # DDEV-router маршрутизирует по Host: без заголовка запросы
+    # на мультипроектной машине попадут в default vhost.
+    [[ -n "$host_header" ]] && cmd+=("--host-header=${host_header}")
+    # Легаси-опция ngrok v2; v3 игнорирует регионы через конфиг.
+    [[ -n "${DPX_NGROK_REGION:-}" ]] && cmd+=("--region=${DPX_NGROK_REGION}")
+    # Пиновать inspect-API можно только на v3 (--web-addr); включается явно.
+    [[ -n "${DPX_NGROK_API_PORT:-}" ]] && cmd+=("--web-addr=127.0.0.1:${TUNNEL_NGROK_API_PORT}")
+
+    cmd+=("$target_url")
+
+    "${cmd[@]}" > "$log_file" 2>&1 &
+    local pid=$!
+    _DPX_TUNNEL_PID="$pid"
+
+    print_info "ngrok запущен (PID: $pid); ожидание HTTPS URL (до ${TUNNEL_NGROK_MAX_WAIT} с)..."
+
+    local tunnel_url=""
+    tunnel_url=$(tunnel_ngrok_wait_public_url) || tunnel_url=""
+    echo "" >&2
+
+    if [[ -z "$tunnel_url" ]]; then
+        if ! kill -0 "$pid" 2>/dev/null; then
+            print_error "ngrok завершился сразу после старта. Последние строки лога:"
+            tail -5 "$log_file" 2>/dev/null | sed 's/^/    /' >&2
+            if grep -qiE 'ERR_NGROK_4018|authtoken' "$log_file" 2>/dev/null; then
+                print_info "Требуется authtoken: ngrok config add-authtoken <TOKEN>"
+            fi
+        else
+            print_error "API ngrok не вернул HTTPS URL за ${TUNNEL_NGROK_MAX_WAIT} с."
+            kill "$pid" 2>/dev/null || true
+        fi
+        return 1
+    fi
+
+    _DPX_TUNNEL_URL="$tunnel_url"
+    print_success "Туннель создан: $tunnel_url"
+    return 0
+}
+
+tunnel_ngrok_stop() {
+    local pid="$1"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        print_info "Остановка ngrok (PID: $pid)..."
+        kill "$pid" 2>/dev/null
+        local wait_count=0
+        while kill -0 "$pid" 2>/dev/null && (( wait_count < 10 )); do
+            sleep 0.5
+            ((wait_count++))
+        done
+        # Гарантия отсутствия orphan-процессов
+        if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null; fi
+        print_success "ngrok остановлен."
+    fi
+}
 
 tunnel_provider_check() {
     local provider="$1"
@@ -230,7 +414,7 @@ tunnel_provider_start() {
     local provider="$1" target_url="$2" log_file="$3" host_header="$4"
     case "$provider" in
         "$TUNNEL_PROVIDER_CLOUDFLARE") tunnel_cloudflare_start "$target_url" "$log_file" "$host_header" ;;
-        "$TUNNEL_PROVIDER_NGROK")      tunnel_ngrok_start "$target_url" "$log_file" ;;
+        "$TUNNEL_PROVIDER_NGROK")      tunnel_ngrok_start "$target_url" "$log_file" "$host_header" ;;
         *) return 1 ;;
     esac
 }
@@ -332,6 +516,35 @@ tunnel_get_target_url() {
 # =================================================================
 # УРОВЕНЬ 2.1: ПАТЧИНГ wp-config.php — DPX_SMART_TUNNEL
 # =================================================================
+
+# Генерация DPX_SMART_TUNNEL блока для wp-config.php.
+#
+# [FIX v1.5.7] HTTPS выставляется ТОЛЬКО при подтверждённом проксировании:
+# Cloudflare/Traefik присылают X-Forwarded-Proto: https. Безусловный
+# `$_SERVER['HTTPS'] = 'on'` вызывал redirect-лупы на схемах, где
+# заголовок отсутствует (прямые HTTP-запросы к контейнеру).
+#
+# STDOUT: PHP-блок. Аргумент $1 — домен туннеля.
+tunnel_smart_block_render() {
+    local tunnel_domain="$1"
+    cat <<BLOCK_EOF
+
+/** DPX_SMART_TUNNEL */
+if (isset(\$_SERVER['HTTP_X_FORWARDED_PROTO']) && \$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+    \$_SERVER['HTTPS'] = 'on';
+    \$_SERVER['SERVER_PORT'] = 443;
+}
+
+// Force tunnel domain to bypass Traefik Host Header spoofing.
+// This guarantees WP auth_redirect() uses the tunnel URL, not the .lo URL.
+\$_SERVER['HTTP_HOST'] = '${tunnel_domain}';
+\$_SERVER['SERVER_NAME'] = '${tunnel_domain}';
+
+if (!defined('WP_HOME'))    define('WP_HOME', 'https://${tunnel_domain}');
+if (!defined('WP_SITEURL')) define('WP_SITEURL', 'https://${tunnel_domain}');
+/** END_DPX_SMART_TUNNEL */
+BLOCK_EOF
+}
 
 tunnel_is_config_patched() {
     local config_file="$1"
@@ -483,21 +696,7 @@ tunnel_patch_wp_config() {
 
     local block_file
     block_file=$(create_temp_file)
-    cat <<BLOCK_EOF > "$block_file"
-
-/** DPX_SMART_TUNNEL */
-\$_SERVER['HTTPS'] = 'on';
-\$_SERVER['SERVER_PORT'] = 443;
-
-// Force tunnel domain to bypass Traefik Host Header spoofing.
-// This guarantees WP auth_redirect() uses the tunnel URL, not the .lo URL.
-\$_SERVER['HTTP_HOST'] = '${tunnel_domain}';
-\$_SERVER['SERVER_NAME'] = '${tunnel_domain}';
-
-if (!defined('WP_HOME'))    define('WP_HOME', 'https://${tunnel_domain}');
-if (!defined('WP_SITEURL')) define('WP_SITEURL', 'https://${tunnel_domain}');
-/** END_DPX_SMART_TUNNEL */
-BLOCK_EOF
+    tunnel_smart_block_render "$tunnel_domain" > "$block_file"
 
     local temp_file
     temp_file=$(create_temp_file)
@@ -601,17 +800,19 @@ tunnel_unpatch_wp_config() {
 # УРОВЕНЬ 2.2: NGINX HOT-PATCH
 # =================================================================
 
-tunnel_patch_nginx() {
-    local project_path="$1"
-    print_info "Nginx Hot-Patch (absolute_redirect off в server blocks)..."
-
-    local shared_dir="$project_path/.dpx"
-    mkdir -p "$shared_dir"
-    local patch_script="$shared_dir/_nginx_patch.sh"
-
-    cat > "$patch_script" << 'PATCH_EOF'
+# Генерация скрипта Nginx Hot-Patch (исполняется внутри web-контейнера
+# через `ddev exec`). Выделено в функцию, чтобы unit-тесты могли
+# верифицировать содержимое патча без запуска контейнера.
+#
+# [FIX v1.5.7] Добавлены proxy-заголовки: за reverse-proxy (Cloudflare ->
+# ddev-router -> nginx) Nginx строил абсолютные 301 Location из внутренних
+# scheme/port. `absolute_redirect off` + `port_in_redirect off` дают
+# относительные Location, а proxy_set_header пробрасывают корректные
+# Host/Proto в проксируемые location.
+tunnel_nginx_patch_render() {
+    cat << 'PATCH_EOF'
 #!/bin/bash
-# DPX Nginx Hot-Patch v1.5.5 — absolute_redirect off + forced location blocks
+# DPX Nginx Hot-Patch v1.5.7 — absolute_redirect + port_in_redirect + forwarded headers
 # Эфемерность: исчезает при ddev restart (контейнер пересоздаётся).
 
 # --- Cleanup предыдущего патча (idempotent) ---
@@ -632,6 +833,8 @@ for f in /etc/nginx/nginx.conf /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d
         print "    absolute_redirect off;"
         print "    server_name_in_redirect off;"
         print "    port_in_redirect off;"
+        print "    proxy_set_header Host $http_host;"
+        print "    proxy_set_header X-Forwarded-Proto https;"
         print "    location = /wp-admin { absolute_redirect off; return 301 /wp-admin/; }"
         print "    location = /wp-login { absolute_redirect off; return 301 /wp-login.php; }"
         print "    # END_DPX_NGINX"
@@ -701,6 +904,17 @@ if [ "$_reload_ok" = false ]; then
     echo "nginx: WARNING — reload failed. Processes:$_diag"
 fi
 PATCH_EOF
+}
+
+tunnel_patch_nginx() {
+    local project_path="$1"
+    print_info "Nginx Hot-Patch (absolute_redirect off + forwarded headers)..."
+
+    local shared_dir="$project_path/.dpx"
+    mkdir -p "$shared_dir"
+    local patch_script="$shared_dir/_nginx_patch.sh"
+
+    tunnel_nginx_patch_render > "$patch_script"
 
     (
         cd "$project_path" || exit 0

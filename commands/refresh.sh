@@ -131,7 +131,19 @@ cmd_refresh() {
     db_filename=$(get_arg "db_file" "")
 
     if [[ -z "$db_filename" ]]; then
-        prompt_input "2. Имя файла БД из '$(get_db_prod_path)' (без .sql)" "$project_name" db_filename
+        # [FIX] Автодетект имени БД из конфига CMS (wp-config.php /
+        # configuration.php / config.php). Fallback — имя проекта.
+        local detected_db
+        detected_db=$(db_get_db_name "$project_path" "$cms_type") || detected_db=""
+
+        if [[ -n "$detected_db" ]]; then
+            print_info "Из конфига CMS определена БД: ${detected_db}"
+        else
+            detected_db="$project_name"
+            print_info "Имя БД не распознано, используется имя проекта: ${detected_db}"
+        fi
+
+        prompt_input "2. Имя файла БД из '$(get_db_prod_path)' (без .sql)" "$detected_db" db_filename
     fi
 
     local source_db_file
@@ -192,6 +204,11 @@ cmd_refresh() {
             # --- Joomla, OpenCart, другие PHP проекты ---
             print_step "2-3" "Подготовка и импорт базы данных с заменой URL"
             db_import_with_replace "$source_db_file" "$prod_url" "$local_url" "$project_path" || exit 1
+
+            # [ISSUE 1] Пост-обработка строго по типу CMS:
+            # Joomla/OpenCart получают свою очистку кэшей, PHP — ничего.
+            # Никаких WordPress-проверок для не-WP проектов.
+            db_post_import_cms "$project_path" "$cms_type"
         fi
 
         # --- Завершение ---

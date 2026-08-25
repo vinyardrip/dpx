@@ -38,7 +38,7 @@ TOTAL_SKIPPED=0
 
 echo ""
 echo "${BOLD}========================================${RESET}"
-echo "${BOLD}        DPX Test Suite v1.2.0${RESET}"
+echo "${BOLD}        DPX Test Suite v1.3.0${RESET}"
 echo "${BOLD}========================================${RESET}"
 echo ""
 
@@ -73,12 +73,62 @@ if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
 fi
 
 # =================================================================
+# СТАТИЧЕСКИЙ АНАЛИЗ (shellcheck gate)
+#
+# Область: файлы, поддерживаемые данным suite (раннер + тесты +
+# тестируемые модули из последнего рефакторинга).
+# Легаси-модули (commands/*.sh, devilbox.sh и др.) не входят —
+# их чистка вынесена в отдельную задачу.
+# При отсутствии shellcheck — SKIP (gate не блокирует CI без линтера).
+# =================================================================
+
+SHELLCHECK_TARGETS=(
+    "$TESTS_DIR/run_tests.sh"
+    "$TESTS_DIR"/tests/test_*.sh
+    "$TESTS_DIR/lib/args.sh"
+)
+
+run_shellcheck_gate() {
+    local sc_output="" sc_rc=0 issues=0
+
+    if ! command -v shellcheck >/dev/null 2>&1; then
+        echo "${YELLOW}>>> Static analysis: shellcheck not found - SKIPPED${RESET}"
+        echo ""
+        return 0
+    fi
+
+    echo "${CYAN}>>> Static analysis: shellcheck${RESET}"
+    echo "----------------------------------------"
+
+    # -x: следовать constant-source (lib/*); -f gcc: находки в формате
+    # 'file:line:col: severity: msg [SCxxxx]' — надежный парсинг счетчика
+    sc_output="$(shellcheck -s bash -x -S style -f gcc "${SHELLCHECK_TARGETS[@]}")" || sc_rc=$?
+
+    if [[ $sc_rc -ne 0 ]]; then
+        echo "$sc_output"
+        issues="$(grep -cE '\[SC[0-9]+\]' <<<"$sc_output")" || true
+        issues="${issues// /}"
+        issues="${issues:-0}"
+        echo "${RED}shellcheck: $issues issue(s) found${RESET}"
+        TOTAL_FAILED=$((TOTAL_FAILED + issues))
+    else
+        echo "${GREEN}shellcheck: all targets clean${RESET}"
+    fi
+    echo ""
+
+    return 0
+}
+
+run_shellcheck_gate
+
+# =================================================================
 # ФУНКЦИЯ ЗАПУСКА ТЕСТА
 # =================================================================
 
 run_test_file() {
     local test_file="$1"
-    local test_name=$(basename "$test_file" .sh)
+    local test_name
+    test_name=$(basename "$test_file" .sh)
     
     echo "${CYAN}>>> Running: ${test_name}${RESET}"
     echo "----------------------------------------"

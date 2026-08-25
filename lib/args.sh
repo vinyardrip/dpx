@@ -23,7 +23,28 @@ parse_args() {
     DPX_ARGS=()
     DPX_POSITIONAL=()
 
+    local arg_pair arg_key arg_val
+
     while [[ $# -gt 0 ]]; do
+        # [FIX v1.4.27] Поддержка формата --key=value (--project-name=mysite).
+        # Обрабатывается ДО case: ключ нормализуется (дефисы -> подчеркивания),
+        # значение сохраняется как есть. Флаги без значения ("=1") по-прежнему
+        # строго валидируются ниже.
+        if [[ "$1" == --*=* ]]; then
+            arg_pair="${1#--}"
+            arg_key="${arg_pair%%=*}"
+            arg_val="${arg_pair#*=}"
+
+            if [[ -z "$arg_key" ]]; then
+                print_error "Некорректный параметр: $1"
+                return 1
+            fi
+
+            DPX_ARGS["${arg_key//-/_}"]="$arg_val"
+            shift
+            continue
+        fi
+
         case "$1" in
             # Флаги без значений
             -h|--help)
@@ -180,6 +201,30 @@ parse_args() {
                 DPX_ARGS["provider"]="$2"
                 shift 2
                 ;;
+            --output)
+                [[ -n "${2:-}" ]] || { print_error "--output требует аргумент"; return 1; }
+                DPX_ARGS["output"]="$2"
+                shift 2
+                ;;
+            --keep)
+                [[ -n "${2:-}" ]] || { print_error "--keep требует аргумент"; return 1; }
+                DPX_ARGS["keep"]="$2"
+                shift 2
+                ;;
+            --cms|--type)
+                [[ -n "${2:-}" ]] || { print_error "$1 требует аргумент"; return 1; }
+                DPX_ARGS["cms"]="$2"
+                shift 2
+                ;;
+            --php)
+                [[ -n "${2:-}" ]] || { print_error "--php требует аргумент"; return 1; }
+                DPX_ARGS["php_version"]="$2"
+                shift 2
+                ;;
+            --db)
+                DPX_ARGS["db"]=1
+                shift
+                ;;
 
             # Неизвестные параметры
             -*)
@@ -212,7 +257,14 @@ get_arg() {
 # Проверить наличие флага
 has_arg() {
     local key="$1"
-    [[ "${DPX_ARGS[$key]:-}" == "1" ]]
+
+    # [FIX v1.4.27] Аргумент считается переданным при ЛЮБОМ непустом значении:
+    #   - флаги хранят "1" (--yes);
+    #   - опции со значениями — свои значения (--php-version 8.1).
+    # Старая проверка == "1" возвращала false для value-опций, из-за чего
+    # вызовы вида "! has_arg php_version" (migrate, deploy, refresh:prod_tld)
+    # повторно запрашивали интерактивный ввод при УЖЕ переданном флаге.
+    [[ -n "${DPX_ARGS[$key]:-}" ]]
 }
 
 # Получить позиционный аргумент по индексу (начиная с 1)

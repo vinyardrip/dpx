@@ -25,7 +25,6 @@ TESTS_SKIPPED=0
 # [FIX] Флаг состояния текущего теста (защита от False Positives)
 # Предотвращает двойной счёт когда test_pass вызывается после test_fail
 CURRENT_TEST_FAILED=0
-CURRENT_TEST=""
 
 # Временная директория
 TEST_TEMP_DIR=""
@@ -35,6 +34,9 @@ if command -v tput >/dev/null 2>&1 && [[ -t 1 ]]; then
     TEST_GREEN=$(tput setaf 2)
     TEST_RED=$(tput setaf 1)
     TEST_YELLOW=$(tput setaf 3)
+    # TEST_CYAN входит в публичную палитру фреймворка (используется
+    # внешними suite-скриптами), сам фреймворк его не печатает.
+    # shellcheck disable=SC2034
     TEST_CYAN=$(tput setaf 6)
     TEST_BOLD=$(tput bold)
     TEST_RESET=$(tput sgr0)
@@ -42,6 +44,7 @@ else
     TEST_GREEN='\033[0;32m'
     TEST_RED='\033[0;31m'
     TEST_YELLOW='\033[1;33m'
+    # shellcheck disable=SC2034
     TEST_CYAN='\033[0;36m'
     TEST_BOLD='\033[1m'
     TEST_RESET='\033[0m'
@@ -52,11 +55,12 @@ fi
 # =================================================================
 
 # Начало теста (сбрасывает флаг состояния)
+# [FIX] "|| true" на инкрементах: пост-инкремент с нуля возвращает
+# статус 1 и ломал цепочки вида "assert && test_pass || test_fail"
 test_start() {
     local name="$1"
-    CURRENT_TEST="$name"
     CURRENT_TEST_FAILED=0  # [FIX] Сброс флага для каждого нового теста
-    ((TESTS_RUN++))
+    ((TESTS_RUN++)) || true
     printf "  Testing: %-50s " "$name"
 }
 
@@ -65,8 +69,8 @@ test_pass() {
     # [FIX] Засчитываем успех ТОЛЬКО если не было вызовов test_fail
     # Это делает фреймворк "пуленепробиваемым" - test_pass после test_fail игнорируется
     if [[ $CURRENT_TEST_FAILED -eq 0 ]]; then
-        printf "${TEST_GREEN}✓ PASS${TEST_RESET}\n"
-        ((TESTS_PASSED++))
+        printf '%s\n' "${TEST_GREEN}✓ PASS${TEST_RESET}"
+        ((TESTS_PASSED++)) || true
     fi
 }
 
@@ -76,23 +80,23 @@ test_fail() {
 
     # [FIX] Если тест уже был провален ранее, не плюсуем счетчик дважды
     if [[ $CURRENT_TEST_FAILED -eq 0 ]]; then
-        printf "${TEST_RED}✗ FAIL${TEST_RESET}\n"
-        ((TESTS_FAILED++))
+        printf '%s\n' "${TEST_RED}✗ FAIL${TEST_RESET}"
+        ((TESTS_FAILED++)) || true
         CURRENT_TEST_FAILED=1
     fi
 
     if [[ -n "$reason" ]]; then
-        printf "           ${TEST_RED}Reason: %s${TEST_RESET}\n" "$reason"
+        printf '           %s\n' "${TEST_RED}Reason: ${reason}${TEST_RESET}"
     fi
 }
 
 # Пропуск теста
 test_skip() {
     local reason="${1:-No reason provided}"
-    printf "${TEST_YELLOW}⊘ SKIP${TEST_RESET}\n"
-    ((TESTS_SKIPPED++))
+    printf '%s\n' "${TEST_YELLOW}⊘ SKIP${TEST_RESET}"
+    ((TESTS_SKIPPED++)) || true
     if [[ -n "$reason" ]]; then
-        printf "           ${TEST_YELLOW}Reason: %s${TEST_RESET}\n" "$reason"
+        printf '           %s\n' "${TEST_YELLOW}Reason: ${reason}${TEST_RESET}"
     fi
 }
 
@@ -310,6 +314,9 @@ cleanup_temp_dir() {
 create_fake_wordpress_project() {
     local project_dir="$1"
     local project_name="${2:-testproject}"
+    # site_url доступен вызывающим suite-скриптам через возврат
+    # вместе с путем (контракт генераторов mock-объектов).
+    # shellcheck disable=SC2034
     local site_url="${3:-https://${project_name}.ddev.site}"
 
     mkdir -p "$project_dir"

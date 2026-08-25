@@ -79,6 +79,69 @@ ddev_launch() {
 }
 
 # =================================================================
+# SOFT RESTART (Issue: MySQL locks & buffer errors на горячих импортах)
+#
+# Неблокирующий рестарт контейнеров проекта перед тяжелой операцией
+# с БД: сбрасывает соединения и состояние InnoDB/max_allowed_packet
+# без интерактивных подтверждений.
+#
+# Совместимость DDEV:
+#   - Сначала пробуем форму из DPX-workflow: ddev restart --name=...
+#   - Старые/новые версии DDEV без флага --name -> фолбэк
+#     "ddev restart <project>" (позиционный аргумент работает во всех
+#     версиях и не требует cd).
+# =================================================================
+
+ddev_soft_restart() {
+    local project_name="$1"
+
+    if [[ -z "$project_name" ]]; then
+        print_error "ddev_soft_restart: имя проекта не указано."
+        return 1
+    fi
+
+    # Форма по спецификации DPX (может не поддерживаться версией DDEV)
+    if ddev restart "--name=${project_name}" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Универсальный фолбэк: позиционное имя проекта
+    ddev restart "$project_name" >/dev/null 2>&1
+}
+
+# Импорт дампа в БД проекта.
+#
+# Единая обертка над ddev import-db:
+#   1) Форма из DPX-workflow: ddev import-db --name=... --src=...
+#   2) Фолбэк (гарантированно совместимый): cd в проект +
+#      ddev import-db --file=... (паттерн всего кода DPX).
+#
+# АРГУМЕНТЫ:
+#   $1 — project_name (для форм с --name)
+#   $2 — project_path (для фолбэка cd)
+#   $3 — путь к дампу (.sql / .sql.gz)
+ddev_import_db() {
+    local project_name="$1"
+    local project_path="$2"
+    local db_file="$3"
+
+    validate_file "$db_file" "Дамп базы данных" || return 1
+
+    # Спецификация DPX: --name + --src
+    if ddev import-db \
+        "--name=${project_name}" \
+        "--src=${db_file}" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Фолбэк: классический путь через cd (изоляция в subshell)
+    (
+        cd "$project_path" 2>/dev/null || exit 1
+        ddev import-db "--file=${db_file}"
+    ) >/dev/null 2>&1
+}
+
+# =================================================================
 # КОНФИГУРАЦИЯ
 # =================================================================
 

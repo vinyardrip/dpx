@@ -15,6 +15,7 @@ readonly _DPX_CMS_LOADED=1
 readonly CMS_TYPE_WORDPRESS="wordpress"
 readonly CMS_TYPE_JOOMLA="joomla"
 readonly CMS_TYPE_OPENCART="opencart"
+readonly CMS_TYPE_OCSTORE="ocstore"
 readonly CMS_TYPE_PHP="php"
 
 # Маппинг типов CMS -> тип проекта DDEV
@@ -22,6 +23,7 @@ declare -gA CMS_DDEV_TYPE=(
     ["wordpress"]="wordpress"
     ["joomla"]="php"
     ["opencart"]="php"
+    ["ocstore"]="php"
     ["php"]="php"
 )
 
@@ -30,7 +32,29 @@ declare -gA CMS_NAMES=(
     ["wordpress"]="WordPress"
     ["joomla"]="Joomla"
     ["opencart"]="OpenCart"
+    ["ocstore"]="ocStore"
     ["php"]="Чистый PHP"
+)
+
+# Порядок пунктов интерактивного меню (номер пункта = индекс + 1).
+# Единый источник истины для select_cms_type: значения и их нумерация
+# не могут разойтись.
+declare -ga _DPX_CMS_MENU_ORDER=(
+    "$CMS_TYPE_WORDPRESS"
+    "$CMS_TYPE_JOOMLA"
+    "$CMS_TYPE_OPENCART"
+    "$CMS_TYPE_PHP"
+)
+
+# Популярные сокращения для текстового ввода в select_cms_type
+declare -gA _DPX_CMS_ALIASES=(
+    ["wp"]="$CMS_TYPE_WORDPRESS"
+    ["w"]="wordpress"
+    ["jml"]="$CMS_TYPE_JOOMLA"
+    ["j"]="joomla"
+    ["oc"]="$CMS_TYPE_OPENCART"
+    ["o"]="opencart"
+    ["p"]="php"
 )
 
 # =================================================================
@@ -68,31 +92,106 @@ detect_cms_type() {
     echo "$CMS_TYPE_PHP"
 }
 
-# Интерактивный выбор типа CMS
+# Интерактивный выбор типа CMS.
+#
+# КОНТРАКТ ВЫЗОВА (важно!):
+#   cms_type=$(select_cms_type "Промпт") || return 1
+#
+#   Функция вызывается через Command Substitution, поэтому её STDOUT
+#   уходит в переменную. Отсюда железное правило:
+#     - STDOUT  — ТОЛЬКО итоговое значение (одна чистая строка);
+#     - STDERR  — весь интерфейс: меню, промпты, предупреждения, ошибки.
+#
+# Поведение:
+#   - Enter / пустой ввод  -> первый пункт меню (WordPress);
+#   - "1".."4"             -> пункт по номеру (ведущие ноли и пробелы ок);
+#   - текст                -> имя CMS без учёта регистра (префикс или
+#                             сокращение: "wp", "jml", "oc");
+#   - неверный ввод        -> повторный запрос (в TTY) или ошибка (EOF);
+#   - нет интерактивности  -> ошибка + подсказка про --cms-type.
 select_cms_type() {
     local prompt="${1:-Выберите тип CMS}"
 
+    # --- Диалог: ВСЁ в stderr, чтобы не загрязнить $(...) ---
     print_header "$prompt"
-    echo "1. WordPress"
-    echo "2. Joomla"
-    echo "3. OpenCart"
-    echo "4. Чистый PHP"
-    echo ""
 
-    local choice
-    read -r -p "Выберите [1]: " choice
-    choice="${choice:-1}"
+    local key num
+    for num in "${!_DPX_CMS_MENU_ORDER[@]}"; do
+        key="${_DPX_CMS_MENU_ORDER[num]}"
+        printf '  %d) %s\n' $((num + 1)) "$(get_cms_name "$key")" >&2
+    done
+    printf '\n' >&2
 
-    case "$choice" in
-        1) echo "$CMS_TYPE_WORDPRESS" ;;
-        2) echo "$CMS_TYPE_JOOMLA" ;;
-        3) echo "$CMS_TYPE_OPENCART" ;;
-        4) echo "$CMS_TYPE_PHP" ;;
-        *)
-            print_error "Неверный выбор"
+    local ask_prompt="Выберите [1]: "
+    local input=""
+
+    while :; do
+        input=""
+
+        # Источник ввода по приоритету:
+        #   1) TTY на stdin            — обычный интерактивный запуск;
+        #   2) pipe/файл на stdin      — автоматизация (printf '2\n' | dpx refresh);
+        #   3) /dev/tty                — stdin закрыт, но терминал доступен;
+        #   4) ничего из перечисленного — неинтерактивная среда, отказ.
+        #
+        # Примечание: read -p показывает промпт только когда stdin — TTY
+        # (документированное поведение bash). В пайп-режиме промпт не нужен.
+        local tty_fd=""
+        if [[ -t 0 ]]; then
+            read -r -p "$ask_prompt" input \
+                || { print_error "Ввод прерван (EOF)."; return 1; }
+        elif { [[ -p /dev/stdin ]] || [[ -f /dev/stdin ]]; } && [[ -r /dev/stdin ]]; then
+            read -r -p "$ask_prompt" input \
+                || { print_error "Ввод прерван (EOF)."; return 1; }
+        elif { exec {tty_fd}</dev/tty; } 2>/dev/null; then
+            read -r -p "$ask_prompt" input <&"$tty_fd" \
+                || { exec {tty_fd}>&- 2>/dev/null; print_error "Ввод прерван (EOF)."; return 1; }
+            exec {tty_fd}>&- 2>/dev/null
+        else
+            print_error "Нет интерактивного терминала."
+            print_info  "Укажите тип явно: --cms-type wordpress|joomla|opencart|php"
             return 1
-            ;;
-    esac
+        fi
+
+        # Нормализация: срезаем пробелы по краям -> нижний регистр
+        input="${input#"${input%%[![:space:]]*}"}"
+        input="${input%"${input##*[![:space:]]}"}"
+        input="${input,,}"
+
+        # Enter / пустая строка -> значение по умолчанию (первый пункт)
+        if [[ -z "$input" ]]; then
+            printf '%s\n' "${_DPX_CMS_MENU_ORDER[0]}"
+            return 0
+        fi
+
+        # Числовой выбор: 10#$input нейтрализует ведущие нули ("08" не октал)
+        if [[ "$input" =~ ^[0-9]+$ ]]; then
+            input=$((10#$input))
+            if (( input >= 1 && input <= ${#_DPX_CMS_MENU_ORDER[@]} )); then
+                printf '%s\n' "${_DPX_CMS_MENU_ORDER[input - 1]}"
+                return 0
+            fi
+            print_warning "Нет пункта '$input'. Введите число от 1 до ${#_DPX_CMS_MENU_ORDER[@]}."
+            continue
+        fi
+
+        # Текстовый выбор: точное имя или префикс имени, регистр не важен
+        for num in "${!_DPX_CMS_MENU_ORDER[@]}"; do
+            key="${_DPX_CMS_MENU_ORDER[num]}"
+            if [[ "$input" == "${key,,}" || "${key,,}" == "$input"* ]]; then
+                printf '%s\n' "$key"
+                return 0
+            fi
+        done
+
+        # Сокращения: wp -> wordpress и т.п.
+        if [[ -n "${_DPX_CMS_ALIASES[$input]:-}" ]]; then
+            printf '%s\n' "${_DPX_CMS_ALIASES[$input]}"
+            return 0
+        fi
+
+        print_warning "Неизвестный вариант '$input'. Введите номер или название CMS."
+    done
 }
 
 # Получить человекочитаемое имя CMS
@@ -316,6 +415,6 @@ cms_flush_advanced_caches() {
 # =================================================================
 
 # Экспортируем только константы (строковые переменные)
-export CMS_TYPE_WORDPRESS CMS_TYPE_JOOMLA CMS_TYPE_OPENCART CMS_TYPE_PHP
+export CMS_TYPE_WORDPRESS CMS_TYPE_JOOMLA CMS_TYPE_OPENCART CMS_TYPE_OCSTORE CMS_TYPE_PHP
 
 # [FIX] export -f УДАЛЁН - функции наследуются subshell автоматически после source

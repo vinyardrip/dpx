@@ -89,12 +89,14 @@ show_help() {
     printf '    %s%-12s%s %s\n' "$green" "edit" "$reset" "Редактирование метаданных проекта"
     printf '    %s%-12s%s %s\n' "$green" "set-php" "$reset" "Изменение версии PHP проекта"
     printf '    %s%-12s%s %s\n' "$green" "deploy" "$reset" "Развертывание существующего проекта на DDEV"
-    printf '    %s%-12s%s %s\n' "$green" "new-wp" "$reset" "Создание нового WordPress проекта"
+    printf '    %s%-12s%s %s\n' "$green" "new" "$reset" "Создание проекта (WordPress/Joomla/OpenCart/Laravel/PHP)"
+    printf '    %s%-12s%s %s\n' "$green" "new-wp" "$reset" "Новый WordPress (совместимость: = new --cms=wordpress)"
     printf '    %s%-12s%s %s\n' "$green" "ddev" "$reset" "Выполнение любой команды DDEV для проекта"
     printf '    %s%-12s%s %s\n' "$green" "refresh" "$reset" "Обновление локальной БД с продакшена"
     printf '    %s%-12s%s %s\n' "$green" "migrate" "$reset" "Миграция проекта с Devilbox на DDEV"
     printf '    %s%-12s%s %s\n' "$green" "db-snap" "$reset" "Быстрый снимок (backup) локальной БД"
     printf '    %s%-12s%s %s\n' "$green" "db-restore" "$reset" "Восстановление БД из локального бэкапа"
+    printf '    %s%-12s%s %s\n' "$green" "backup" "$reset" "Полный бэкап проекта (файлы + БД)"
     printf '    %s%-12s%s %s\n' "$green" "to-prod" "$reset" "Подготовка локальной БД к выгрузке на прод"
     printf '    %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Проброс туннеля для показа проекта"
     printf '    %s%-12s%s %s\n' "$green" "update" "$reset" "Проверка и установка обновлений"
@@ -136,12 +138,14 @@ show_commands() {
     printf '  %s%-12s%s %s\n' "$green" "edit" "$reset" "Редактирование метаданных"
     printf '  %s%-12s%s %s\n' "$green" "set-php" "$reset" "Смена версии PHP"
     printf '  %s%-12s%s %s\n' "$green" "deploy" "$reset" "Развертывание проекта"
-    printf '  %s%-12s%s %s\n' "$green" "new-wp" "$reset" "Новый WordPress"
+    printf '  %s%-12s%s %s\n' "$green" "new" "$reset" "Создание проекта (все типы)"
+    printf '  %s%-12s%s %s\n' "$green" "new-wp" "$reset" "Новый WordPress (алиас new --cms=wordpress)"
     printf '  %s%-12s%s %s\n' "$green" "ddev" "$reset" "Обертка команд DDEV"
     printf '  %s%-12s%s %s\n' "$green" "refresh" "$reset" "Обновление БД"
     printf '  %s%-12s%s %s\n' "$green" "migrate" "$reset" "Миграция с Devilbox"
     printf '  %s%-12s%s %s\n' "$green" "db-snap" "$reset" "Снимок локальной БД"
     printf '  %s%-12s%s %s\n' "$green" "db-restore" "$reset" "Восстановление БД"
+    printf '  %s%-12s%s %s\n' "$green" "backup" "$reset" "Полный бэкап проекта"
     printf '  %s%-12s%s %s\n' "$green" "to-prod" "$reset" "Экспорт БД на прод"
     printf '  %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Проброс туннеля"
     printf '  %s%-12s%s %s\n' "$green" "update" "$reset" "Обновление DPX"
@@ -167,7 +171,7 @@ run_command() {
         commands)
             show_commands
             ;;
-        list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|refresh|migrate|ddev|tunnel|update|info)
+        list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|ddev|tunnel|update|info|backup)
             local cmd_file="${DPX_ROOT}/commands/${command}.sh"
             if [[ -f "$cmd_file" ]]; then
                 # Защита от ошибок синтаксиса в файлах команд
@@ -176,6 +180,8 @@ run_command() {
                     print_error "Проверьте скрипт на наличие опечаток"
                     exit 1
                 fi
+                # Динамическая загрузка команд — архитектура DPX (плагин-роутер)
+                # shellcheck disable=SC1090
                 source "$cmd_file"
                 # Замена дефисов на подчеркивания для имен функций
                 local func_name="cmd_${command//-/_}"
@@ -221,11 +227,13 @@ main() {
 
     if [[ "$help_requested" == true ]]; then
         case "$command" in
-            list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|refresh|migrate|tunnel|update|info)
+            list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup)
                 local cmd_file="${DPX_ROOT}/commands/${command}.sh"
                 if [[ -f "$cmd_file" ]]; then
                     # Безопасный source с проверкой синтаксиса
                     if bash -n "$cmd_file" 2>/dev/null; then
+                        # Динамическая загрузка справки — архитектура DPX
+                        # shellcheck disable=SC1090
                         source "$cmd_file"
                         local help_func="show_${command//-/_}_help"
                         if declare -f "$help_func" >/dev/null; then

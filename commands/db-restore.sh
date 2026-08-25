@@ -4,13 +4,14 @@
 # =================================================================
 
 source "${DPX_ROOT}/lib/core.sh"
+source "${DPX_ROOT}/lib/cms.sh"
 source "${DPX_ROOT}/lib/database.sh"
 source "${DPX_ROOT}/lib/projects.sh"
 source "${DPX_ROOT}/lib/ddev.sh"
 
 cmd_db_restore() {
     parse_args "$@" || return 1
-    print_header "Восстановление базы данных v1.2.1"
+    print_header "Восстановление базы данных v1.3.0"
 
     # 1. Выбор проекта
     local project_name
@@ -77,6 +78,15 @@ cmd_db_restore() {
 
         print_info "Начинаю импорт..."
 
+        # [ISSUE 1] Тип CMS: из аргументов (--cms-type) или автоопределение.
+        # Строго определяем ДО импорта — от этого зависит пост-обработка.
+        local cms_type
+        cms_type=$(get_arg "cms_type" "")
+        if [[ -z "$cms_type" ]]; then
+            cms_type=$(detect_cms_type "$project_path")
+            print_info "Тип CMS определен автоматически: $(get_cms_name "$cms_type")"
+        fi
+
         # Выполняем в subshell для изоляции cd
         (
             cd "$project_path" || exit 1
@@ -84,15 +94,10 @@ cmd_db_restore() {
             if db_import "$selected_file" "$project_path"; then
                 print_success "База данных успешно восстановлена!"
 
-                # [FIX] Проверка WordPress через wp-cli (надежнее поиска wp-config.php)
-                # Работает с DDEV docroot (web/, public/) и нестандартными структурами (Bedrock)
-                print_info "Проверка наличия WordPress..."
-                if ddev exec wp core is-installed >/dev/null 2>&1; then
-                    print_info "Очистка объектного кэша WordPress..."
-                    if ddev exec wp cache flush >/dev/null 2>&1; then
-                        print_success "Кэш WordPress очищен."
-                    fi
-                fi
+                # [ISSUE 1] Пост-обработка СТРОГО по типу CMS.
+                # WordPress-рутина (wp-cli) выполняется только для wordpress;
+                # Joomla/OpenCart/PHP получают свои действия и сообщения.
+                db_post_import_cms "$project_path" "$cms_type"
             else
                 print_error "Ошибка при восстановлении базы."
                 exit 1

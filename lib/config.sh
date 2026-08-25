@@ -22,6 +22,10 @@ declare -A DEFAULT_CONFIG=(
     ["devilbox_data_base_path"]="\$WORKSPACE_ROOT/devilbox/data"
     ["starter_theme_path"]="\$WORKSPACE_ROOT/_s-template"
 
+    # --- ПОЛНЫЕ БЭКАПЫ ПРОЕКТОВ (файлы + БД) ---
+    ["full_backup_path"]="\$WORKSPACE_ROOT/backups"
+    ["full_backup_keep"]="3"
+
     # --- ОСТАЛЬНЫЕ НАСТРОЙКИ ---
     ["default_php_version"]="7.4"
     ["default_db_type"]="mysql"

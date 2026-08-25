@@ -1,8 +1,8 @@
 # DPX — DDEV Project eXtend
 
-> **v1.4.24 (Beta)**
+> **v1.4.0 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.4.24-orange)
+![Version](https://img.shields.io/badge/version-1.4.0-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.4+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
@@ -12,7 +12,7 @@
 
 ---
 
-**Проект в активной разработке.** Стабильные команды: `list`, `set-php`, `edit`, `ddev`, `tunnel`, `db-snap`, `db-restore`, `to-prod`. Команды `migrate`, `deploy`, `new-wp`, `refresh` — требуют дополнительного тестирования на разных окружениях. Обратная связь и баг-репорты приветствуются.
+**Проект в активной разработке.** Стабильные команды: `list`, `set-php`, `edit`, `ddev`, `tunnel`, `db-snap`, `db-restore`, `to-prod`, `backup`, `new`. Команды `migrate`, `deploy`, `refresh` — требуют дополнительного тестирования на разных окружениях. Обратная связь и баг-репорты приветствуются.
 
 ---
 
@@ -165,6 +165,7 @@ dpx info                      # конфигурация и версии окр�
 dpx list                      # показать все DDEV-проекты
 dpx tunnel --project-name mysite   # пробросить туннель заказчику
 dpx db-snap -p mysite         # сделать снимок БД
+dpx backup                    # полный бэкап проекта (файлы + БД)
 dpx refresh                   # обновить БД с продакшена
 dpx set-php --php-version 8.2 # сменить PHP
 dpx edit mysite --php-max 8.2 # зафиксировать максимальную рабочую версию PHP
@@ -304,24 +305,66 @@ dpx deploy --project-name mysite --cms-type wordpress -y
 
 ---
 
-### dpx new-wp
+### dpx new
 
-Создание нового WordPress-проекта со стартовой темой.
+Универсальное создание проекта на DDEV с выбором типа. Без аргументов запускает интерактивный выбор:
 
-> **Статус:** команда работает, но вывод в консоль нуждается в доработке. В текущей версии может отображать лишнюю отладочную информацию.
+```
+$ dpx new
 
-```bash
-dpx new-wp
-dpx new-wp --project-name mysite --php-version 8.1 -y
+--- Выберите тип проекта ---
+  1) WordPress
+  2) Joomla
+  3) OpenCart (Official)
+  4) ocStore (OpenCart Russia/SEO Pro)
+  5) Laravel
+  6) Plain PHP / HTML
+
+Выберите [1-6]: 4
 ```
 
-| Опция            | Описание                   |
-| ---------------- | -------------------------- |
-| `--project-name` | Имя проекта                |
-| `--php-version`  | Версия PHP                 |
-| `--db-type`      | Тип БД: `mysql`, `mariadb` |
-| `--db-version`   | Версия БД                  |
-| `-y, --yes`      | Пропустить подтверждения   |
+```bash
+dpx new                                    # полностью интерактивно
+dpx new myshop --cms=laravel --php=8.3 -y  # Laravel без вопросов
+dpx new blog --type wordpress              # алиас --type
+dpx new corp --cms php --db                # Plain PHP + создание БД
+```
+
+| Опция                 | Описание                                                            |
+| --------------------- | -------------------------------------------------------------------- |
+| `[project-name]`      | Имя проекта первым позиционным аргументом (или `--project-name`)     |
+| `--cms TYPE`          | Тип: `wordpress`, `joomla`, `opencart`, `ocstore`, `laravel`, `php` (алиасы: `wp`, `ocs`, `lara`, `html`; также форма `--cms=TYPE` и `--type`) |
+| `--php VERSION`       | Версия PHP (по умолчанию из конфига)                                 |
+| `--db`                | Создать базу данных сразу после старта контейнера                    |
+| `-y, --yes`           | Пропустить подтверждения                                             |
+
+**Что делает каждый тип:**
+
+| Тип        | Действия                                                                                                   |
+| ---------- | ----------------------------------------------------------------------------------------------------------- |
+| WordPress  | DDEV config → WP-CLI установка → стартовая тема → очистка стандартных тем/плагинов                          |
+| Joomla     | Скачивание последнего релиза (GitHub API → fallback source) → распаковка → DDEV `project_type: php`         |
+| OpenCart   | Последний релиз с GitHub Releases → распаковка (upload/ нормализуется в корень) → DDEV `project_type: php`  |
+| ocStore    | Локализованный форк OpenCart со встроенным **SEO Pro** (`myopencart/ocstore`) → тот же layout-handling, что у OpenCart (`upload/` → корень) → DDEV `project_type: php`. URL релиза: GitHub API → source-fallback → `DPX_OCSTORE_ARCHIVE_URL` |
+| Laravel    | DDEV `project_type: laravel`, `docroot: public` → `composer create-project` → `.env`: `DB_HOST=db`, `DB_DATABASE=db`, `DB_USERNAME=db`, `DB_PASSWORD=db`, `APP_URL` |
+| Plain PHP  | `index.php` + DDEV `project_type: php`; с `--db` — создание базы                                            |
+
+URL релиза Joomla/OpenCart/ocStore можно зафиксировать вручную через переменные окружения `DPX_JOOMLA_ARCHIVE_URL` / `DPX_OPENCART_ARCHIVE_URL` / `DPX_OCSTORE_ARCHIVE_URL`.
+
+При ошибке каркаса созданная директория автоматически удаляется — мусора не остаётся.
+
+---
+
+### dpx new-wp
+
+> **v1.7.0:** команда сохранена для обратной совместимости и теперь является тонкой оберткой над `dpx new --cms=wordpress`. Вся документация типов — в разделе [`dpx new`](#dpx-new).
+
+```bash
+dpx new-wp                          # = dpx new --cms=wordpress
+dpx new-wp mysite --php-version 8.2 # WP-специфичные флаги передаются сквозь
+```
+
+WP-специфичные опции (`--locale`, `--admin-user/pass/email`, `--no-theme`) работают как прежде и проксируются в универсальный движок.
 
 ---
 
@@ -345,9 +388,11 @@ dpx refresh --prod-url https://site.by -y
 | `--no-backup`    | Не создавать резервную копию                  |
 | `-y, --yes`      | Пропустить подтверждения                      |
 
-**WordPress:** полная замена URL (с протоколом, без, протокол-относительные), корректная обработка сериализованных данных ACF.
+**WordPress:** полная замена URL (с протоколом, без, протокол-относительные), корректная обработка сериализованных данных ACF. После импорта — проверка доступности и полная очистка кэшей (транзиенты, Redis, файловый кэш).
 
-**Joomla / OpenCart:** замена URL в SQL-файле перед импортом.
+**Joomla / OpenCart:** замена URL в SQL-файле перед импортом. После импорта — очистка собственных кэшей: Joomla (`cache/`, `administrator/cache/`), OpenCart (`system/storage/cache`, модификации). Для plain PHP пост-обработка не требуется.
+
+**Стабильность импорта:** перед каждым импортом выполняется мягкий перезапуск контейнеров (`ddev restart`) — сбрасываются соединения MySQL и состояние InnoDB, что предотвращает lock timeouts и ошибки буферов (`max_allowed_packet`) на горячих импортах.
 
 Автоматически: определяет имя БД из конфига CMS, ищет подходящий дамп в `db_prod_path`, создаёт бэкап текущей БД.
 
@@ -387,7 +432,48 @@ dpx db-snap -p mysite    # указать проект напрямую
 dpx db-restore
 ```
 
-Показывает список доступных бэкапов с размерами, создаёт защитный дамп текущей БД перед восстановлением, очищает кэш WordPress после импорта. Ротация защитных дампов: 3 последних.
+Показывает список доступных бэкапов с размерами и создаёт защитный дамп текущей БД перед восстановлением. Ротация защитных дампов: 3 последних.
+
+**CMS-специфичная пост-обработка:** после импорта выполняются процедуры, соответствующие типу проекта (автоопределение по структуре файлов или флаг `--cms-type`):
+
+| Тип CMS    | Пост-обработка                                                        |
+| ---------- | ---------------------------------------------------------------------- |
+| WordPress  | Проверка доступности (`wp core is-installed`) и полная очистка кэшей   |
+| Joomla     | Очистка `cache/` и `administrator/cache/`                              |
+| OpenCart   | Очистка `system/storage/cache` и модификаций                           |
+| PHP        | Пост-обработка не требуется                                            |
+
+| Опция        | Описание                                                       |
+| ------------ | --------------------------------------------------------------- |
+| `--cms-type` | Тип CMS: `wordpress`, `joomla`, `opencart`, `php` (по умолчанию — автоопределение) |
+
+---
+
+### dpx backup
+
+Полный бэкап проекта: файлы проекта + дамп базы данных в одном tar.gz-архиве. Предназначен для создания «точки возврата» перед опасными операциями.
+
+```bash
+dpx backup                                  # интерактивный выбор проекта
+dpx backup --project-name mysite            # прямой запуск
+dpx backup --project-name mysite --keep 5   # хранить 5 последних архивов
+```
+
+| Опция            | Описание                                                 |
+| ---------------- | --------------------------------------------------------- |
+| `--project-name` | Имя проекта DDEV                                          |
+| `--output DIR`   | Директория для архива (по умолчанию: `full_backup_path`)  |
+| `--keep N`       | Сколько последних архивов хранить (по умолчанию: `3`)     |
+| `-y, --yes`      | Пропустить подтверждения                                  |
+| `-h, --help`     | Показать справку                                          |
+
+Формат архива: `FULL_<проект>_YYYY-MM-DD_HHMMSS.tar.gz`. Внутри — файлы проекта и дамп БД (`<проект>_db.sql.gz`, через `ddev export-db --gzip=true`).
+
+**Автоматические исключения** (тяжёлые и генерируемые каталоги): `.ddev/.importdb`, `.ddev-db-snapshots`, `.ddev-backups`, `backups`, `node_modules`, `vendor`, `.git`.
+
+После создания архив проверяется на целостность (`tar -tzf`), затем выполняется ротация — остаются последние N архивов проекта. Для экспорта БД проект должен быть запущен; DPX предложит запустить его при необходимости.
+
+Функция `project_full_backup()` из `lib/backup.sh` доступна и программно: STDOUT возвращает путь к архиву, весь диалоговый вывод идёт в STDERR (тот же контракт, что у `db_backup_local()`).
 
 ---
 
@@ -429,7 +515,7 @@ dpx tunnel --provider cloudflare --project-name mysite
 | ---------------- | ------------------------------------------------------------- |
 | `--project-name` | Имя проекта DDEV                                              |
 | `--cms-type`     | Тип CMS: `wordpress`, `joomla`, `opencart`, `php`             |
-| `--provider`     | Провайдер туннеля: `cloudflare` (рабочий), `ngrok` (заглушка) |
+| `--provider`     | Провайдер туннеля: `cloudflare`, `ngrok` (оба рабочие)        |
 | `-y, --yes`      | Пропустить подтверждения                                      |
 | `-h, --help`     | Справка по команде                                            |
 
@@ -528,8 +614,9 @@ dpx/
 ├── README.md
 ├── dpx.sh                  # Точка входа (router)
 ├── install.sh              # Инсталлятор (alias cleanup + symlink)
-├── run_tests.sh            # Запуск тестов
+├── run_tests.sh            # Запуск тестов (+ ShellCheck gate)
 ├── commands/
+│   ├── backup.sh           # Полный бэкап проекта (файлы + БД)
 │   ├── db-restore.sh       # Восстановление БД
 │   ├── db-snap.sh          # Снимок БД
 │   ├── ddev.sh             # Обёртка DDEV-команд (интерактивный выбор проекта)
@@ -538,7 +625,8 @@ dpx/
 │   ├── info.sh             # Конфигурация и версии окружения
 │   ├── list.sh             # Список проектов
 │   ├── migrate.sh          # Миграция с Devilbox
-│   ├── new-wp.sh           # Новый WordPress-проект
+│   ├── new.sh              # Универсальное создание проектов (5 типов)
+│   ├── new-wp.sh           # Обертка совместимости (= new --cms=wordpress)
 │   ├── refresh.sh          # Обновление БД с продакшена
 │   ├── set-php.sh          # Смена версии PHP
 │   ├── to-prod.sh          # Подготовка БД для продакшена
@@ -548,6 +636,7 @@ dpx/
 │   └── dpx.conf            # Конфигурация по умолчанию
 ├── lib/
 │   ├── args.sh             # Парсинг аргументов CLI (ассоциативные массивы)
+│   ├── backup.sh           # project_full_backup: tar.gz + дамп БД + ротация
 │   ├── checks.sh           # Проверки зависимостей и версий (MIN_*)
 │   ├── cms.sh              # Определение и поддержка CMS
 │   ├── config.sh           # Загрузка конфигурации (каскадное слияние)
@@ -563,7 +652,10 @@ dpx/
 │   └── utils.sh            # Утилиты: safe_sed, валидация, подтверждения
 └── tests/
     ├── test_core.sh
-    └── test_framework.sh
+    ├── test_framework.sh
+    ├── test_macos_sim.sh   # macOS/BSD-симуляция (shim'ы sed/stat/readlink/tar)
+    ├── test_new_cmd.sh     # Универсальный dpx new (типы, обертка, каркасы)
+    └── test_tunnel_patch.sh # Nginx/Smart-Tunnel патчи + ngrok driver
 ```
 
 ### Единая версия (Single Source of Truth)
@@ -595,6 +687,10 @@ dpx/
 # --- Пути к базам данных ---
 db_prod_path = ~/projects/work/db_prod
 db_local_path = ~/projects/work/db_local
+
+# --- Полные бэкапы проектов (файлы + БД) ---
+full_backup_path = ~/projects/work/backups
+full_backup_keep = 3
 
 # --- DDEV проекты ---
 ddev_projects_base_path = ~/projects/work/php
@@ -649,6 +745,24 @@ admin_pass = admin
 
 ## Тестовое окружение
 
+Тестовый набор DPX — **124 теста**, покрывающих логику на двух платформенных профилях: нативный Linux и симуляция macOS (Darwin).
+
+```bash
+./run_tests.sh                    # полный прогон: ShellCheck gate + все тесты
+bash tests/test_macos_sim.sh      # только macOS/BSD-симуляция
+```
+
+| Компонент        | Покрытие                                                                    |
+| ---------------- | ---------------------------------------------------------------------------- |
+| `test_core`      | Переменные окружения, файловые операции, парсинг аргументов (`parse_args`)   |
+| `test_framework` | Самопроверка ассертов тестового фреймворка                                   |
+| `test_macos_sim` | BSD-симуляция: `sed -i ''`, `stat -f`, `readlink` без `-f`, порядок опций bsdtar, полный бэкап, импорт с заменой URL |
+| `test_tunnel_patch` | Nginx Hot-Patch и Smart-Tunnel контент, извлечение DB_NAME из конфигов CMS, ngrok driver (парсеры API, жизненный цикл) |
+| `test_new_cmd`  | Универсальный `dpx new`: типы (вкл. ocStore), меню, обертка new-wp, нормализация docroot, .env-rewriter, резолвер релизов |
+| ShellCheck gate  | Статический анализ раннера и тестов перед прогоном (находки падают сборку)   |
+
+**Симуляция macOS без Mac.** Suite `tests/test_macos_sim.sh` выставляет `OSTYPE=darwin*` внутри изолированных процессов Bash и подключает shim'ы BSD-утилит в `PATH`: семантика `sed -i ''`, форматы `stat -f %m/%z`, отсутствие `readlink -f` (macOS < 12.3), строгий порядок опций bsdtar. Кроссплатформенная логика DPX проверяется автоматически на Linux-машине.
+
 | Параметр   | Значение                 |
 | ---------- | ------------------------ |
 | **ОС**     | EndeavourOS (Arch Linux) |
@@ -657,7 +771,7 @@ admin_pass = admin
 | **DDEV**   | 1.25.2                   |
 | **jq**     | 1.8.1                    |
 
-Основное тестирование проводится на EndeavourOS. Кроссплатформенные заглушки (GNU/BSD) внедрены, но на macOS и WSL тестирование пока не проводилось — обратная связь от пользователей этих платформ приветствуется.
+Основное тестирование проводится на EndeavourOS. macOS-логика покрыта автоматической BSD-симуляцией; прогоны на реальном железе Mac и WSL2 пока не проводились — обратная связь от пользователей этих платформ приветствуется.
 
 ---
 
@@ -666,13 +780,15 @@ admin_pass = admin
 | ОС                                                        | Статус                  | Примечание                                         |
 | --------------------------------------------------------- | ----------------------- | -------------------------------------------------- |
 | Linux (Arch, EndeavourOS, Ubuntu, Debian, Fedora, CentOS) | ✅ Поддерживается       | Основное тестирование: EndeavourOS                 |
-| macOS (Homebrew Bash 4.0+)                                | ⚠️ Требует тестирования | Логика кроссплатформенности внедрена, нужен фидбек |
+| macOS (Homebrew Bash 4.0+)                                | ⚠️ Симуляционное тестирование | BSD-логика покрыта автотестами (`test_macos_sim.sh`), нужен фидбек с реального железа |
 | macOS (системный Bash 3.2)                                | ❌ Не поддерживается    | Нет ассоциативных массивов                         |
 | Windows (WSL2)                                            | ⚠️ Требует тестирования | Через WSL2 + DDEV, нужен фидбек                    |
 
 Кроссплатформенные решения, встроенные в DPX:
 
 - `safe_sed_inplace()` — автоочистка `.bak` файлов на macOS (BSD `sed -i ''`)
+- `project_full_backup()` — порядок опций bsdtar (`--exclude` до `-f`) и POSIX-совместимая ротация архивов
+- `dpx_resolve_symlink()` — разрешение симлинков без GNU `readlink -f` (macOS < 12.3)
 - `dpx_docker_compose()` — обёртка для `docker compose` v2 / `docker-compose` v1
 - `timeout` / `gtimeout` — fallback для macOS (coreutils)
 - `ping -W` (Linux) / `ping -t` (macOS) — кроссплатформенный таймаут
@@ -706,10 +822,10 @@ DPX создаёт бэкап `wp-config.php.bak` перед любыми пра
 ## План развития (Roadmap)
 
 - [ ] Тестирование `migrate`, `deploy`, `refresh` на разных окружениях (Ubuntu, Debian, Fedora)
-- [ ] Тестирование `new-wp`
-- [ ] Поддержка Joomla, OpenCart, Laravel, plain PHP в туннелировании и URL-замене
-- [ ] Реализация провайдера `ngrok`
-- [ ] Тестирование на macOS (Homebrew Bash) и WSL2 — нужен фидбек от пользователей
+- [x] Тестирование `new-wp` — интегрировано в универсальный `dpx new` + suite `test_new_cmd` (v1.7.0)
+- [x] Поддержка Joomla, OpenCart, Laravel, plain PHP в туннелировании и URL-замене — каркасы всех типов реализованы в `dpx new` (v1.7.0); туннелирование для не-WP остаётся port-forward без URL-замены
+- [x] Реализация провайдера `ngrok` (v1.6.0: API-driven URL extraction + fallback-парсеры)
+- [ ] Прогоны на реальном macOS-железе (Homebrew Bash) и WSL2 — BSD-логика уже покрыта симуляционными автотестами, нужен живой фидбек
 - [ ] Интерактивная настройка конфигурации при установке (с перезаписью `dpx.conf`)
 - [ ] Рефакторинг: перевод внутренних комментариев кода на английский язык
 
