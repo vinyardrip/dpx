@@ -2,9 +2,9 @@
 
 **[Read in English / Читать на английском](README.md)**
 
-> **v1.5.0 (Stable)**
+> **v1.5.1 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.5.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.1-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.4+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)

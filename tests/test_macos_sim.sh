@@ -169,7 +169,26 @@ case "$cmd" in
             esac
         done
         exit 0 ;;
-    *) exit 0 ;;   # list/describe/start/exec/mysql/snapshot/...
+    exec)
+        # Emulate `ddev exec php <helper> --old= --new= --in= --out=`:
+        # the real container helper rewrites URLs AND recomputes PHP
+        # serialized byte lengths; the stub approximates with sed so
+        # the Bash pipeline (staging, exit codes, cleanup) is covered.
+        is_php=""; old=""; new=""; fin=""; fout=""
+        for a in "$@"; do
+            case "$a" in
+                php)      is_php=yes ;;
+                --old=*)  old="${a#--old=}" ;;
+                --new=*)  new="${a#--new=}" ;;
+                --in=*)   fin="${a#--in=}" ;;
+                --out=*)  fout="${a#--out=}" ;;
+            esac
+        done
+        if [[ "$is_php" == yes && -n "$fin" && -n "$fout" && -f "$fin" ]]; then
+            "${REAL_SED:-/usr/bin/sed}" "s|$old|$new|g" "$fin" > "$fout" || exit 4
+        fi
+        exit 0 ;;
+    *) exit 0 ;;   # list/describe/start/mysql/snapshot/...
 esac
 EOF
 
@@ -375,6 +394,15 @@ if grep -q "old-site.com" "$dump"; then
     echo "ORIGINAL_INTACT_OK"
 else
     echo "ORIGINAL_MODIFIED_FAIL"
+fi
+
+# Staged container-side artifacts (helper + temp dumps) must be cleaned
+if [[ ! -e "$proj/.dpx/tmp/dpx_import_in.sql" \
+   && ! -e "$proj/.dpx/tmp/dpx_import_out.sql" \
+   && ! -e "$proj/.dpx/tmp/dpx_serialize_safe_replace.php" ]]; then
+    echo "TMP_CLEANED_OK"
+else
+    echo "TMP_LEAK_FAIL"
 fi
 EOF
 
@@ -599,6 +627,9 @@ check_marker "IMPORT_RC=0" "$out"
 test_start "original dump NOT modified (temp copy semantics)"
 check_marker "ORIGINAL_INTACT_OK" "$out"
 
+test_start "staged .dpx/tmp artifacts cleaned after replace+import"
+check_marker "TMP_CLEANED_OK" "$out"
+
 test_start "ddev flow logged: soft-restart + import-db present"
 ddev_log="$(cat "$DPX_SHIM_LOG")"
 if grep -q "restart" <<<"$ddev_log" && grep -q "import-db" <<<"$ddev_log"; then
@@ -614,6 +645,16 @@ if grep -q "IMPORT_RC=0" <<<"$out" && grep -qE 'restart importsite( |$)' <<<"$dd
     test_pass
 else
     test_fail "out=$out log=$ddev_log"
+fi
+
+test_start "replace runs in-container: ddev exec php with -d suppression flags"
+ddev_log="$(cat "$DPX_SHIM_LOG")"
+if grep -qF "exec php -d display_errors=0 -d error_reporting=E_ALL & ~E_DEPRECATED" <<<"$ddev_log" \
+    && grep -qF -- "--old=https://old-site.com" <<<"$ddev_log" \
+    && grep -qF "dpx_serialize_safe_replace.php" <<<"$ddev_log"; then
+    test_pass
+else
+    test_fail "log: $ddev_log"
 fi
 
 # =================================================================

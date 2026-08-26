@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =================================================================
 # DPX Database Module - import, export, replace URL
-# Version: v1.4.25 — Plugin Engine, Nginx Hot-Patch, db_wp_clear_cache refactor
+# Version: v1.5.1 — Native PHP error suppression, serialization-safe DB replace
 # =================================================================
 
 # Re-entrancy guard
@@ -100,11 +100,15 @@ db_get_db_name() {
             ;;
     esac
 
-    # WP-CLI fallback: only ifs regex not triggered and this WordPress
+    # WP-CLI fallback: only ifs regex not triggered and this WordPress.
+    # v1.5.1: PHP diagnostics suppressed NATIVELY at engine level
+    # (display_errors=0 + E_DEPRECATED masked) and WP-CLI runs with
+    # --quiet — STDOUT contains ONLY the payload, no grep filtering.
     if [[ -z "$db_name" && "$cms_type" == "$CMS_TYPE_WORDPRESS" ]]; then
         db_name=$(cd "$project_path" 2>/dev/null \
-            && ddev wp config get DB_NAME --allow-root 2>/dev/null \
-            | grep -v '^Deprecated:' | head -1) || db_name=""
+            && ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" \
+                /usr/local/bin/wp config get DB_NAME --quiet --allow-root 2>/dev/null \
+            | head -1) || db_name=""
     fi
 
     # Validation: name database — only safe symbols (protect from garbage)
@@ -123,11 +127,10 @@ db_get_db_name() {
 # NO WAY WP-CLI. Clean SQL to MySQL.
 # Returns truncated value via stdout.
 #
-# v1.4.21: FILTER PHP 8.5 Deprecated with stdout.
-# ddev mysql launches PHP via container, and PHP 8.5
-# prints "Deprecated: Case statements..." on STDOUT
-# (not stderr!). Therefore 2>/dev/null NOT helps.
-# Solution: grep -v '^Deprecated:' cuts off garbage.
+# v1.5.1: grep filtering REMOVED. Scalar SELECT returns a single row,
+# so the payload is taken as the LAST stdout line — any leading
+# container/PHP chatter (if the wrapper ever emits it) is discarded
+# natively instead of being pattern-matched away by grep.
 # =================================================================
 
 db_sql_get_option() {
@@ -139,8 +142,7 @@ db_sql_get_option() {
 
     local value
     value=$(cd "$project_path" && ddev mysql -N -B -e "SELECT option_value FROM ${prefix}options WHERE option_name='${option_name}';" 2>/dev/null \
-        | grep -v '^Deprecated:' \
-        | head -1)
+        | tail -1)
 
     # Cleanup from whitespace and \r
     value="${value// /}"
@@ -190,8 +192,7 @@ db_sql_count_old_url() {
         ) + (
             SELECT COUNT(*) FROM ${prefix}postmeta WHERE meta_value LIKE '%${old_url}%'
         );" 2>/dev/null \
-        | grep -v '^Deprecated:' \
-        | head -1)
+        | tail -1)
 
     echo "${count:-0}"
 }
@@ -303,6 +304,23 @@ db_backup_local() {
 
 # =================================================================
 # IMPORT With REPLACE URL (for non-WordPress projects)
+#
+# v1.5.1: raw `sed` URL substitution REMOVED. Raw byte replace breaks
+# PHP-serialized payloads (Joomla configuration.php strings, OpenCart
+# settings, CMS widgets stored as `s:LEN:"VALUE";`): the byte-length
+# header becomes stale and unserialize() silently fails after import.
+#
+# Replacement pipeline (SERIALIZATION-SAFE):
+#   1. Dump + helper (lib/php_helpers/dpx_serialize_safe_replace.php)
+#      are staged into "${project_path}/.dpx/tmp/" — inside the DDEV
+#      bind mount, so container sees them under /var/www/html.
+#   2. Helper runs INSIDE the container via `ddev exec php` with
+#      engine-level diagnostics suppression:
+#        -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED"
+#      It rewrites URL occurrences AND recomputes s:N:"..."; byte
+#      lengths. Executing in the container makes behavior identical
+#      on macOS (BSD sed/awk absent from the equation) and Linux.
+#   3. Patched dump imported through regular db_import().
 # =================================================================
 
 db_import_with_replace() {
@@ -311,18 +329,62 @@ db_import_with_replace() {
     local new_url="$3"
     local project_path="$4"
 
-    print_step "auto" "Preparation SQL with replace URL..."
+    if [[ -z "$project_path" || ! -d "$project_path" ]]; then
+        print_error "db_import_with_replace: project directory not found: $project_path" >&2
+        return 1
+    fi
 
-    local temp_sql=$(create_temp_file).sql
-    sed "s|${old_url}|${new_url}|g" "$sql_file" > "$temp_sql"
+    local helper_src="${DPX_ROOT}/lib/php_helpers/dpx_serialize_safe_replace.php"
+    if [[ ! -f "$helper_src" ]]; then
+        print_error "db_import_with_replace: serialization-safe helper missing: $helper_src" >&2
+        return 1
+    fi
 
-    print_info "URL replacs: $old_url -> $new_url"
+    print_step "auto" "Preparation SQL with serialization-safe URL replace..."
 
-    if db_import "$temp_sql" "$project_path"; then
-        rm -f "$temp_sql"
+    # Stage input + helper inside the project (visible to container at /var/www/html)
+    local work_rel=".dpx/tmp"
+    local work_dir="${project_path}/${work_rel}"
+    ensure_directory "$work_dir" || return 1
+
+    local helper_rel="${work_rel}/dpx_serialize_safe_replace.php"
+    local in_rel="${work_rel}/dpx_import_in.sql"
+    local out_rel="${work_rel}/dpx_import_out.sql"
+
+    if ! cp "$sql_file" "${project_path}/${in_rel}" \
+        || ! cp "$helper_src" "${project_path}/${helper_rel}"; then
+        print_error "db_import_with_replace: failed to stage files in ${work_dir}" >&2
+        rm -f "${project_path}/${in_rel}" "${project_path}/${out_rel}" "${project_path}/${helper_rel}"
+        return 1
+    fi
+
+    print_info "URL replacs: $old_url -> $new_url (byte-length aware)"
+
+    # Replace EXCLUSIVELY inside DDEV container: identical PHP engine
+    # on macOS/Linux, no host sed involved at all.
+    local replace_output="" replace_rc=0
+    replace_output=$(
+        cd "$project_path" || exit 1
+        ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" \
+            "$helper_rel" "--old=${old_url}" "--new=${new_url}" \
+            "--in=${in_rel}" "--out=${out_rel}" 2>&1
+    ) || replace_rc=$?
+
+    echo "[DEBUG] serialization-safe replace: rc=$replace_rc ${replace_output:-(no output)}" \
+        >> "${project_path}/.dpx/debug.log" 2>/dev/null
+
+    if [[ $replace_rc -ne 0 || ! -s "${project_path}/${out_rel}" ]]; then
+        print_error "db_import_with_replace: serialization-safe replace FAILED inside container (rc=$replace_rc)." >&2
+        print_error "Import aborted — database was NOT touched. Details: ${project_path}/.dpx/debug.log" >&2
+        rm -f "${project_path}/${in_rel}" "${project_path}/${out_rel}" "${project_path}/${helper_rel}"
+        return 1
+    fi
+
+    if db_import "${project_path}/${out_rel}" "$project_path"; then
+        rm -f "${project_path}/${in_rel}" "${project_path}/${out_rel}" "${project_path}/${helper_rel}"
         return 0
     else
-        rm -f "$temp_sql"
+        rm -f "${project_path}/${in_rel}" "${project_path}/${out_rel}" "${project_path}/${helper_rel}"
         return 1
     fi
 }
@@ -359,7 +421,7 @@ db_wp_clear_cache() {
     print_step "auto" "Delete transients and cleanup Redis..." >&2
     (
         cd "$project_path" || exit 1
-        ddev exec php -d display_errors=0 -d error_reporting=0 /usr/local/bin/wp transient delete --all --allow-root >/dev/null 2>&1
+        ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" /usr/local/bin/wp transient delete --all --quiet --allow-root >/dev/null 2>&1
         ddev redis-cli flushall >/dev/null 2>&1
     ) || true
 
@@ -482,8 +544,7 @@ db_restore_snapshot() {
     print_step "auto" "Restore database from snapshot: $snapshot_name..."
     (
         cd "$project_path" || exit 1
-        ddev snapshot restore "$snapshot_name" 2>&1 \
-            | grep -vE "PHP Deprecated|Deprecated:"
+        ddev snapshot restore "$snapshot_name" 2>/dev/null
     ) >&2
     local restore_result=$?
 
@@ -566,10 +627,10 @@ db_smart_replace_tunnel() {
     # ==================================================================
     print_step "auto" "[1/3] Replace HTTPS: $old_url -> $new_url" >&2
     replace_output=$(
-        cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting=0 \
+        cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" \
         /usr/local/bin/wp search-replace "$old_url" "$new_url" \
-        --all-tables --precise --allow-root \
-        2>/dev/null | grep -vE '^Deprecated:'
+        --all-tables --precise --skip-plugins --skip-themes --allow-root \
+        2>/dev/null
     )
     replace_rc=$?
     # Log result (even ifs empty)
@@ -596,10 +657,10 @@ db_smart_replace_tunnel() {
     if [[ "$old_url" == https://* && -n "$old_bare" ]]; then
         print_step "auto" "[2/3] Replace HTTP→HTTPS: $old_http -> $new_url" >&2
         replace_output=$(
-            cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting=0 \
+            cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" \
             /usr/local/bin/wp search-replace "$old_http" "$new_url" \
-            --all-tables --precise --allow-root \
-            2>/dev/null | grep -vE '^Deprecated:'
+            --all-tables --precise --skip-plugins --skip-themes --allow-root \
+            2>/dev/null
         )
         replace_rc=$?
         echo "[DEBUG] Pass 2 (HTTP): rc=$replace_rc output=${replace_output:-'(empty)'}" >> "${project_path}/.dpx/debug.log" 2>/dev/null
@@ -618,10 +679,10 @@ db_smart_replace_tunnel() {
     if [[ -n "$old_bare" && "$old_bare" != "$new_bare" ]]; then
         print_step "auto" "[3/3] Replace bare domain: $old_bare -> $new_bare" >&2
         replace_output=$(
-            cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting=0 \
+            cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" \
             /usr/local/bin/wp search-replace "$old_bare" "$new_bare" \
-            --all-tables --precise --allow-root \
-            2>/dev/null | grep -vE '^Deprecated:'
+            --all-tables --precise --skip-plugins --skip-themes --allow-root \
+            2>/dev/null
         )
         replace_rc=$?
         echo "[DEBUG] Pass 3 (Bare): rc=$replace_rc output=${replace_output:-'(empty)'}" >> "${project_path}/.dpx/debug.log" 2>/dev/null
@@ -731,10 +792,9 @@ db_wp_smart_replace() {
     print_step "auto" "[1/3] Replace HTTPS: $old_url -> $new_url"
     (
         cd "$project_path" || exit 1
-        ddev exec php -d display_errors=0 -d error_reporting=0 /usr/local/bin/wp search-replace \
+        ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" /usr/local/bin/wp search-replace \
             "$old_url" "$new_url" \
-            --all-tables --precise --allow-root 2>&1 \
-            | grep -vE 'PHP Deprecated|Deprecated:|^$'
+            --all-tables --precise --skip-plugins --skip-themes --allow-root 2>/dev/null
     )
     if [[ $? -ne 0 ]]; then
         print_error "Error replaces full URL."
@@ -746,17 +806,16 @@ db_wp_smart_replace() {
         print_step "auto" "[2/3] Replace HTTP→HTTPS: http://${old_bare_domain} -> $new_url"
         (
             cd "$project_path" || exit 1
-            ddev exec php -d display_errors=0 -d error_reporting=0 /usr/local/bin/wp search-replace \
+            ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" /usr/local/bin/wp search-replace \
                 "http://${old_bare_domain}" "$new_url" \
-                --all-tables --precise --allow-root 2>&1 \
-                | grep -vE 'PHP Deprecated|Deprecated:|^$'
+                --all-tables --precise --skip-plugins --skip-themes --allow-root 2>/dev/null
         ) || print_warning "Replace HTTP→HTTPS completion with error."
     fi
 
     # Pass 3: Bare domain
     if [[ -n "$old_bare_domain" ]]; then
         print_step "auto" "[3/3] Replace bare domain: ${old_bare_domain} -> ${new_bare_domain}"
-        (cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting=0 /usr/local/bin/wp search-replace "${old_bare_domain}" "${new_bare_domain}" --all-tables --precise --allow-root 2>&1 | grep -vE 'PHP Deprecated|Deprecated:|^$') || true
+        (cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" /usr/local/bin/wp search-replace "${old_bare_domain}" "${new_bare_domain}" --all-tables --precise --skip-plugins --skip-themes --allow-root 2>/dev/null) || true
     fi
 
     print_success "Triple replace URL completion."

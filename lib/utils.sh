@@ -37,7 +37,8 @@ create_temp_dir() {
 
 ensure_directory() {
     local path="$1"
-    [[ ! -d "$path" ]] && mkdir -p "$path"
+    [[ -d "$path" ]] && return 0
+    mkdir -p "$path"
 }
 
 ensure_parent_directory() {

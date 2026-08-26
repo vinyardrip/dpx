@@ -479,6 +479,96 @@ test_start "[darwin][ngrok] grep/cut fallback parser"
 check_marker "G=https://abc.ngrok-free.app" "$out"
 
 # =================================================================
+# SECTION H: SERIALIZATION-SAFE URL REPLACE (v1.5.1 PHP HELPER)
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== Serialization-safe SQL replace helper ===${TEST_RESET}"
+
+PHP_HELPER="$DPX_ROOT/lib/php_helpers/dpx_serialize_safe_replace.php"
+
+test_start "php helper file present in lib/php_helpers"
+if [[ -f "$PHP_HELPER" ]]; then test_pass; else test_fail "missing: $PHP_HELPER"; fi
+
+test_start "database.sh runs helper via ddev exec php (container-side)"
+if grep -qF 'dpx_serialize_safe_replace.php' "$DPX_ROOT/lib/database.sh" \
+    && grep -qF 'ddev exec php -d display_errors=0' "$DPX_ROOT/lib/database.sh"; then
+    test_pass
+else
+    test_fail "container-side helper invocation missing in database.sh"
+fi
+
+test_start "database.sh has NO grep-based Deprecated filtering left"
+if grep -qE "grep -vE? ['\"](\\^)?(PHP )?Deprecated" "$DPX_ROOT/lib/database.sh"; then
+    test_fail "grep Deprecated filtering still present"
+else
+    test_pass
+fi
+
+test_start "database.sh db_import_with_replace uses no raw sed URL swap"
+if grep -A 30 '^db_import_with_replace()' "$DPX_ROOT/lib/database.sh" \
+    | grep -qE 'sed "s\|'; then
+    test_fail "raw sed URL replacement still present"
+else
+    test_pass
+fi
+
+SQL_IN="$TEST_TEMP_DIR/serialize_in.sql"
+SQL_OUT="$TEST_TEMP_DIR/serialize_out.sql"
+cat > "$SQL_IN" << 'SQLEOF'
+INSERT INTO cfg VALUES (1,'live_site','https://old-site.com');
+INSERT INTO cfg VALUES (2,'a:2:{s:3:"url";s:20:"https://old-site.com";s:4:"host";s:12:"old-site.com";}');
+INSERT INTO cfg VALUES (3,'a:1:{s:5:"image";s:36:"https:\/\/old-site.com\/assets\/logo.png";}');
+SQLEOF
+
+run_php_helper() {
+    php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" \
+        "$PHP_HELPER" "--old=https://old-site.com" "--new=https://new-site.lo" \
+        "--in=$SQL_IN" "--out=$SQL_OUT" 2>/dev/null
+}
+
+if command -v php >/dev/null 2>&1; then
+    run_php_helper
+
+    test_start "helper: plain SQL literals replaced"
+    if grep -qF "'https://new-site.lo'" "$SQL_OUT"; then
+        test_pass
+    else
+        test_fail "out: $(cat "$SQL_OUT")"
+    fi
+
+    test_start "helper: serialized s:N header recomputed (20 -> 19)"
+    if grep -qF 's:19:"https://new-site.lo"' "$SQL_OUT"; then
+        test_pass
+    else
+        test_fail "out: $(cat "$SQL_OUT")"
+    fi
+
+    test_start "helper: escaped-slash payload re-measured byte-exact"
+    if grep -qF 's:35:"https://new-site.lo/assets/logo.png"' "$SQL_OUT"; then
+        test_pass
+    else
+        test_fail "out: $(cat "$SQL_OUT")"
+    fi
+
+    test_start "helper: zero old-URL occurrences remain"
+    if grep -qF "old-site.com" "$SQL_OUT"; then
+        test_fail "stale URL left: $(cat "$SQL_OUT")"
+    else
+        test_pass
+    fi
+else
+    test_start "helper: plain SQL literals replaced"
+    test_skip "php CLI not available on host"
+    test_start "helper: serialized s:N header recomputed (20 -> 19)"
+    test_skip "php CLI not available on host"
+    test_start "helper: escaped-slash payload re-measured byte-exact"
+    test_skip "php CLI not available on host"
+    test_start "helper: zero old-URL occurrences remain"
+    test_skip "php CLI not available on host"
+fi
+
+# =================================================================
 # SUMMARIES
 # =================================================================
 
