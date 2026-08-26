@@ -19,6 +19,36 @@ get_timestamp() {
     date +%s
 }
 
+dpx_debug_timestamp() {
+    local stamp
+    stamp="$(date '+%Y-%m-%dT%H:%M:%S.%3N' 2>/dev/null)"
+    if [[ "$stamp" == *N* ]]; then
+        stamp="$(date '+%Y-%m-%dT%H:%M:%S').000"
+    fi
+    printf '%s\n' "$stamp"
+}
+
+dpx_debug_enabled() {
+    [[ "${DPX_DEBUG:-0}" == "1" ]]
+}
+
+dpx_debug_trace() {
+    dpx_debug_enabled || return 0
+    local event="$1"
+    shift || true
+    printf '[DPX_DEBUG] ts=%s event=%s' "$(dpx_debug_timestamp)" "$event" >&2
+    if (( $# )); then
+        printf ' detail=' >&2
+        printf '%q ' "$@" >&2
+    fi
+    printf '\n' >&2
+}
+
+dpx_debug_enable() {
+    dpx_debug_enabled || return 0
+    dpx_debug_trace "debug.enabled" "pid=$$"
+}
+
 # =================================================================
 # TEMPORARY FILES
 # =================================================================
@@ -109,6 +139,17 @@ validate_project_name() {
         return 1
     fi
 
+    return 0
+}
+
+validate_safe_identifier() {
+    local value="$1"
+    local description="${2:-identifier}"
+
+    if [[ -z "$value" || ! "$value" =~ ^[a-zA-Z0-9_]+$ ]]; then
+        print_error "Invalid ${description} '${value}': only a-z, A-Z, 0-9 and underscore are allowed."
+        return 1
+    fi
     return 0
 }
 
@@ -212,6 +253,8 @@ dpx_exec_and_log() {
 
     local timestamp
     timestamp=$(date +'%Y-%m-%d %H:%M:%S')
+
+    dpx_debug_trace "command.call" "cwd=$project_path" "command=${1:-unknown}" "argc=$#"
 
     # Writ self command in log
     echo -e "\n[$timestamp] EXEC (cd ${project_path}): $*" >> "$log_file"

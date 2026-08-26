@@ -1040,6 +1040,8 @@ _DPX_ACTUAL_HOME=""
 tunnel_cleanup() {
     local exit_code=$?
 
+    dpx_debug_trace "trap.cleanup" "handler=tunnel_cleanup" "exit_code=$exit_code"
+
     # ==============================================================
     # ATOMIC LOCK: prevent double rollback
     # ==============================================================

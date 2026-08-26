@@ -33,6 +33,7 @@ ddev_project_exists() {
 # Safe start project (with check paths)
 # Important: cd in subshell, so that not "leak" in other director
 safe_start_ddev_project() {
+    dpx_debug_trace "ddev.call" "command=start" "project=$1" "path=$2"
     local name="$1"
     local path="$2"
 
@@ -45,6 +46,7 @@ safe_start_ddev_project() {
 
 # Start project DDEV
 ddev_start_project() {
+    dpx_debug_trace "ddev.call" "command=start" "project=$1" "path=$2"
     local project_name="$1"
     local project_path="$2"
 
@@ -57,6 +59,7 @@ ddev_start_project() {
 
 # Stop project DDEV
 ddev_stop_project() {
+    dpx_debug_trace "ddev.call" "command=stop" "project=$1"
     local project_name="$1"
 
     print_info "Stop DDEV project: $project_name"
@@ -65,6 +68,7 @@ ddev_stop_project() {
 
 # Delete project DDEV
 ddev_delete_project() {
+    dpx_debug_trace "ddev.call" "command=delete" "project=$1"
     local project_name="$1"
 
     print_warning "Delete DDEV project: $project_name"
@@ -93,6 +97,7 @@ ddev_launch() {
 # =================================================================
 
 ddev_soft_restart() {
+    dpx_debug_trace "ddev.call" "command=restart" "project=$1" "path=$2"
     local project_name="$1"
 
     if [[ -z "$project_name" ]]; then
@@ -121,6 +126,7 @@ ddev_soft_restart() {
 #   $2 — project_path (for fallback cd)
 #   $3 — path to dump (.sql / .sql.gz)
 ddev_import_db() {
+    dpx_debug_trace "ddev.call" "command=import-db" "project=$1" "path=$2"
     local project_name="$1"
     local project_path="$2"
     local db_file="$3"

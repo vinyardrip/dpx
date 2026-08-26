@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =================================================================
 # DPX Database Module - import, export, replace URL
-# Version: v1.5.1 — Native PHP error suppression, serialization-safe DB replace
+# Version: v1.6.0 — strict identifiers and SQL literal escaping
 # =================================================================
 
 # Re-entrancy guard
@@ -20,6 +20,17 @@ source "${DPX_ROOT}/lib/ddev.sh"
 # All functions module use THIS function.
 # =================================================================
 
+db_validate_identifier() {
+    validate_safe_identifier "$1" "${2:-database identifier}"
+}
+
+db_escape_sql_literal() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\'/\'\'}"
+    printf '%s\n' "$value"
+}
+
 db_get_prefix() {
     local project_path="$1"
     local config_file="${project_path}/wp-config.php"
@@ -37,10 +48,7 @@ db_get_prefix() {
     [[ -z "$prefix" ]] && prefix="wp_"
 
     # Validation: only letters, digits, underscore
-    if ! [[ "$prefix" =~ ^[a-zA-Z0-9_]+$ ]]; then
-        print_error "db_get_prefix: invalid prefix '${prefix}' (allow only a-zA-Z0-9_)" >&2
-        return 1
-    fi
+    db_validate_identifier "$prefix" "table prefix" || return 1
 
     echo "$prefix"
 }
@@ -112,10 +120,8 @@ db_get_db_name() {
     fi
 
     # Validation: name database — only safe symbols (protect from garbage)
-    if [[ -n "$db_name" && ! "$db_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-        print_error "db_get_db_name: invalid database name '$db_name' — ignoring." >&2
-        echo ""
-        return 0
+    if [[ -n "$db_name" ]]; then
+        db_validate_identifier "$db_name" "database name" || return 1
     fi
 
     echo "$db_name"
@@ -136,12 +142,15 @@ db_get_db_name() {
 db_sql_get_option() {
     local project_path="$1"
     local option_name="$2"
+    local option_sql
+
+    option_sql="$(db_escape_sql_literal "$option_name")"
 
     local prefix
     prefix=$(db_get_prefix "$project_path") || return 1
 
     local value
-    value=$(cd "$project_path" && ddev mysql -N -B -e "SELECT option_value FROM ${prefix}options WHERE option_name='${option_name}';" 2>/dev/null \
+    value=$(cd "$project_path" && ddev mysql -N -B -e "SELECT option_value FROM ${prefix}options WHERE option_name='${option_sql}';" 2>/dev/null \
         | tail -1)
 
     # Cleanup from whitespace and \r
@@ -164,11 +173,14 @@ db_sql_get_option() {
 db_sql_delete_transients() {
     local project_path="$1"
     local mask="$2"  # e.g. 'flatsome_%' ors 'elementor_%'
+    local mask_sql
+
+    mask_sql="$(db_escape_sql_literal "$mask")"
 
     local prefix
     prefix=$(db_get_prefix "$project_path") || return 1
 
-    (cd "$project_path" && ddev mysql -N -B -e "DELETE FROM ${prefix}options WHERE option_name LIKE '_transient_${mask}' OR option_name LIKE '_transient_timeout_${mask}';" 2>/dev/null) || true
+    (cd "$project_path" && ddev mysql -N -B -e "DELETE FROM ${prefix}options WHERE option_name LIKE '_transient_${mask_sql}' OR option_name LIKE '_transient_timeout_${mask_sql}';" 2>/dev/null) || true
 }
 
 # =================================================================
@@ -181,6 +193,9 @@ db_sql_delete_transients() {
 db_sql_count_old_url() {
     local project_path="$1"
     local old_url="$2"
+    local old_url_sql
+
+    old_url_sql="$(db_escape_sql_literal "$old_url")"
 
     local prefix
     prefix=$(db_get_prefix "$project_path") || return 1
@@ -188,9 +203,9 @@ db_sql_count_old_url() {
     local count=0
     count=$(cd "$project_path" && ddev mysql -N -B -e "
         SELECT (
-            SELECT COUNT(*) FROM ${prefix}options WHERE option_value LIKE '%${old_url}%'
+            SELECT COUNT(*) FROM ${prefix}options WHERE option_value LIKE '%${old_url_sql}%'
         ) + (
-            SELECT COUNT(*) FROM ${prefix}postmeta WHERE meta_value LIKE '%${old_url}%'
+            SELECT COUNT(*) FROM ${prefix}postmeta WHERE meta_value LIKE '%${old_url_sql}%'
         );" 2>/dev/null \
         | tail -1)
 
@@ -893,5 +908,5 @@ export -f db_backup_local db_import_with_replace db_wp_export_safe
 export -f db_wp_smart_replace db_wp_clear_cache db_post_import_cms
 export -f db_create_snapshot db_restore_snapshot db_smart_replace_tunnel
 export -f db_get_prod_filepath db_generate_export_filename
-export -f db_get_prefix db_sql_get_option db_sql_delete_transients
+export -f db_validate_identifier db_escape_sql_literal db_get_prefix db_sql_get_option db_sql_delete_transients
 export -f db_sql_count_old_url db_get_db_name

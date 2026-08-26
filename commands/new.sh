@@ -278,10 +278,15 @@ _new_archive_download_unpack() {
 _new_provision_db() {
     local project_name="$1" project_path="$2" cms_type="$3"
 
-    local db_name
-    db_name=$(db_get_db_name "$project_path" "$cms_type" 2>/dev/null) || db_name=""
-    db_name="${db_name//[^a-zA-Z0-9_]/_}"
+    local db_name db_name_rc
+    db_name=$(db_get_db_name "$project_path" "$cms_type" 2>/dev/null)
+    db_name_rc=$?
+    if (( db_name_rc != 0 )); then
+        print_error "Cannot provision database: configured database name is invalid."
+        return 1
+    fi
     [[ -z "$db_name" ]] && db_name="${project_name//-/_}"
+    validate_safe_identifier "$db_name" "database name" || return 1
 
     print_step "auto" "Create bases data '${db_name}'..."
     if ddev mysql -e "CREATE database IF NOT EXISTS \`${db_name}\`;" >/dev/null 2>&1; then

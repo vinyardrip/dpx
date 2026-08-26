@@ -101,12 +101,14 @@ show_help() {
     printf '    %s%-12s%s %s\n' "$green" "to-prod" "$reset" "Preparation local database to unload on cont"
     printf '    %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Forwarding tunnel for show project"
     printf '    %s%-12s%s %s\n' "$green" "update" "$reset" "Check and install update"
+    printf '    %s%-12s%s %s\n' "$green" "clean" "$reset" "Remove stale DPX temporary files"
     printf '    %s%-12s%s %s\n\n' "$green" "info" "$reset" "Configuration and versions environment"
 
     printf '%sOPTIONS:%s\n' "$bold" "$reset"
     printf '    -h, --help        Show help\n'
     printf '    -v, --version     Show version\n'
-    printf '    -y, --yes         Automatics confirm action\n\n'
+    printf '    -y, --yes         Automatics confirm action\n'
+    printf '        --debug      Enable structured execution tracing\n\n'
 
     printf '%sEXAMPLES:%s\n' "$bold" "$reset"
     printf '    %s list\n' "$TOOL_NAME"
@@ -151,6 +153,7 @@ show_commands() {
     printf '  %s%-12s%s %s\n' "$green" "to-prod" "$reset" "Export database on cont"
     printf '  %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Forwarding tunnel"
     printf '  %s%-12s%s %s\n' "$green" "update" "$reset" "Update DPX"
+    printf '  %s%-12s%s %s\n' "$green" "clean" "$reset" "Clean stale temporary files"
     printf '  %s%-12s%s %s\n' "$green" "info" "$reset" "Configuration and versions"
     printf '\nUse: %s <command> --help\n' "$TOOL_NAME"
 }
@@ -185,7 +188,7 @@ run_command() {
         commands)
             show_commands
             ;;
-        list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|ddev|tunnel|update|info|backup|config|restore)
+        list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|ddev|tunnel|update|info|backup|config|restore|clean)
             local cmd_file="${DPX_ROOT}/commands/${command}.sh"
             [[ -f "$cmd_file" ]] || cmd_file="$(domain_command_file "$command")"
             if [[ -f "$cmd_file" ]]; then
@@ -228,6 +231,13 @@ main() {
     local command="${1:-help}"
     shift || true
 
+    if [[ "$command" == "--debug" ]]; then
+        DPX_DEBUG=1
+        export DPX_DEBUG
+        command="${1:-help}"
+        shift || true
+    fi
+
     # Domain groups: resolve to the canonical command BEFORE global
     # --help stripping so subcommand help texts work as expected.
     case "$command" in
@@ -245,16 +255,22 @@ main() {
     local clean_args=()
 
     for arg in "$@"; do
-        if [[ "$arg" == "--help" ]] || [[ "$arg" == "-h" ]]; then
+        if [[ "$arg" == "--debug" ]]; then
+            DPX_DEBUG=1
+            export DPX_DEBUG
+        elif [[ "$arg" == "--help" ]] || [[ "$arg" == "-h" ]]; then
             help_requested=true
         else
             clean_args+=("$arg")
         fi
     done
 
+    dpx_debug_enable
+    dpx_debug_trace "command.dispatch" "command=$command" "argc=${#clean_args[@]}"
+
     if [[ "$help_requested" == true ]]; then
         case "$command" in
-            list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup|config|restore)
+            list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup|config|restore|clean)
                 local cmd_file="${DPX_ROOT}/commands/${command}.sh"
                 [[ -f "$cmd_file" ]] || cmd_file="$(domain_command_file "$command")"
                 if [[ -f "$cmd_file" ]]; then
@@ -281,18 +297,15 @@ main() {
     fi
 
     # Check dependency only for functional command
-    case "$command" in
-        ""|help|-h|--help|version|-v|--version|commands)
-            :
-            ;;
-        *)
-            check_dependencies || exit 1
+    if command_requires_ddev "$command"; then
+        check_dependencies || exit 1
+        if [[ "$command" != "clean" ]]; then
             # Recover an interrupted tunnel before dispatching the next
             # command. A failed restore is non-fatal here and keeps the
             # marker for a later retry.
             check_orphaned_snapshot || true
-            ;;
-    esac
+        fi
+    fi
 
     run_command "$command" "${clean_args[@]}"
 

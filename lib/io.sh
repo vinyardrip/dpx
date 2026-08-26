@@ -85,6 +85,9 @@ print_highlight() {
 }
 
 print_step() {
+    if declare -F dpx_debug_trace >/dev/null 2>&1; then
+        dpx_debug_trace "step" "$@"
+    fi
     printf '\n%s%s %s: %s...%s\n' "$COLOR_BLUE" "$(t lbl.step)" "$1" "$2" "$COLOR_RESET" >&2
 }
 

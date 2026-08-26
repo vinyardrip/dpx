@@ -107,7 +107,7 @@ check_value() { # $1 expected, $2 actual
 }
 
 # =================================================================
-# SECTION A: db_get_db_name (native Linux)
+# SECTION A: db_get_db_name and identifier validation (native Linux)
 # =================================================================
 
 echo ""
@@ -136,14 +136,33 @@ else
     test_fail "got: '$result'"
 fi
 
-test_start "Invalid DB name rejected (sanitized to empty)"
+test_start "Invalid DB name rejected before command execution"
 err_file="$TEST_TEMP_DIR/err.log"
-result="$(db_get_db_name "$FIXTURES/wp_badname" wordpress 2>"$err_file")"
-if [[ -z "$result" ]] && grep -qF "invalid database name" "$err_file"; then
+if result="$(db_get_db_name "$FIXTURES/wp_badname" wordpress 2>"$err_file")"; then
+    test_fail "invalid database name accepted"
+elif [[ -z "$result" ]] && grep -qiF "invalid database name" "$err_file"; then
     test_pass
 else
     test_fail "result='$result' stderr=$(cat "$err_file")"
 fi
+
+test_start "Database identifier validator rejects hyphens and SQL metacharacters"
+if db_validate_identifier "bad-name" "database name" >/dev/null 2>&1 \
+   || db_validate_identifier 'bad;DROP_TABLE' "database name" >/dev/null 2>&1; then
+    test_fail "unsafe identifier accepted"
+else
+    test_pass
+fi
+
+test_start "Database identifier validator accepts alnum underscore"
+if db_validate_identifier "safe_DB_123" "database name" >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "safe identifier rejected"
+fi
+
+test_start "SQL literal escaping doubles quotes and backslashes"
+check_value "O''Reilly\\\\site" "$(db_escape_sql_literal "O'Reilly\\site")"
 
 test_start "Config without DB_NAME: graceful empty via WP-CLI fallback (headless)"
 result="$(db_get_db_name "$FIXTURES/wp_nodbname" wordpress)"

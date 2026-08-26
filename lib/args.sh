@@ -63,6 +63,20 @@ parse_args() {
                 DPX_ARGS["yes"]=1
                 shift
                 ;;
+            --debug)
+                DPX_ARGS["debug"]=1
+                DPX_DEBUG=1
+                export DPX_DEBUG
+                shift
+                ;;
+            --all)
+                DPX_ARGS["all"]=1
+                shift
+                ;;
+            --snapshots)
+                DPX_ARGS["snapshots"]=1
+                shift
+                ;;
             --group)
                 DPX_ARGS["group"]=1
                 shift
@@ -259,6 +273,10 @@ parse_args() {
                 ;;
         esac
     done
+
+    if [[ -n "${DPX_ARGS[db_name]:-}" ]]; then
+        validate_safe_identifier "${DPX_ARGS[db_name]}" "database name" || return 1
+    fi
 
     return 0
 }

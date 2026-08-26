@@ -93,13 +93,19 @@ check_ddev() {
         return 1
     fi
 
+    local ddev_version_raw
+    ddev_version_raw=$(ddev --version 2>/dev/null)
+    if [[ -z "$ddev_version_raw" ]]; then
+        print_error "DDEV is installed but did not return a version. Check the DDEV installation."
+        return 1
+    fi
+
     local ddev_version
-    ddev_version=$(ddev --version 2>/dev/null)
-    ddev_version=$(extract_version "$ddev_version")
+    ddev_version=$(extract_version "$ddev_version_raw")
 
     if [[ -z "$ddev_version" ]]; then
-        print_warning "Not remove determin version DDEV"
-        return 0
+        print_error "Unable to parse the installed DDEV version: $ddev_version_raw"
+        return 1
     fi
 
     if version_ge "$ddev_version" "$MIN_DDEV_VERSION"; then
@@ -114,6 +120,16 @@ check_ddev() {
 
 check_docker() {
     if ! check_dependency "docker" "Docker"; then
+        return 1
+    fi
+
+    if ! docker info >/dev/null 2>&1; then
+        print_error "Docker daemon is not running or is not responsive."
+        case "$DPX_OS_TYPE" in
+            macos) print_info "Start Docker Desktop for macOS, then retry." ;;
+            linux) print_info "Start Docker with: sudo systemctl start docker" ;;
+            *) print_info "Start Docker and retry." ;;
+        esac
         return 1
     fi
 
@@ -216,6 +232,17 @@ check_dependencies() {
     fi
 
     return $has_errors
+}
+
+command_requires_ddev() {
+    case "$1" in
+        ""|help|-h|--help|version|-v|--version|commands|config|update|info|clean)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
 }
 
 # =================================================================

@@ -181,6 +181,7 @@ cmd_migrate() {
             prompt_input "Name database in Devilbox" "" db_name
         fi
         validate_non_empty "$db_name" "Name database" || return 1
+        validate_safe_identifier "$db_name" "database name" || return 1
 
         print_success "Use standard account data: user: root, password: (empty)"
     fi

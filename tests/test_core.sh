@@ -77,6 +77,9 @@ source "${DPX_ROOT}/lib/utils.sh"
 # Load args.sh (parse_args, has_arg, get_arg)
 source "${DPX_ROOT}/lib/args.sh"
 
+# Load checks.sh (Docker/DDEV health checks)
+source "${DPX_ROOT}/lib/checks.sh"
+
 # =================================================================
 # TESTS: VARIABLE ENVIRONMENT
 # =================================================================
@@ -236,6 +239,67 @@ if [[ "${DPX_ARGS[yes]}" == "1" ]]; then
     test_pass
 else
     test_fail "DPX_ARGS[yes] should be '1' for -y"
+fi
+
+test_start "parse_args handles --debug"
+unset DPX_ARGS; declare -gA DPX_ARGS
+DPX_DEBUG=0
+parse_args --debug
+if [[ "${DPX_ARGS[debug]}" == "1" && "$DPX_DEBUG" == "1" ]]; then
+    test_pass
+else
+    test_fail "--debug did not enable DPX_DEBUG"
+fi
+
+test_start "parse_args rejects unsafe --db-name"
+unset DPX_ARGS; declare -gA DPX_ARGS
+if parse_args --db-name 'bad-name' >/dev/null 2>&1; then
+    test_fail "unsafe database name accepted"
+else
+    test_pass
+fi
+
+test_start "debug trace includes timestamp and event"
+DPX_DEBUG=1
+debug_out="$(dpx_debug_trace command.call command=ddev argc=2 2>&1)"
+if [[ "$debug_out" == *"[DPX_DEBUG] ts="* && "$debug_out" == *"event=command.call"* ]]; then
+    test_pass
+else
+    test_fail "structured debug trace missing: $debug_out"
+fi
+DPX_DEBUG=0
+
+echo ""
+echo "${CYAN}=== DDEV Environment Health ===${RESET}"
+
+test_start "Docker health check rejects an unresponsive daemon"
+docker() {
+    case "$1" in
+        info) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+if check_docker >/dev/null 2>&1; then
+    test_fail "unresponsive Docker daemon accepted"
+else
+    test_pass
+fi
+unset -f docker
+
+test_start "DDEV health check rejects empty version output"
+ddev() { return 0; }
+if check_ddev >/dev/null 2>&1; then
+    test_fail "empty DDEV version accepted"
+else
+    test_pass
+fi
+unset -f ddev
+
+test_start "clean command does not require Docker or DDEV"
+if command_requires_ddev clean; then
+    test_fail "clean incorrectly requires DDEV"
+else
+    test_pass
 fi
 
 test_start "parse_args handles --project-name value"

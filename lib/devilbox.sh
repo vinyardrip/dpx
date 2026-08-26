@@ -212,6 +212,8 @@ devilbox_export_db() {
     local db_user="${4:-root}"
     local db_pass="${5:-}"
 
+    validate_safe_identifier "$db_name" "database name" || return 1
+
     print_step "auto" "Export bases data from Devilbox"
 
     # Make sure, that director for output exist

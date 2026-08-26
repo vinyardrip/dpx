@@ -134,7 +134,10 @@ cmd_refresh() {
         # [FIX] Autodetect nameds database from config CMS (wp-config.php /
         # configuration.php / config.php). Fallback — name project.
         local detected_db
-        detected_db=$(db_get_db_name "$project_path" "$cms_type") || detected_db=""
+        if ! detected_db=$(db_get_db_name "$project_path" "$cms_type"); then
+            print_error "Configured database name is invalid. Refresh aborted."
+            return 1
+        fi
 
         if [[ -n "$detected_db" ]]; then
             print_info "From config CMS defin database: ${detected_db}"

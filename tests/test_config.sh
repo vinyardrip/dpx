@@ -261,7 +261,8 @@ echo ""
 echo "${TEST_CYAN}=== router wiring ===${TEST_RESET}"
 
 test_start "'config' registered in dispatch and help-router lists"
-if grep -qF 'backup|config|restore)' "$DPX_ROOT/dpx.sh" && grep -qF 'info|backup|config|restore)' "$DPX_ROOT/dpx.sh"; then
+config_routes="$(grep -cE '^[[:space:]]*list\|.*\|config\|.*\)' "$DPX_ROOT/dpx.sh")"
+if (( config_routes >= 2 )); then
     test_pass
 else
     test_fail "router lists missing config"
