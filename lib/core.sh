@@ -27,7 +27,10 @@ fi
 # paths.sh - detects DPX_ROOT, DPX_OS_TYPE, DPX_SED_INPLACE_EXT
 source "${DPX_ROOT}/lib/paths.sh"
 
-# io.sh - functions output (print_*, COLOR_*)
+# i18n.sh - locale detection & message translation (DPX_LANG/LC_ALL/LANG)
+source "${DPX_ROOT}/lib/i18n.sh"
+
+# io.sh - output functions (print_*, COLOR_*); English default, ru via locale
 source "${DPX_ROOT}/lib/io.sh"
 
 # utils.sh - general utilities
@@ -141,7 +144,7 @@ core_rotate_backups() {
     done <<< "$files_to_delete"
 
     if (( count > 0 )); then
-        print_info "Rotation: delet $count old files (left $keep_count)."
+        print_info "Rotation: delete $count old files (left $keep_count)."
     fi
 }
 

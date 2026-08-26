@@ -7,6 +7,9 @@
 # CHECK VERSIONS BASH
 # =================================================================
 
+# Deterministic CLI language for all suites (i18n suite overrides per-case)
+export DPX_LANG="${DPX_LANG:-en}"
+
 if (( BASH_VERSINFO[0] < 4 )); then
     echo "ERROR: Test Framework requires Bash 4.0+" >&2
     exit 1
@@ -286,7 +289,7 @@ assert_failure() {
 # MANAGEMENT TEMPORARY DIRECTOR
 # =================================================================
 
-# Creat temporary directors
+# Create temporary directors
 # [FIX] Add trap for guaranteed cleanups durings any completions
 setup_temp_dir() {
     TEST_TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/dpx_test_XXXXXX")
@@ -310,7 +313,7 @@ cleanup_temp_dir() {
 # GENERATORS MOCK-OBJECTS
 # =================================================================
 
-# Creat fake project WordPress
+# Create fake project WordPress
 create_fake_wordpress_project() {
     local project_dir="$1"
     local project_name="${2:-testproject}"
@@ -350,7 +353,7 @@ YAML
     echo "$project_dir"
 }
 
-# Creat fake project Joomla
+# Create fake project Joomla
 create_fake_joomla_project() {
     local project_dir="$1"
     local project_name="${2:-joomlatest}"
@@ -384,7 +387,7 @@ YAML
     echo "$project_dir"
 }
 
-# Creat fake DDEV project (generic)
+# Create fake DDEV project (generic)
 create_fake_ddev_project() {
     local project_dir="$1"
     local project_name="${2:-genericproject}"
@@ -408,7 +411,7 @@ YAML
     echo "$project_dir"
 }
 
-# Creat fake SQL-dump
+# Create fake SQL-dump
 create_fake_sql_dump() {
     local output_file="$1"
     local db_name="${2:-testdb}"
@@ -430,7 +433,7 @@ SQLEOF
     echo "$output_file"
 }
 
-# Creat fake config DPX
+# Create fake config DPX
 create_fake_dpx_config() {
     local config_dir="$1"
 

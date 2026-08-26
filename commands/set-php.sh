@@ -153,7 +153,7 @@ cmd_set_php() {
 
     if [[ "$saved_php_max" != "-" ]] && [[ $(echo "$new_php $saved_php_max" | awk '{if ($1 > $2) print 1; else print 0}') -eq 1 ]]; then
         print_warning "Attention! Selects version above tested ($saved_php_max)"
-        if ! confirm "Continu?"; then
+        if ! confirm "Continue?"; then
             return 0
         fi
     fi
@@ -175,12 +175,12 @@ cmd_set_php() {
             snap_name="${project_name}_${type_tag}_${ts}.sql"
             local snap_path="${backup_dir}/${snap_name}"
 
-            print_info "Creat backup: ${snap_name}"
+            print_info "Create backup: ${snap_name}"
 
             if ddev export-db --gzip=false --file="$snap_path" >/dev/null 2>&1; then
-                print_success "Backup creat: $(du -h "$snap_path" | awk '{print $1}')"
+                print_success "Backup create: $(du -h "$snap_path" | awk '{print $1}')"
             else
-                print_warning "Not remove creat backup (possible base empty)"
+                print_warning "Not remove create backup (possible base empty)"
             fi
 
             core_rotate_backups "$project_name" "$backup_dir" "$type_tag"

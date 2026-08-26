@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Command: update - check and install updat
+# DPX Command: update - check and install update
 # =================================================================
 
 source "${DPX_ROOT}/lib/core.sh"
@@ -11,25 +11,25 @@ source "${DPX_ROOT}/lib/core.sh"
 
 show_update_help() {
     cat << EOF
- ${COLOR_BOLD}update${COLOR_RESET} - Check and install updat DPX
+ ${COLOR_BOLD}update${COLOR_RESET} - Check and install update DPX
 
  ${COLOR_BOLD}Usage:${COLOR_RESET}
     ${TOOL_NAME} update [options]
 
  ${COLOR_BOLD}Description:${COLOR_RESET}
-    Checks presence updat in repositories https://github.com/vinyardrip/dpx
+    Checks presence update in repositories https://github.com/vinyardrip/dpx
     and pulls fresh code. Ifs DPX installed from Git-repository,
-    performs git pull; otherwise offers updat manual.
+    performs git pull; otherwise offers update manual.
 
  ${COLOR_BOLD}Options:${COLOR_RESET}
-    --check         Only verify presence updat (without installs)
+    --check         Only verify presence update (without installs)
     -y, --yes       Automatics confirm action
     -h, --help      Show this help
 
  ${COLOR_BOLD}Examples:${COLOR_RESET}
-    ${TOOL_NAME} update              # Check and install updat
+    ${TOOL_NAME} update              # Check and install update
     ${TOOL_NAME} update --check      # Only verify
-    ${TOOL_NAME} update -y           # Updat without confirmation
+    ${TOOL_NAME} update -y           # Update without confirmation
 EOF
 }
 
@@ -48,12 +48,12 @@ cmd_update() {
     local check_only=false
     has_arg "check" && check_only=true
 
-    print_header "Updat ${TOOL_NAME^^}"
+    print_header "Update ${TOOL_NAME^^}"
 
     # Verify, that DPX_ROOT — this Git-repository
     if [[ ! -d "${DPX_ROOT}/.git" ]]; then
         print_warning "DPX not installed from Git-repository."
-        print_info "For updat download fresh version:"
+        print_info "For update download fresh version:"
         print_info "  git clone https://github.com/vinyardrip/dpx.git"
         print_info "  cd dpx && ./install.sh"
         return 1
@@ -74,10 +74,10 @@ cmd_update() {
         return 1
     fi
 
-    # Fetch for checks updat
-    print_info "Check updat..."
+    # Fetch for checks update
+    print_info "Check update..."
     if ! git -C "$DPX_ROOT" fetch origin 2>/dev/null; then
-        print_error "Not remove get information about updat."
+        print_error "Not remove get information about update."
         print_info "Verify connected to internet and access to repository."
         return 1
     fi
@@ -95,11 +95,11 @@ cmd_update() {
         return 0
     fi
 
-    # Consumes updat
+    # Consumes update
     local commits_behind
     commits_behind=$(git -C "$DPX_ROOT" rev-list --count "HEAD..origin/${current_branch}" 2>/dev/null || echo "?")
 
-    print_info "Available updat: ${commits_behind} commits behinds."
+    print_info "Available update: ${commits_behind} commits behinds."
 
     # Show list chang
     print_info "Chang:"
@@ -114,14 +114,14 @@ cmd_update() {
 
     # Confirmation
     if ! has_arg "yes"; then
-        if ! confirm "Install updat?"; then
-            print_info "Updat cancel."
+        if ! confirm "Install update?"; then
+            print_info "Update cancel."
             return 0
         fi
     fi
 
     # Execute git pull
-    print_info "Download updat..."
+    print_info "Download update..."
     if git -C "$DPX_ROOT" pull origin "$current_branch" 2>/dev/null; then
         # Read new version
         local new_version
@@ -131,15 +131,15 @@ cmd_update() {
             new_version="unknown"
         fi
 
-        print_success "Updat installed: v${current_version} → v${new_version}"
+        print_success "Update installed: v${current_version} → v${new_version}"
 
         # Reinstall symlink
         if [[ -f "${DPX_ROOT}/install.sh" ]]; then
-            print_info "Updat symlink..."
+            print_info "Update symlink..."
             bash "${DPX_ROOT}/install.sh" install 2>/dev/null || true
         fi
     else
-        print_error "Not remove install updat."
+        print_error "Not remove install update."
         print_info "Possible, consumes local chang. Verify: git -C ${DPX_ROOT} status"
         return 1
     fi

@@ -102,112 +102,112 @@ parse_args() {
 
             # Parameters with values
             --php-version)
-                [[ -n "${2:-}" ]] || { print_error "--php-version requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--php-version $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["php_version"]="$2"
                 shift 2
                 ;;
             --db-type)
-                [[ -n "${2:-}" ]] || { print_error "--db-type requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--db-type $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["db_type"]="$2"
                 shift 2
                 ;;
             --db-version)
-                [[ -n "${2:-}" ]] || { print_error "--db-version requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--db-version $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["db_version"]="$2"
                 shift 2
                 ;;
             --project-name)
-                [[ -n "${2:-}" ]] || { print_error "--project-name requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--project-name $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["project_name"]="$2"
                 shift 2
                 ;;
             --cms-type)
-                [[ -n "${2:-}" ]] || { print_error "--cms-type requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--cms-type $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["cms_type"]="$2"
                 shift 2
                 ;;
             --prod-url)
-                [[ -n "${2:-}" ]] || { print_error "--prod-url requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--prod-url $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["prod_url"]="$2"
                 shift 2
                 ;;
             --db-file)
-                [[ -n "${2:-}" ]] || { print_error "--db-file requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--db-file $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["db_file"]="$2"
                 shift 2
                 ;;
             --devilbox-folder)
-                [[ -n "${2:-}" ]] || { print_error "--devilbox-folder requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--devilbox-folder $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["devilbox_folder"]="$2"
                 shift 2
                 ;;
             --devilbox-php)
-                [[ -n "${2:-}" ]] || { print_error "--devilbox-php requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--devilbox-php $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["devilbox_php"]="$2"
                 shift 2
                 ;;
             --db-name)
-                [[ -n "${2:-}" ]] || { print_error "--db-name requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--db-name $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["db_name"]="$2"
                 shift 2
                 ;;
             --sort-by)
-                [[ -n "${2:-}" ]] || { print_error "--sort-by requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--sort-by $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["sort_by"]="$2"
                 shift 2
                 ;;
             --format)
-                [[ -n "${2:-}" ]] || { print_error "--format requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--format $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["format"]="$2"
                 shift 2
                 ;;
             --admin-user)
-                [[ -n "${2:-}" ]] || { print_error "--admin-user requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--admin-user $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["admin_user"]="$2"
                 shift 2
                 ;;
             --admin-pass)
-                [[ -n "${2:-}" ]] || { print_error "--admin-pass requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--admin-pass $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["admin_pass"]="$2"
                 shift 2
                 ;;
             --admin-email)
-                [[ -n "${2:-}" ]] || { print_error "--admin-email requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--admin-email $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["admin_email"]="$2"
                 shift 2
                 ;;
             --locale)
-                [[ -n "${2:-}" ]] || { print_error "--locale requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--locale $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["locale"]="$2"
                 shift 2
                 ;;
             --prod-tld)
-                [[ -n "${2:-}" ]] || { print_error "--prod-tld requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--prod-tld $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["prod_tld"]="$2"
                 shift 2
                 ;;
             --php-max)
-                [[ -n "${2:-}" ]] || { print_error "--php-max requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--php-max $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["php_max"]="$2"
                 shift 2
                 ;;
             --notes)
-                [[ -n "${2:-}" ]] || { print_error "--notes requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--notes $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["notes"]="$2"
                 shift 2
                 ;;
             --provider)
-                [[ -n "${2:-}" ]] || { print_error "--provider requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--provider $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["provider"]="$2"
                 shift 2
                 ;;
             --output)
-                [[ -n "${2:-}" ]] || { print_error "--output requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--output $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["output"]="$2"
                 shift 2
                 ;;
             --keep)
-                [[ -n "${2:-}" ]] || { print_error "--keep requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--keep $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["keep"]="$2"
                 shift 2
                 ;;
@@ -217,7 +217,7 @@ parse_args() {
                 shift 2
                 ;;
             --php)
-                [[ -n "${2:-}" ]] || { print_error "--php requires argument"; return 1; }
+                [[ -n "${2:-}" ]] || { print_error "--php $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["php_version"]="$2"
                 shift 2
                 ;;

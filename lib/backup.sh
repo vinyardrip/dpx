@@ -48,7 +48,7 @@ backup_rotate() {
     local removed=0 i
     for (( i = keep; i < total; i++ )); do
         if rm -f -- "${archives[$i]}"; then
-            print_info "Rotation: delet old archive $(basename "${archives[$i]}")" >&2
+            print_info "Rotation: delete old archive $(basename "${archives[$i]}")" >&2
             ((removed++))
         else
             print_warning "Not remove remove ${archives[$i]}" >&2
@@ -56,7 +56,7 @@ backup_rotate() {
     done
 
     if (( removed > 0 )); then
-        print_info "Rotation completion: delet ${removed}, holds ${keep}." >&2
+        print_info "Rotation completion: delete ${removed}, holds ${keep}." >&2
     fi
     return 0
 }
@@ -96,7 +96,7 @@ project_full_backup() {
     validate_non_empty "$project_name" "Name project" || return 1
 
     if ! command -v tar >/dev/null 2>&1; then
-        print_error "tar not found in PATH — creat archive impossible."
+        print_error "tar not found in PATH — create archive impossible."
         return 1
     fi
 
@@ -109,7 +109,7 @@ project_full_backup() {
 
     # Temporary director for dump database (removes by exit from functions)
     local tmpdir
-    tmpdir=$(create_temp_dir) || { print_error "Not remove creat temporary director."; return 1; }
+    tmpdir=$(create_temp_dir) || { print_error "Not remove create temporary director."; return 1; }
     local db_dump="${tmpdir}/${project_name}_db.sql.gz"
     trap 'rm -rf "$tmpdir" 2>/dev/null' RETURN
 
@@ -118,7 +118,7 @@ project_full_backup() {
     # --- Step 1: Dump bases data ---
     print_step "1/3" "Export bases data"
     if ! db_export "$db_dump" "$project_path" "true"; then
-        print_warning "Dump database not creat. Archive will contain ONLY files project."
+        print_warning "Dump database not create. Archive will contain ONLY files project."
         db_dump=""
     fi
 
@@ -163,7 +163,7 @@ project_full_backup() {
     fi
 
     if [[ $? -ne 0 || ! -f "$archive_file" ]]; then
-        print_error "Error creat archive: $archive_file"
+        print_error "Error create archive: $archive_file"
         rm -f "$archive_file" 2>/dev/null
         return 1
     fi
@@ -184,7 +184,7 @@ project_full_backup() {
     local archive_size
     archive_size=$(du -h "$archive_file" 2>/dev/null | awk '{print $1}')
 
-    print_success "Archive creat: $archive_file ($archive_size)"
+    print_success "Archive create: $archive_file ($archive_size)"
     echo "$archive_file"
     return 0
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Command: refresh - updat local database datas with production
+# DPX Command: refresh - update local database datas with production
 # =================================================================
 
 # Connect modules
@@ -17,7 +17,7 @@ source "${DPX_ROOT}/lib/projects.sh"
 
 show_refresh_help() {
     cat << EOF
- ${COLOR_BOLD}refresh${COLOR_RESET} - Updat local database datas with production
+ ${COLOR_BOLD}refresh${COLOR_RESET} - Update local database datas with production
 
  ${COLOR_BOLD}Usage:${COLOR_RESET}
     ${TOOL_NAME} refresh [options]
@@ -58,14 +58,14 @@ cmd_refresh() {
         return 0
     fi
 
-    print_header "Updat local database with production"
+    print_header "Update local database with production"
 
     # --- Step 1: Selection type CMS ---
     local cms_type
     cms_type=$(get_arg "cms_type" "")
 
     if [[ -z "$cms_type" ]]; then
-        cms_type=$(select_cms_type "Select type project for updat") || return 1
+        cms_type=$(select_cms_type "Select type project for update") || return 1
     fi
     print_success "Chosen type: $(get_cms_name "$cms_type")"
 
@@ -74,7 +74,7 @@ cmd_refresh() {
     project_name=$(get_arg "project_name" "")
 
     if [[ -z "$project_name" ]]; then
-        project_name=$(projects_select_interactive "Select project for updat")
+        project_name=$(projects_select_interactive "Select project for update")
     fi
     [[ -z "$project_name" ]] && return 1
     validate_project_name "$project_name" || return 1
@@ -159,8 +159,8 @@ cmd_refresh() {
         backup_file=$(db_backup_local "$project_name" "$project_path")
 
         if [[ -z "$backup_file" ]]; then
-            print_warning "Not remove creat reserve cop."
-            if ! confirm "Continu without reserve cops?"; then
+            print_warning "Not remove create reserve cop."
+            if ! confirm "Continue without reserve cops?"; then
                 return 1
             fi
         fi
@@ -168,7 +168,7 @@ cmd_refresh() {
 
     # --- Confirmation ---
     print_header "Verify parameters"
-    echo "Project for updat:      ${COLOR_GREEN}${project_name} ($(get_cms_name "$cms_type"))${COLOR_RESET}"
+    echo "Project for update:      ${COLOR_GREEN}${project_name} ($(get_cms_name "$cms_type"))${COLOR_RESET}"
     echo "Source data (cont):     ${COLOR_GREEN}${source_db_file}${COLOR_RESET}"
     if [[ -n "$backup_file" ]]; then
         echo "Reserve cop:            ${COLOR_GREEN}${backup_file}${COLOR_RESET}"
@@ -177,14 +177,14 @@ cmd_refresh() {
     print_warning "Current local base data project '$project_name' will FULLY OVERWRIT!"
 
     if ! has_arg "yes"; then
-        confirm "Continu updat?" || return 1
+        confirm "Continue update?" || return 1
     fi
 
     # [FIX] Stopping Devilbox ONLY after confirmation
     devilbox_stop
 
     # =================================================================
-    #  Process updat (in subshell for isolations cd)
+    #  Process update (in subshell for isolations cd)
     # =================================================================
 
     (
@@ -205,15 +205,17 @@ cmd_refresh() {
             print_step "2-3" "Preparation and import bases data with replace URL"
             db_import_with_replace "$source_db_file" "$prod_url" "$local_url" "$project_path" || exit 1
 
-            # [ISSUE 1] Post-processing page by type CMS:
-            # Joomla/OpenCart receive with cleanup cache, PHP — nothing.
-            # No way WordPress-checks for non-WP projects.
+            # [ISSUE 1] CMS-aware post-processing; no WP checks for non-WP.
+            print_warning "$(t msg.refresh.nonwp.warn "$(get_cms_name "$cms_type")")"
+            if ! has_arg "yes"; then
+                confirm "$(t q.refresh.nonwp)" || exit 1
+            fi
             db_post_import_cms "$project_path" "$cms_type"
         fi
 
         # --- Completion ---
         print_celebration "Ready!"
-        print_highlight "Local site '$project_name' success updat datas with production."
+        print_highlight "Local site '$project_name' success update datas with production."
         print_highlight "It accessible by address: ${local_url}"
 
         ddev_launch "$project_name"

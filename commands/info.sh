@@ -162,7 +162,7 @@ cmd_info() {
         printf "  %-18s %s\n" "File" "$meta_file"
         printf "  %-18s %s\n" "Projects" "$project_count"
     else
-        printf "  %-18s %s\n" "File" "(not creat)"
+        printf "  %-18s %s\n" "File" "(not create)"
     fi
 
     echo ""

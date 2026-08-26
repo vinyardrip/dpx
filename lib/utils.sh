@@ -116,7 +116,7 @@ validate_project_name() {
 # =================================================================
 
 confirm() {
-    local prompt="${1:-Continu?}"
+    local prompt="${1:-Continue?}"
     local default="${2:-n}"
     local full_prompt
 

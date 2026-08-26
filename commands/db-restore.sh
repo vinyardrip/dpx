@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Command: db-restore - Restor database from local backup
+# DPX Command: db-restore - Restore database from local backup
 # =================================================================
 
 source "${DPX_ROOT}/lib/core.sh"
@@ -11,11 +11,11 @@ source "${DPX_ROOT}/lib/ddev.sh"
 
 cmd_db_restore() {
     parse_args "$@" || return 1
-    print_header "Restor bases data v1.3.0"
+    print_header "Restore bases data v1.3.0"
 
     # 1. Selection project
     local project_name
-    project_name=$(projects_select_interactive "Select project for restor database")
+    project_name=$(projects_select_interactive "Select project for restore database")
     [[ -z "$project_name" ]] && return 1
 
     local project_path
@@ -68,12 +68,12 @@ cmd_db_restore() {
         confirm "Project '$project_name' not run. Start?" && safe_start_ddev_project "$project_name" "$project_path" || return 1
     fi
 
-    # 5. Execut import
+    # 5. Execute import
     if confirm "Yous confidents, that want REPLACE base data project '$project_name' file $(basename "$selected_file")?"; then
-        # Creat protective backup current state before import
-        print_info "Creat protective dump current database..."
+        # Create protective backup current state before import
+        print_info "Create protective dump current database..."
         local backup_file
-        backup_file=$(db_backup_local "$project_name" "$project_path") || { print_error "Not remove creat protective backup. Cancel."; return 1; }
+        backup_file=$(db_backup_local "$project_name" "$project_path") || { print_error "Not remove create protective backup. Cancel."; return 1; }
         print_success "Protective dump saved: $(basename "$backup_file")"
 
         print_info "Begin import..."
@@ -92,7 +92,7 @@ cmd_db_restore() {
             cd "$project_path" || exit 1
 
             if db_import "$selected_file" "$project_path"; then
-                print_success "Base data success restor!"
+                print_success "Base data success restore!"
 
                 # [ISSUE 1] Post-processing PAGE by type CMS.
                 # WordPress-routine (wp-cli) performs only for wordpress;

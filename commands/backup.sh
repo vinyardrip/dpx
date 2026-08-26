@@ -82,10 +82,10 @@ cmd_backup() {
     echo "Store cop:     ${COLOR_GREEN}${keep_count}${COLOR_RESET}"
 
     if ! has_arg "yes"; then
-        confirm "Creat full backup?" || { print_info "Cancel."; return 0; }
+        confirm "Create full backup?" || { print_info "Cancel."; return 0; }
     fi
 
-    # --- Creat backup ---
+    # --- Create backup ---
     local archive_file
     archive_file=$(project_full_backup "$project_name" "$project_path" "$backup_dir" "$keep_count") || return 1
 

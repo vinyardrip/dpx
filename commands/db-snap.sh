@@ -10,7 +10,7 @@ source "${DPX_ROOT}/lib/projects.sh"
 
 cmd_db_snap() {
     parse_args "$@" || return 1
-    print_header "Creat snapshot local database v1.1.1"
+    print_header "Create snapshot local database v1.1.1"
 
     # 1. Selection project
     local project_name
@@ -44,10 +44,10 @@ cmd_db_snap() {
         # [FIX] Removed 2>&1 - leave stderr visible for diagnostics errors
         # Backups criticals, errors shoulds was visibles!
         if ddev export-db --gzip=false --file="$out_file" >/dev/null; then
-            print_success "Snapshot creat: $(basename "$out_file")"
+            print_success "Snapshot create: $(basename "$out_file")"
             print_info "Size: $(du -h "$out_file" | awk '{print $1}')"
         else
-            print_error "Not remove creat snapshot."
+            print_error "Not remove create snapshot."
             exit 1
         fi
     ) || return 1

@@ -13,6 +13,9 @@
 [[ -n "${_DPX_IO_LOADED:-}" ]] && return 0
 readonly _DPX_IO_LOADED=1
 
+# Locale-aware labels require the i18n module
+source "${DPX_ROOT}/lib/i18n.sh"
+
 # =================================================================
 # INITIALIZATION COLORS
 # =================================================================
@@ -66,11 +69,11 @@ print_success() {
 }
 
 print_warning() {
-    printf '%sWARNING: %s%s\n' "$COLOR_YELLOW" "$1" "$COLOR_RESET" >&2
+    printf '%s%s: %s%s\n' "$COLOR_YELLOW" "$(t lbl.warning)" "$1" "$COLOR_RESET" >&2
 }
 
 print_error() {
-    printf '%sERROR: %s%s\n' "$COLOR_RED" "$1" "$COLOR_RESET" >&2
+    printf '%s%s: %s%s\n' "$COLOR_RED" "$(t lbl.error)" "$1" "$COLOR_RESET" >&2
 }
 
 print_info() {
@@ -82,7 +85,7 @@ print_highlight() {
 }
 
 print_step() {
-    printf '\n%sStep %s: %s...%s\n' "$COLOR_BLUE" "$1" "$2" "$COLOR_RESET" >&2
+    printf '\n%s%s %s: %s...%s\n' "$COLOR_BLUE" "$(t lbl.step)" "$1" "$2" "$COLOR_RESET" >&2
 }
 
 print_separator() {

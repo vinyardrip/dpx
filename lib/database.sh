@@ -151,7 +151,7 @@ db_sql_get_option() {
 }
 
 # =================================================================
-# SQL-ONLY: Delet transients by mask via ddev mysql
+# SQL-ONLY: Delete transients by mask via ddev mysql
 #
 # Uses for Flatsome and other plugins, whoses transients
 # need clean without downloads PHP/WP-CLI.
@@ -217,7 +217,7 @@ get_db_local_path() {
 # [ISSUE 2] Before import performs soft-restart containers
 # (ddev_soft_restart): resets MySQL-connection and state
 # InnoDB, snapshot lock timeouts and errors buffers on hot
-# imports (often Joomla-updat, structural patches).
+# imports (often Joomla-update, structural patches).
 #
 # ARGUMENTS:
 #   $1 — path to dump (.sql / .sql.gz)
@@ -242,7 +242,7 @@ db_import() {
     if [[ "$pre_flush" == "true" ]]; then
         print_info "Soft-restart containers (flush connection MySQL)..." >&2
         if ! ddev_soft_restart "$project_name"; then
-            print_warning "Soft-restart not remove — continu without flush state."
+            print_warning "Soft-restart not remove — continue without flush state."
         fi
     fi
 
@@ -291,7 +291,7 @@ db_backup_local() {
     filename=$(db_generate_export_filename "$project_name" "$tag")
     local backup_file="${backup_dir}/${filename%.gz}"
 
-    print_step "auto" "Creat reserve cops before operation..." >&2
+    print_step "auto" "Create reserve cops before operation..." >&2
 
     if db_export "$backup_file" "$project_path" "false" >&2; then
         echo "$backup_file"
@@ -356,7 +356,7 @@ db_wp_clear_cache() {
 
     # WP-CLI: transients + Redis flush
     # Note: wp cache flush already performs internals cms_flush_advanced_caches()
-    print_step "auto" "Delet transients and cleanup Redis..." >&2
+    print_step "auto" "Delete transients and cleanup Redis..." >&2
     (
         cd "$project_path" || exit 1
         ddev exec php -d display_errors=0 -d error_reporting=0 /usr/local/bin/wp transient delete --all --allow-root >/dev/null 2>&1
@@ -375,7 +375,7 @@ db_wp_clear_cache() {
 # =================================================================
 # POST-IMPORT DISPATCHER BY TYPE CMS (v1.4.26) [ISSUE 1]
 #
-# Single point post-processing after import/restor database.
+# Single point post-processing after import/restore database.
 # WordPress-routine invokes ONLY for wordpress; for remaining
 # types — with action and clear message.
 #
@@ -446,11 +446,11 @@ db_create_snapshot() {
     local snapshot_name="${tag}_$(date +%H%M%S)"
     print_step "auto" "Safety Snapshot: $snapshot_name..." >&2
 
-    # Creat snapshot, suppress interactive.
+    # Create snapshot, suppress interactive.
     # IMPORTANT: Ifs $? == 0, means DDEV guarantees, that snapshot consumes.
     dpx_exec_and_log "$project_path" ddev snapshot --name="$snapshot_name" --yes >/dev/null 2>&1
     if [[ $? -eq 0 ]]; then
-        print_success "Snapshot creat: $snapshot_name" >&2
+        print_success "Snapshot create: $snapshot_name" >&2
         echo "$snapshot_name" # Return name for caller'and
         return 0
     else
@@ -479,7 +479,7 @@ db_restore_snapshot() {
         return 1
     fi
 
-    print_step "auto" "Restor database from snapshot: $snapshot_name..."
+    print_step "auto" "Restore database from snapshot: $snapshot_name..."
     (
         cd "$project_path" || exit 1
         ddev snapshot restore "$snapshot_name" 2>&1 \
@@ -488,7 +488,7 @@ db_restore_snapshot() {
     local restore_result=$?
 
     if [[ $restore_result -eq 0 ]]; then
-        print_success "database restor from snapshot: $snapshot_name"
+        print_success "database restore from snapshot: $snapshot_name"
         return 0
     else
         print_error "Not remove restore snapshot: $snapshot_name"
@@ -518,7 +518,7 @@ db_restore_snapshot() {
 #
 #   First two pass clean out all occurrence with protocols,
 #   third pass safe replaces all leftover without risk
-#   creat double protocols (https://https://...).
+#   create double protocols (https://https://...).
 #
 #   DEBUG: each pass prints result wp search-replace
 #   (include count replace) in debug.log.
@@ -544,7 +544,7 @@ db_smart_replace_tunnel() {
     local snap_rc=$?
 
     if [[ $snap_rc -ne 0 || -z "$snapshot_name" ]]; then
-        print_error "Not remove creat Safety Snapshot. Stop!" >&2
+        print_error "Not remove create Safety Snapshot. Stop!" >&2
         return 1
     fi
 
@@ -713,9 +713,9 @@ db_wp_smart_replace() {
         ddev snapshot --name="$snapshot_name" --yes >/dev/null 2>&1
     )
     if [[ $? -eq 0 ]]; then
-        print_success "Safety Snapshot creat: $snapshot_name"
+        print_success "Safety Snapshot create: $snapshot_name"
     else
-        print_warning "Not remove creat snapshot. Continu without insurances."
+        print_warning "Not remove create snapshot. Continue without insurances."
     fi
 
     # Warning
@@ -800,7 +800,7 @@ db_wp_export_safe() {
         return 0
     else
         print_error "Error export bases."
-        print_warning "Attempt restor URL after errors export..."
+        print_warning "Attempt restore URL after errors export..."
         db_wp_smart_replace "$prod_url" "$local_url" "$project_path" || true
         db_wp_clear_cache "$project_path" 2>/dev/null || true
         return 1

@@ -100,7 +100,7 @@ cmd_edit() {
 
     # --- FLAG --delete ---
     if has_arg "delete"; then
-        print_header "Delet metadata: $project_name"
+        print_header "Delete metadata: $project_name"
 
         if dpx_meta_exists "$project_name"; then
             if confirm "Remove all metadata project '$project_name'?"; then
@@ -131,7 +131,7 @@ cmd_edit() {
         local project_type
         project_type=$(grep -E "^type:" "${project_path}/.ddev/config.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"' || echo "unknown")
 
-        print_header "Updat metadata: $project_name"
+        print_header "Update metadata: $project_name"
         echo ""
         printf "Type project:           %s\n" "$project_type"
         printf "Current version PHP:    %s\n" "$current_php"

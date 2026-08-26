@@ -216,11 +216,11 @@ cmd_migrate() {
     print_separator
 
     if ! has_arg "yes"; then
-        confirm "Continu migration?" || return 1
+        confirm "Continue migration?" || return 1
     fi
 
     # =================================================================
-    #  Execut migrations
+    #  Execute migrations
     # =================================================================
 
     # Step 1: Preparation environment
@@ -305,7 +305,7 @@ cmd_migrate() {
         fi
     ) || return 1
 
-    print_success "Configuration DDEV creat."
+    print_success "Configuration DDEV create."
 
     # Step 5: Setup configuration files CMS
     if [[ "$has_db" == true ]]; then
@@ -356,18 +356,18 @@ cmd_migrate() {
         fi
     fi
 
-    # Final step: delet backup
+    # Final step: delete backup
     if [[ "$has_db" == true ]] && ! has_arg "keep_backup"; then
         print_header "Final step"
         if has_arg "yes" || confirm "Remove file backup ($backup_file)?" "n"; then
             rm -f "$backup_file"
-            print_success "File delet."
+            print_success "File delete."
         else
             print_info "File saved: $backup_file"
         fi
     fi
 
-    # Restor configurations Devilbox (in subshell)
+    # Restore configurations Devilbox (in subshell)
     if [[ "$has_db" == true ]] && [[ -f "${devilbox_path}/env.bak" ]]; then
         (
             cd "$devilbox_path" || exit 1

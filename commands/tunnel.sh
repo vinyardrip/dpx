@@ -78,7 +78,7 @@ show_tunnel_help() {
       - Applies Nginx Hot-Patch for disabled absolute redirects.
       - Replaces URL in database via wp search-replace.
     Durings completions (Ctrl+C) performs full rollback:
-    restor wp-config.php from snapshot (mv -f), return URL in database, rollback Nginx.
+    restore wp-config.php from snapshot (mv -f), return URL in database, rollback Nginx.
 
  ${COLOR_BOLD}Options:${COLOR_RESET}
     --project-name NAME    Name project DDEV
@@ -213,7 +213,7 @@ tunnel_cloudflare_start() {
 
     _DPX_TUNNEL_PID="$pid"
     _DPX_TUNNEL_URL="$tunnel_url"
-    print_success "Tunnel creat: $tunnel_url"
+    print_success "Tunnel create: $tunnel_url"
     return 0
 }
 
@@ -381,7 +381,7 @@ tunnel_ngrok_start() {
     fi
 
     _DPX_TUNNEL_URL="$tunnel_url"
-    print_success "Tunnel creat: $tunnel_url"
+    print_success "Tunnel create: $tunnel_url"
     return 0
 }
 
@@ -617,7 +617,7 @@ tunnel_verify_config_integrity() {
         if tunnel_restore_wp_config "$config_file"; then
             wp_version=$(tunnel_wp_exec "$project_path" core version --quiet 2>/dev/null)
             if [[ -n "$wp_version" ]]; then
-                print_success "Config restor. WordPress $wp_version"
+                print_success "Config restore. WordPress $wp_version"
                 return 0
             else
                 print_error "Restored config also broken!"
@@ -649,7 +649,7 @@ tunnel_patch_wp_config() {
 
     local backup_file
     backup_file=$(tunnel_backup_wp_config "$config_file") || {
-        print_error "Sb creat snapshot. Patch CANCEL. Original not chang."
+        print_error "Sb create snapshot. Patch CANCEL. Original not chang."
         return 1
     }
 
@@ -755,9 +755,9 @@ tunnel_unpatch_wp_config() {
     backup_file=$(_dpx_wp_config_backup_path "$config_file")
 
     if [[ -f "$backup_file" ]]; then
-        print_info "Restor wp-config.php from snapshot (mv -f)..."
+        print_info "Restore wp-config.php from snapshot (mv -f)..."
         if tunnel_restore_wp_config "$config_file"; then
-            print_success "wp-config.php restor from snapshot (byte-for-byte)."
+            print_success "wp-config.php restore from snapshot (byte-for-byte)."
             return 0
         else
             print_error "CRITICAL ERROR: mv -f not remove!"
@@ -802,7 +802,7 @@ tunnel_unpatch_wp_config() {
 
 # Generation script Nginx Hot-Patch (executes internals web-container
 # via `ddev exec`). Allocated in function, so that unit-tests coulds
-# verifi content patch without start container.
+# verify content patch without start container.
 #
 # [FIX v1.5.7] Adds proxy-headers: for reverse-proxy (Cloudflare ->
 # ddev-router -> nginx) Nginx built absolute 301 Location from internal
@@ -1039,11 +1039,11 @@ tunnel_wp_db_rollback() {
 
     if [[ "$snapshot_available" == "true" ]]; then
         echo "" >&2
-        print_info "ROLLBACK database (Plan And): Restor from snapshot $saved_snap_name..." >&2
+        print_info "ROLLBACK database (Plan And): Restore from snapshot $saved_snap_name..." >&2
 
         if dpx_exec_and_log "$project_path" ddev snapshot restore "$saved_snap_name"; then
             rollback_ok=true
-            print_success "Base data restor from snapshot." >&2
+            print_success "Base data restore from snapshot." >&2
         else
             print_error "Snapshot restore FAILED: $saved_snap_name" >&2
             print_warning "Transition to Plan B (reverse search-replace)..." >&2
@@ -1053,7 +1053,7 @@ tunnel_wp_db_rollback() {
 
     if [[ "$rollback_ok" == "false" ]]; then
         if [[ -z "$tunnel_url" || -z "$local_url" ]]; then
-            print_error "Manual restor impossible: URL unknowns." >&2
+            print_error "Manual restore impossible: URL unknowns." >&2
             return 1
         fi
 
@@ -1155,11 +1155,11 @@ tunnel_cleanup() {
         local backup_file
         backup_file=$(_dpx_wp_config_backup_path "$_DPX_TUNNEL_CONFIG_FILE")
         if [[ -f "$backup_file" ]]; then
-            print_info "Final chord: hard restor wp-config.php..." >&2
+            print_info "Final chord: hard restore wp-config.php..." >&2
             cp -f "$backup_file" "$_DPX_TUNNEL_CONFIG_FILE" 2>/dev/null
         fi
 
-        # Check and delet markers
+        # Check and delete markers
         if grep -q "DPX_SMART_TUNNEL" "$_DPX_TUNNEL_CONFIG_FILE" 2>/dev/null; then
             print_error "CRITICAL ERROR: DPX_SMART_TUNNEL all yet in file after rollback!" >&2
         else
@@ -1306,8 +1306,8 @@ cmd_tunnel() {
         cms_type=$(detect_cms_type "$project_path")
         print_info "Autodetection CMS: $(get_cms_name "$cms_type")"
         if [[ "$cms_type" != "wordpress" ]]; then
-            print_warning "Type: $(get_cms_name "$cms_type"). URL in database replac NOT will."
-            if ! confirm "Continu without replaces URL?"; then
+            print_warning "Type: $(get_cms_name "$cms_type"). Database URL replacement will NOT be performed."
+            if ! confirm "Continue without replaces URL?"; then
                 cms_type=$(select_cms_type "Select type project") || return 1
             fi
         fi

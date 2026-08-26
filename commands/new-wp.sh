@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Command: new-wp - creat new WordPress project
+# DPX Command: new-wp - create new WordPress project
 #
 # [v1.7.0] REVERSE COMPATIBILITY: subtle wrapper over
 #   dpx new --cms=wordpress

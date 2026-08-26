@@ -172,7 +172,7 @@ devilbox_start_services() {
     ) || return 1
 }
 
-# Restor .env Devilbox
+# Restore .env Devilbox
 # Important: cd in subshell, so that not "leak" in other director
 devilbox_restore_env() {
     local devilbox_path=$(get_devilbox_path)
@@ -187,7 +187,7 @@ devilbox_restore_env() {
                 cp .env ".env-${php_version}" 2>/dev/null || true
             fi
             mv env.bak .env
-            print_success "Configuration Devilbox restor."
+            print_success "Configuration Devilbox restore."
         fi
     )
 }
@@ -309,7 +309,7 @@ resolve_port_conflicts() {
                 sleep 2  # Waiting released ports
                 return 0
             else
-                print_error "Impossible continu without released ports."
+                print_error "Impossible continue without released ports."
                 return 1
             fi
         fi

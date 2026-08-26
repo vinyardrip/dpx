@@ -63,11 +63,11 @@ ddev_stop_project() {
     ddev stop "$project_name" 2>&1
 }
 
-# Delet project DDEV
+# Delete project DDEV
 ddev_delete_project() {
     local project_name="$1"
 
-    print_warning "Delet DDEV project: $project_name"
+    print_warning "Delete DDEV project: $project_name"
     ddev delete "$project_name" -y 2>&1
 }
 
@@ -205,10 +205,10 @@ ddev_wp_install() {
             exit 1
         }
 
-        # Creat wp-config.php
-        print_info "Creat wp-config.php..."
+        # Create wp-config.php
+        print_info "Create wp-config.php..."
         ddev wp config create --dbname=db --dbuser=db --dbpass=db --dbhost=db 2>&1 || {
-            print_error "Error creat wp-config.php"
+            print_error "Error create wp-config.php"
             exit 1
         }
 
@@ -241,7 +241,7 @@ ddev_wp_search_replace() {
     ) || return 1
 }
 
-# WP-CLI delet then
+# WP-CLI delete then
 ddev_wp_theme_delete() {
     local themes="$1"
     local project_path="$2"
@@ -254,7 +254,7 @@ ddev_wp_theme_delete() {
     )
 }
 
-# WP-CLI delet plugins
+# WP-CLI delete plugins
 ddev_wp_plugin_delete() {
     local plugins="$1"
     local project_path="$2"

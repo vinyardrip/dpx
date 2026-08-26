@@ -168,7 +168,7 @@ cmd_deploy() {
     devilbox_stop
 
     # =================================================================
-    #  Execut deploy (in subshell for isolations cd)
+    #  Execute deploy (in subshell for isolations cd)
     # =================================================================
 
     (
