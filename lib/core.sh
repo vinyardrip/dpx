@@ -40,6 +40,9 @@ source "${DPX_ROOT}/lib/utils.sh"
 
 
 # args.sh - parsing arguments
+# domain_map.sh - site/db command namespace
+source "${DPX_ROOT}/lib/domain_map.sh"
+
 source "${DPX_ROOT}/lib/args.sh"
 
 # checks.sh - checks dependency, version, constants MIN_*

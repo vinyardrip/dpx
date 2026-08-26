@@ -8,6 +8,19 @@ source "${DPX_ROOT}/lib/ddev.sh"
 source "${DPX_ROOT}/lib/database.sh"
 source "${DPX_ROOT}/lib/projects.sh"
 
+show_db_snap_help() {
+    cat << EOF
+ Snap - quick local DB snapshot into db_local_path
+
+ Usage:
+    dpx db snap | dpx db-snap [options]
+
+ Options:
+    --project-name NAME    Target DDEV project
+    -y, --yes              Skip confirmations
+EOF
+}
+
 cmd_db_snap() {
     parse_args "$@" || return 1
     print_header "Create snapshot local database v1.1.1"

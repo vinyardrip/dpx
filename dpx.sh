@@ -163,6 +163,18 @@ run_command() {
     local command="$1"
     shift || true
 
+    # Two-level namespace: dpx db <sub> / dpx site <sub>
+    case "$command" in
+        db|site)
+            local sub="${1:-}"
+            [[ $# -gt 0 ]] && shift
+            command="$(domain_resolve "$command" "$sub")" || {
+                domain_usage "$command"
+                exit 1
+            }
+            ;;
+    esac
+
     case "$command" in
         ""|help|-h|--help)
             show_help
@@ -173,8 +185,9 @@ run_command() {
         commands)
             show_commands
             ;;
-        list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|ddev|tunnel|update|info|backup|config)
+        list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|ddev|tunnel|update|info|backup|config|restore)
             local cmd_file="${DPX_ROOT}/commands/${command}.sh"
+            [[ -f "$cmd_file" ]] || cmd_file="$(domain_command_file "$command")"
             if [[ -f "$cmd_file" ]]; then
                 # Protect from errors syntax in files command
                 if ! bash -n "$cmd_file" 2>/dev/null; then
@@ -187,6 +200,7 @@ run_command() {
                 source "$cmd_file"
                 # Replace hyphens on underscore for named function
                 local func_name="cmd_${command//-/_}"
+                func_name="${func_name//\//_}"
                 if declare -f "$func_name" >/dev/null; then
                     $func_name "$@"
                 else
@@ -200,7 +214,7 @@ run_command() {
             ;;
         *)
             print_error "Unknown command: $command"
-            show_command
+            show_commands
             exit 1
             ;;
     esac
@@ -213,6 +227,17 @@ run_command() {
 main() {
     local command="${1:-help}"
     shift || true
+
+    # Domain groups: resolve to the canonical command BEFORE global
+    # --help stripping so subcommand help texts work as expected.
+    case "$command" in
+        db|site)
+            local _dsub="${1:-}"
+            local _mapped=""
+            _mapped="$(domain_resolve "$command" "$_dsub" 2>/dev/null)" \
+                && command="$_mapped" && shift
+            ;;
+    esac
 
     # Processing call helps for specific command: dpx <cmd> --help
     # Verify --help ors -h in ANY positions arguments
@@ -229,8 +254,9 @@ main() {
 
     if [[ "$help_requested" == true ]]; then
         case "$command" in
-            list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup|config)
+            list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup|config|restore)
                 local cmd_file="${DPX_ROOT}/commands/${command}.sh"
+                [[ -f "$cmd_file" ]] || cmd_file="$(domain_command_file "$command")"
                 if [[ -f "$cmd_file" ]]; then
                     # Safe source with check syntax
                     if bash -n "$cmd_file" 2>/dev/null; then
@@ -256,7 +282,7 @@ main() {
 
     # Check dependency only for functional command
     case "$command" in
-        ""|help|-h|--help|version|-v|--version|command)
+        ""|help|-h|--help|version|-v|--version|commands)
             :
             ;;
         *)
@@ -265,6 +291,9 @@ main() {
     esac
 
     run_command "$command" "${clean_args[@]}"
+
+    # Non-blocking 24h update notice (respects auto_update_check=false)
+    update_check_daily || true
 }
 
 main "$@"

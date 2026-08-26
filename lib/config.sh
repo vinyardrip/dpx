@@ -39,6 +39,7 @@ declare -A DEFAULT_CONFIG=(
     ["db_user"]="db"                      # MySQL/MariaDB credentials used by scaffolders
     ["db_password"]="db"
     ["cli_lang"]="auto"                   # auto | en | ru (CLI output language)
+    ["auto_update_check"]="true"          # daily non-blocking update notice (dpx update)
 )
 
 # =================================================================

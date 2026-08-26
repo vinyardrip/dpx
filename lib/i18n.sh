@@ -78,7 +78,23 @@ declare -A _I18N_EN=(
     ["cfg.err.provider"]="Provider must be ngrok or cloudflare"
     ["cfg.err.lang"]="Language must be auto, en or ru"
     ["cfg.apply.header"]="Applying configuration changes:"
-    ["cfg.apply.confirm"]="Apply these changes?"
+    ["cfg.apply.confirm"]="Apply these changes?",
+    ["dom.db.usage"]="db subcommands: pull (refresh from prod) | push (prepare for prod) | snap | restore",
+    ["dom.site.usage"]="site subcommands: new | backup | restore | migrate | deploy",
+    ["restore.title"]="Restore project from full backup",
+    ["restore.q.archive"]="Archive path (empty = pick from backups)",
+    ["restore.no.archives"]="No FULL_*.tar.gz archives found in",
+    ["restore.pick"]="Select archive to restore",
+    ["restore.target"]="Target project",
+    ["restore.missing.project"]="Project directory not found. Deploy or scaffold it first:",
+    ["restore.snapshot"]="Safety DB snapshot before restore",
+    ["restore.unpack"]="Unpacking archive into project directory...",
+    ["restore.dump.found"]="Embedded database dump found:",
+    ["restore.import"]="Importing database into DDEV...",
+    ["restore.done"]="Project restored successfully!",
+        ["banner.update"]="DPX update available! Run 'dpx update' to apply"
+    ["cfg.err.archive.corrupt"]="Archive is corrupted or unreadable:",
+    ["restore.overwrite.warn"]="Existing project files matching the archive will be overwritten. Extra files are kept."
 )
 
 # -----------------------------------------------------------------
@@ -112,7 +128,23 @@ declare -A _I18N_RU=(
     ["cfg.err.provider"]="Провайдер должен быть ngrok или cloudflare"
     ["cfg.err.lang"]="Язык должен быть auto, en или ru"
     ["cfg.apply.header"]="Применяем изменения конфигурации:"
-    ["cfg.apply.confirm"]="Применить эти изменения?"
+    ["cfg.apply.confirm"]="Применить эти изменения?",
+    ["dom.db.usage"]="Подкоманды db: pull (обновить из прода) | push (подготовить к проду) | snap | restore",
+    ["dom.site.usage"]="Подкоманды site: new | backup | restore | migrate | deploy",
+    ["restore.title"]="Восстановление проекта из полного бэкапа",
+    ["restore.q.archive"]="Путь к архиву (пусто = выбрать из бэкапов)",
+    ["restore.no.archives"]="Архивы FULL_*.tar.gz не найдены в",
+    ["restore.pick"]="Выберите архив для восстановления",
+    ["restore.target"]="Целевой проект",
+    ["restore.missing.project"]="Директория проекта не найдена. Сначала разверните или создайте его:",
+    ["restore.snapshot"]="Страховочный снапшот БД перед восстановлением",
+    ["restore.unpack"]="Распаковка архива в директорию проекта...",
+    ["restore.dump.found"]="Найден дамп базы данных в архиве:",
+    ["restore.import"]="Импорт базы данных в DDEV...",
+    ["restore.done"]="Проект успешно восстановлен!",
+        ["banner.update"]="Доступно обновление DPX! Выполните 'dpx update' для установки",
+    ["cfg.err.archive.corrupt"]="Архив повреждён или не читается:",
+    ["restore.overwrite.warn"]="Файлы проекта, присутствующие в архиве, будут перезаписаны. Лишние файлы останутся."
 )
 
 # -----------------------------------------------------------------

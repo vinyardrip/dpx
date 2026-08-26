@@ -2,9 +2,9 @@
 
 [Читать на русском / Read in Russian](README.ru.md)
 
-> **v1.4.0 (Stable)**
+> **v1.5.0 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.4.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.4+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
@@ -84,11 +84,15 @@ dpx config --show       # inspect active configuration
 | `dpx tunnel`   | Public URL for a running project                                           | Providers: `cloudflare` and `ngrok`; smart wp-config block; Nginx hot-patch; Ctrl+C = full rollback |
 | `dpx migrate`  | Migrate a project from Devilbox to DDEV                                    | DB transfer, PHP version mapping                                            |
 | `dpx deploy`   | Deploy an existing codebase onto DDEV                                      | Import production dump, choose CMS type                                     |
-| `dpx refresh`  | Refresh local DB from production                                           | URL replacement (WP search-replace or SQL-level), soft container restart before import |
-| `dpx db-snap`  | Quick local DB snapshot                                                    | Rotation keeps last 3                                                       |
-| `dpx db-restore` | Restore DB from local backup                                             | Protective pre-dump, CMS-aware post-import                                  |
-| `dpx to-prod`  | Prepare local DB for production export                                     | Reverse URL replacement, rotation                                           |
-| `dpx backup`   | Full project backup (files + DB)                                           | `FULL_<name>_<timestamp>.tar.gz`, excludes heavy dirs, retention N          |
+| `dpx db pull` / `refresh`   | Refresh local DB from production          | URL replacement (WP search-replace or SQL-level), soft container restart before import |
+| `dpx db snap` / `db-snap`     | Quick local DB snapshot                   | Rotation keeps last 3                                                       |
+| `dpx db restore` / `db-restore` | Restore DB from local backup            | Protective pre-dump, CMS-aware post-import                                  |
+| `dpx db push` / `to-prod`     | Prepare local DB for production export    | Reverse URL replacement, rotation                                           |
+| `dpx site backup` / `backup`   | Full project backup (files + DB)                                           | `FULL_<name>_<timestamp>.tar.gz`, excludes heavy dirs, retention N          |
+| `dpx site restore` / `restore` | Restore a full backup archive       | Safety DB snapshot -> unpack code/uploads -> import embedded dump -> CMS cache flush |
+| `dpx site new` / `new`          | Scaffold (see `dpx new`)             | 6 project types                                                             |
+| `dpx site migrate` / `migrate`  | Devilbox migration                   |                                                                             |
+| `dpx site deploy` / `deploy`    | Deploy codebase onto DDEV            |                                                                             |
 | `dpx config`   | Interactive configuration wizard / `--show`                                 | Writes `~/.config/dpx/dpx.conf`                                             |
 | `dpx ddev`     | Run any DDEV command for a selected project                                | Works outside project directories                                           |
 | `dpx list`     | List projects                                                              | Sort by php/status, JSON output, grouping                                   |
@@ -142,6 +146,7 @@ default_php_version = 8.1
 project_tld = lo
 full_backup_path = ~/projects/backups
 full_backup_keep = 3
+auto_update_check = true            # daily non-blocking 'update available' notice
 ```
 
 Manage it without hand-editing:
@@ -166,7 +171,7 @@ dpx config --projects-root ~/work/php --provider cloudflare --lang ru -y
 bash tests/test_macos_sim.sh      # macOS/BSD simulation suite standalone
 ```
 
-Current state: **171 tests passing** across two platform profiles (native Linux and Darwin simulation with BSD shims for `sed`/`stat`/`readlink`/`tar`). The runner integrates a ShellCheck gate — findings fail the build. Suites: core, framework self-checks, macOS simulation, universal `new` scaffolding, tunnel patches + ngrok driver, configuration wizard, i18n locale layer.
+Current state: **195 tests passing** across two platform profiles (native Linux and Darwin simulation with BSD shims for `sed`/`stat`/`readlink`/`tar`). The runner integrates a ShellCheck gate — findings fail the build. Suites: core, framework self-checks, macOS simulation, universal `new` scaffolding, tunnel patches + ngrok driver, configuration wizard, i18n locale layer.
 
 ## Roadmap
 
@@ -175,6 +180,7 @@ Current state: **171 tests passing** across two platform profiles (native Linux 
 - [x] ngrok provider implementation
 - [x] Internal comments and CLI interface translated to English (ru available via locale/config)
 - [ ] Field testing of `migrate`, `deploy`, `refresh` (Ubuntu, Debian, Fedora)
+- [x] Default branch is `main`; non-blocking 24h update check against `origin/main`
 - [ ] Real-hardware macOS runs (Homebrew Bash) — BSD logic already covered by simulation tests
 - [ ] WSL2 verification
 

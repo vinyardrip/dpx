@@ -223,3 +223,78 @@ check_dependencies() {
 # =================================================================
 
 export MIN_BASH_VERSION MIN_DDEV_VERSION MIN_DOCKER_VERSION MIN_JQ_VERSION
+# =================================================================
+# NON-BLOCKING 24H UPDATE CHECK (v1.5.0)
+#
+#   * fetch runs in BACKGROUND (never blocks the command);
+#   * comparison uses locally cached origin/main ref (cheap);
+#   * cache file throttles the whole check to once per 24h;
+#   * auto_update_check=false disables everything.
+# =================================================================
+
+UPDATE_CHECK_TTL=86400
+
+update_cache_file() {
+    printf '%s/.config/%s/.update_cache\n' "${HOME}" "$TOOL_NAME"
+}
+
+# True when cache is missing or older than TTL.
+update_cache_expired() {
+    local cache="$1" now="${2:-$(date +%s)}"
+    [[ -f "$cache" ]] || return 0
+    local ts
+    ts="$(head -1 "$cache" 2>/dev/null | tr -d '[:space:]')"
+    [[ "$ts" =~ ^[0-9]+$ ]] || return 0
+    (( now - ts >= UPDATE_CHECK_TTL ))
+}
+
+update_touch_cache() {
+    local cache="$1" behind="${2:-0}" now="${3:-$(date +%s)}"
+    ensure_directory "$(dirname "$cache")"
+    printf '%s\n%s\n' "$now" "$behind" > "$cache"
+}
+
+update_read_behind() {
+    local cache="$1"
+    sed -n '2p' "$cache" 2>/dev/null | tr -d '[:space:]'
+}
+
+# Kick off a background fetch toward origin/main (fire-and-forget).
+_update_bg_fetch() {
+    git -C "$DPX_ROOT" fetch origin main >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+}
+
+# Count commits on origin/main that are absent locally.
+_update_count_behind() {
+    git -C "$DPX_ROOT" rev-list --count "HEAD..origin/main" 2>/dev/null || echo 0
+}
+
+# Main entry: call near the end of command execution.
+# Maintenance (bg fetch + cache) runs even headless so CI keeps the
+# cache warm; the visible banner requires a TTY unless
+# DPX_FORCE_BANNER=1 (used by tests).
+# Optional $1: explicit cache file path (tests / multi-env).
+update_check_daily() {
+    local cache="${1:-$(update_cache_file)}"
+
+    [[ "$(get_config 'auto_update_check' 'true')" == "true" ]] || return 0
+    [[ -d "${DPX_ROOT}/.git" ]] || return 0
+
+    if update_cache_expired "$cache"; then
+        _update_bg_fetch
+        update_touch_cache "$cache" "$(update_read_behind "$cache")"
+    fi
+
+    local behind=0 live=""
+    live="$(_update_count_behind)"
+    [[ "$live" =~ ^[0-9]+$ ]] && behind="$live"
+    update_touch_cache "$cache" "$behind"
+
+    (( behind > 0 )) || return 0
+    if [[ -t 1 || "${DPX_FORCE_BANNER:-}" == "1" ]]; then
+        print_info "💡 $(t banner.update) (${DPX_VERSION})."
+        return 10
+    fi
+    return 0
+}

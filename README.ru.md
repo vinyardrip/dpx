@@ -2,9 +2,9 @@
 
 **[Read in English / Читать на английском](README.md)**
 
-> **v1.4.0 (Stable)**
+> **v1.5.0 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.4.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.4+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
@@ -173,6 +173,26 @@ dpx set-php --php-version 8.2 # сменить PHP
 dpx edit mysite --php-max 8.2 # зафиксировать максимальную рабочую версию PHP
 dpx update                    # проверить обновления
 ```
+
+---
+
+## Команды
+
+### Доменные группы (v1.5.0)
+
+Команды сгруппированы по доменам; старые top-level команды работают как прозрачные алиасы:
+
+| Домен | Каноническая команда | Алиас |
+| ----- | --------------------- | ------|
+| db | `dpx db pull` (обновление из прода) | `dpx refresh` |
+| db | `dpx db push` (выгрузка на прод) | `dpx to-prod` |
+| db | `dpx db snap`, `dpx db restore` | `dpx db-snap`, `dpx db-restore` |
+| site | `dpx site new` | `dpx new`, `new-wp` |
+| site | `dpx site backup` | `dpx backup` |
+| site | `dpx site restore` (восстановление из полного бэкапа) | `dpx restore` |
+| site | `dpx site migrate` | `dpx migrate` |
+| site | `dpx site deploy` | `dpx deploy` |
+
 
 ---
 
@@ -475,7 +495,7 @@ dpx backup --project-name mysite --keep 5   # хранить 5 последни�
 
 После создания архив проверяется на целостность (`tar -tzf`), затем выполняется ротация — остаются последние N архивов проекта. Для экспорта БД проект должен быть запущен; DPX предложит запустить его при необходимости.
 
-Функция `project_full_backup()` из `lib/backup.sh` доступна и программно: STDOUT возвращает путь к архиву, весь диалоговый вывод идёт в STDERR (тот же контракт, что у `db_backup_local()`).
+Функция `project_full_backup()` из `lib/backup.sh` доступна и программно. Восстановление такого архива — новая команда `dpx site restore` (алиас `dpx restore`): страховочный снапшот БД, распаковка кода, импорт встроенного дампа, сброс кэша CMS. STDOUT возвращает возвращает путь к архиву, весь диалоговый вывод идёт в STDERR (тот же контракт, что у `db_backup_local()`).
 
 ---
 
@@ -747,7 +767,7 @@ admin_pass = admin
 
 ## Тестовое окружение
 
-Тестовый набор DPX — **171 тест**, покрывающих логику на двух платформенных профилях: нативный Linux и симуляция macOS (Darwin).
+Тестовый набор DPX — **195 тестов**, покрывающих логику на двух платформенных профилях: нативный Linux и симуляция macOS (Darwin).
 
 ```bash
 ./run_tests.sh                    # полный прогон: ShellCheck gate + все тесты
@@ -830,7 +850,8 @@ DPX создаёт бэкап `wp-config.php.bak` перед любыми пра
 - [ ] Прогоны на реальном macOS-железе (Homebrew Bash) и WSL2 — BSD-логика уже покрыта симуляционными автотестами, нужен живой фидбек
 - [ ] Интерактивная настройка конфигурации при установке (с перезаписью `dpx.conf`)
 - [x] Рефакторинг: перевод внутренних комментариев кода и CLI-интерфейса на английский язык (English is now the default CLI language; `DPX_LANG`/`LC_ALL`/`LANG` автоматически включают русский для покрытых строк — см. `lib/i18n.sh`)
-- [x] Интерактивный мастер первичной настройки (`dpx config`, first-run при отсутствии `~/.config/dpx/dpx.conf`)
+- [x] Интерактивный мастер первичной настройки
+- [x] Ветка по умолчанию — `main`; ежесуточная фоновая проверка обновлений против `origin/main` (`dpx config`, first-run при отсутствии `~/.config/dpx/dpx.conf`)
 
 ---
 

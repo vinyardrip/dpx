@@ -447,7 +447,7 @@ update() {
     if [[ -d "${script_dir}/.git" ]]; then
         print_info "Обновление исходного кода через Git..."
         sudo -u "$REAL_USER" git -C "$script_dir" pull origin main 2>/dev/null || \
-        sudo -u "$REAL_USER" git -C "$script_dir" pull origin master 2>/dev/null
+        sudo -u "$REAL_USER" git -C "$script_dir" pull origin main 2>/dev/null
         print_success "Репозиторий обновлен"
     else
         print_warning "Папка не является Git-репозиторием. Используется текущий код."

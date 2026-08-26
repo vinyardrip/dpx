@@ -9,6 +9,19 @@ source "${DPX_ROOT}/lib/database.sh"
 source "${DPX_ROOT}/lib/projects.sh"
 source "${DPX_ROOT}/lib/ddev.sh"
 
+show_db_restore_help() {
+    cat << EOF
+ Restore - restore project DB from a local backup archive
+
+ Usage:
+    dpx db restore | dpx db-restore
+
+ Shows available backups (newest first), takes a protective dump
+ of the current DB, imports the selected one and runs CMS-aware
+ post-import processing.
+EOF
+}
+
 cmd_db_restore() {
     parse_args "$@" || return 1
     print_header "Restore bases data v1.3.0"

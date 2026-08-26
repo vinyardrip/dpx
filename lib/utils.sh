@@ -99,7 +99,7 @@ validate_project_name() {
     local name="$1"
 
     if [[ -z "$name" ]]; then
-        print_error "Name project not may was empty."
+        print_error "Project name cannot be empty."
         return 1
     fi
 
