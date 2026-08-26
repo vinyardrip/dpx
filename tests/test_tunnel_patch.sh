@@ -160,7 +160,7 @@ fi
 echo ""
 echo "${TEST_CYAN}=== Nginx Hot-Patch (generated script content) ===${TEST_RESET}"
 
-patch_script="$(tunnel_nginx_patch_render)"
+patch_script="$(tunnel_nginx_config_render)"
 
 test_start "absolute_redirect off present"
 check_marker "absolute_redirect off;" "$patch_script"
@@ -178,8 +178,38 @@ check_marker 'proxy_set_header X-Forwarded-Proto https;' "$patch_script"
 test_start "explicit /wp-admin location guard"
 check_marker "location = /wp-admin { absolute_redirect off; return 301 /wp-admin/; }" "$patch_script"
 
-test_start "idempotent cleanup markers preserved"
+test_start "native DDEV override markers preserved"
 check_marker "# BEGIN_DPX_NGINX" "$patch_script"
+
+test_start "native override is created on host and nginx reloaded"
+nginx_project="$TEST_TEMP_DIR/nginx-project"
+nginx_log="$TEST_TEMP_DIR/nginx-ddev.log"
+mkdir -p "$nginx_project/.ddev"
+ddev() { printf 'ddev %s\n' "$*" >> "$nginx_log"; return 0; }
+tunnel_patch_nginx "$nginx_project" >/dev/null 2>&1
+if [[ -f "$nginx_project/.ddev/nginx_full/dpx-tunnel.conf" ]] \
+   && grep -qxF "ddev exec nginx -s reload" "$nginx_log"; then
+    test_pass
+else
+    test_fail "native nginx override or reload missing"
+fi
+
+test_start "cleanup removes native override and reloads nginx"
+tunnel_unpatch_nginx "$nginx_project" >/dev/null 2>&1
+reload_count="$(grep -cFx "ddev exec nginx -s reload" "$nginx_log")"
+if [[ ! -e "$nginx_project/.ddev/nginx_full/dpx-tunnel.conf" && "$reload_count" == "2" ]]; then
+    test_pass
+else
+    test_fail "override remains or cleanup reload missing"
+fi
+unset -f ddev
+
+test_start "no in-container nginx.conf rewriting remains"
+if grep -qF '/etc/nginx/nginx.conf' "$DPX_ROOT/commands/tunnel.sh"; then
+    test_fail "legacy nginx.conf mutation still present"
+else
+    test_pass
+fi
 
 # =================================================================
 # SECTION C: DPX_SMART_TUNNEL PHP BLOCK

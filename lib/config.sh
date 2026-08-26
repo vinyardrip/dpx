@@ -61,27 +61,36 @@ load_config() {
 # Parsing configuration file
 _parse_config_file() {
     local config_file="$1"
-    local key value
+    local line key value
 
-    while IFS='=' read -r key value || [[ -n "$key" ]]; do
-        # Skip comments
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        # Skip empty lines
-        [[ -z "$key" ]] && continue
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Ignore blank lines and comments after trimming leading whitespace.
+        line="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "$line" || "$line" == \#* ]] && continue
 
-        # Remove whitespaces around key
-        key="${key#"${key%%[![:space:]]*}"}"
-        key="${key%"${key##*[![:space:]]}"}"
+        # Capture the complete RHS: unlike IFS='=', this keeps later '='.
+        [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_-]*)[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
+        key="${BASH_REMATCH[1]}"
+        value="${BASH_REMATCH[2]}"
 
-        # Cleanup value from whitespaces UNTIL quotes (otherwise quotes not remove)
-        value="${value#"${value%%[![:space:]]*}"}"
-        value="${value%"${value##*[![:space:]]}"}"
-
-        # Remove quotes from value
-        value="${value%\"}"
-        value="${value#\"}"
-        value="${value%\'}"
-        value="${value#\'}"
+        # Quoted values may contain '#'; take the content through the
+        # matching quote and discard only what follows it.
+        if [[ "$value" =~ ^\"([^\"]*)\"[[:space:]]*(#.*)?$ ]]; then
+            value="${BASH_REMATCH[1]}"
+        elif [[ "$value" =~ ^\'([^\']*)\'[[:space:]]*(#.*)?$ ]]; then
+            value="${BASH_REMATCH[1]}"
+        else
+            # For unquoted values, an inline comment starts at whitespace+#.
+            if [[ "$value" =~ ^(.*[^[:space:]])[[:space:]]+#.*$ ]]; then
+                value="${BASH_REMATCH[1]}"
+            fi
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            value="${value%\"}"
+            value="${value#\"}"
+            value="${value%\'}"
+            value="${value#\'}"
+        fi
 
         DEFAULT_CONFIG["$key"]="$value"
     done < "$config_file"

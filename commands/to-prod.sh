@@ -52,7 +52,7 @@ cmd_to_prod() {
         return 0
     fi
     
-    print_header "Preparation database for production v1.5.1"
+    print_header "Preparation database for production v1.5.2"
 
     # --- Step 1: Selection project ---
     local project_name

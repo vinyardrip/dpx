@@ -133,6 +133,26 @@ out="$(
 )"
 check_value "ru" "$out"
 
+test_start "parser preserves equals signs in quoted values"
+printf 'parser_equals = "value=123"\n' > "$TEST_TEMP_DIR/parser.conf"
+_parse_config_file "$TEST_TEMP_DIR/parser.conf"
+check_value "value=123" "$(get_config parser_equals)"
+
+test_start "parser strips comments after quoted values"
+printf 'parser_comment = "value" # trailing comment\n' > "$TEST_TEMP_DIR/parser.conf"
+_parse_config_file "$TEST_TEMP_DIR/parser.conf"
+check_value "value" "$(get_config parser_comment)"
+
+test_start "parser preserves hash inside quoted values"
+printf 'parser_hash = "value#123" # trailing comment\n' > "$TEST_TEMP_DIR/parser.conf"
+_parse_config_file "$TEST_TEMP_DIR/parser.conf"
+check_value "value#123" "$(get_config parser_hash)"
+
+test_start "parser trims unquoted values and inline comments"
+printf 'parser_plain = value=123   # trailing comment\n' > "$TEST_TEMP_DIR/parser.conf"
+_parse_config_file "$TEST_TEMP_DIR/parser.conf"
+check_value "value=123" "$(get_config parser_plain)"
+
 # =================================================================
 # cmd_config: non-interactive flags
 # =================================================================

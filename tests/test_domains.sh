@@ -33,6 +33,10 @@ check_value() {
     if [[ "$1" == "$2" ]]; then test_pass; else test_fail "expected '$1', got '$2'"; fi
 }
 
+check_marker() {
+    if grep -qF -- "$1" <<<"$2"; then test_pass; else test_fail "marker '$1' missing"; fi
+}
+
 # =================================================================
 # Domain resolution table
 # =================================================================
@@ -131,6 +135,7 @@ test_start "expired when older than TTL"
 if update_cache_expired "$CACHE"; then test_pass; else test_fail "expected expired"; fi
 
 printf '%s\n0\n' "$ts_fresh" > "$CACHE"
+test_start "fresh cache is not expired"
 if update_cache_expired "$CACHE"; then
     test_fail "fresh cache flagged expired"
 else
@@ -161,7 +166,7 @@ set_stale_cache_with() { # $1 = behind count
 
 test_start "banner printed when behind > 0 (forced)"
 set_stale_cache_with 3
-out="$(banner_probe 3 1)"
+out="$(banner_probe 3 1 2>&1)"
 check_marker "DPX update available! Run 'dpx update' to apply (${DPX_VERSION})" "$out"
 
 test_start "rc=10 signals update availability to caller"
@@ -204,27 +209,63 @@ else
 fi
 
 # =================================================================
+# Orphaned tunnel snapshot recovery
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== orphaned snapshot recovery ===${TEST_RESET}"
+
+ORPHAN_PROJECT="$TEST_TEMP_DIR/orphan-project"
+ORPHAN_LOG="$TEST_TEMP_DIR/orphan-ddev.log"
+mkdir -p "$ORPHAN_PROJECT/.dpx/subdir"
+printf 'dpx-tunnel-before-123\n' > "$ORPHAN_PROJECT/.dpx/current_snapshot"
+
+test_start "orphan finder walks up from a project subdirectory"
+out="$(cd "$ORPHAN_PROJECT/.dpx/subdir" && dpx_find_orphaned_snapshot)"
+check_value "$ORPHAN_PROJECT" "$out"
+
+test_start "non-interactive recovery logs and preserves orphan state"
+out="$(cd "$ORPHAN_PROJECT" && check_orphaned_snapshot </dev/null 2>&1)"
+if [[ -f "$ORPHAN_PROJECT/.dpx/current_snapshot" ]] \
+   && grep -qF "previous session terminated abruptly" <<<"$out"; then
+    test_pass
+else
+    test_fail "marker removed or recovery message missing: $out"
+fi
+
+test_start "snapshot restore uses recorded name and cleans orphan state"
+ddev() { printf 'ddev %s\n' "$*" >> "$ORPHAN_LOG"; return 0; }
+dpx_restore_orphaned_snapshot "$ORPHAN_PROJECT" "dpx-tunnel-before-123" >/dev/null 2>&1
+if [[ ! -f "$ORPHAN_PROJECT/.dpx/current_snapshot" ]] \
+   && grep -qxF "ddev snapshot restore dpx-tunnel-before-123" "$ORPHAN_LOG"; then
+    test_pass
+else
+    test_fail "restore command or cleanup missing"
+fi
+unset -f ddev
+
+# =================================================================
 # Version SSOT
 # =================================================================
 
 echo ""
 echo "${TEST_CYAN}=== Version SSOT ===${TEST_RESET}"
 
-test_start ".version equals 1.5.1"
-check_value "1.5.1" "$(cat "$DPX_ROOT/.version")"
+test_start ".version equals 1.5.2"
+check_value "1.5.2" "$(cat "$DPX_ROOT/.version")"
 
 out="$(bash "$DPX_ROOT/dpx.sh" -v 2>&1)"
-test_start "dpx -v reports v1.5.1"
-if grep -qF "dpx v1.5.1" <<<"$out"; then
+test_start "dpx -v reports v1.5.2"
+if grep -qF "dpx v1.5.2" <<<"$out"; then
     test_pass
 else
     test_fail "got: $out"
 fi
 
 ok=true
-grep -qF "version-1.5.1-blue" "$DPX_ROOT/README.md"    || ok=false
-grep -qF "version-1.5.1-blue" "$DPX_ROOT/README.ru.md" || ok=false
-test_start "README badges show 1.5.1"
+    grep -qF "version-1.5.2-blue" "$DPX_ROOT/README.md"    || ok=false
+    grep -qF "version-1.5.2-blue" "$DPX_ROOT/README.ru.md" || ok=false
+test_start "README badges show 1.5.2"
 if [[ "$ok" == true ]]; then test_pass; else test_fail "badge missing"; fi
 
 print_test_summary

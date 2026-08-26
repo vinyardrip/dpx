@@ -287,6 +287,10 @@ main() {
             ;;
         *)
             check_dependencies || exit 1
+            # Recover an interrupted tunnel before dispatching the next
+            # command. A failed restore is non-fatal here and keeps the
+            # marker for a later retry.
+            check_orphaned_snapshot || true
             ;;
     esac
 
