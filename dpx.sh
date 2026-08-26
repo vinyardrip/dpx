@@ -91,6 +91,7 @@ show_help() {
     printf '    %s%-12s%s %s\n' "$green" "deploy" "$reset" "Deploy existing project on DDEV"
     printf '    %s%-12s%s %s\n' "$green" "new" "$reset" "Scaffold a project (WordPress/Joomla/OpenCart/ocStore/Laravel/PHP)"
     printf '    %s%-12s%s %s\n' "$green" "new-wp" "$reset" "New WordPress (= new --cms=wordpress, kept for compatibility)"
+    printf '    %s%-12s%s %s\n' "$green" "config" "$reset" "Interactive configuration wizard / --show"
     printf '    %s%-12s%s %s\n' "$green" "ddev" "$reset" "Run any DDEV command for a project"
     printf '    %s%-12s%s %s\n' "$green" "refresh" "$reset" "Refresh local DB from production data"
     printf '    %s%-12s%s %s\n' "$green" "migrate" "$reset" "Migrate a project from Devilbox to DDEV"
@@ -128,7 +129,7 @@ show_version() {
     print_info "OS: ${DPX_OS_TYPE} | Bash: ${BASH_VERSION%% *}"
 }
 
-show_command() {
+show_commands() {
     local bold="$COLOR_BOLD"
     local reset="$COLOR_RESET"
     local green="$COLOR_GREEN"
@@ -140,6 +141,7 @@ show_command() {
     printf '  %s%-12s%s %s\n' "$green" "deploy" "$reset" "Deploy project"
     printf '  %s%-12s%s %s\n' "$green" "new" "$reset" "Create project (all types)"
     printf '  %s%-12s%s %s\n' "$green" "new-wp" "$reset" "New WordPress (alias new --cms=wordpress)"
+    printf '  %s%-12s%s %s\n' "$green" "config" "$reset" "Configuration wizard / --show"
     printf '  %s%-12s%s %s\n' "$green" "ddev" "$reset" "Wrapper command DDEV"
     printf '  %s%-12s%s %s\n' "$green" "refresh" "$reset" "Update database"
     printf '  %s%-12s%s %s\n' "$green" "migrate" "$reset" "Migration with Devilbox"
@@ -168,10 +170,10 @@ run_command() {
         version|-v|--version)
             show_version
             ;;
-        command)
-            show_command
+        commands)
+            show_commands
             ;;
-        list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|ddev|tunnel|update|info|backup)
+        list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|ddev|tunnel|update|info|backup|config)
             local cmd_file="${DPX_ROOT}/commands/${command}.sh"
             if [[ -f "$cmd_file" ]]; then
                 # Protect from errors syntax in files command
@@ -227,7 +229,7 @@ main() {
 
     if [[ "$help_requested" == true ]]; then
         case "$command" in
-            list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup)
+            list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup|config)
                 local cmd_file="${DPX_ROOT}/commands/${command}.sh"
                 if [[ -f "$cmd_file" ]]; then
                     # Safe source with check syntax
@@ -244,6 +246,12 @@ main() {
                 fi
                 ;;
         esac
+    fi
+
+    # First-run wizard: fires once when the user config file is absent
+    # (interactive terminals only; CI/non-tty sessions get a hint).
+    if [[ "$command" != "config" ]]; then
+        config_first_run_hook
     fi
 
     # Check dependency only for functional command

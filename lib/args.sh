@@ -225,6 +225,26 @@ parse_args() {
                 DPX_ARGS["db"]=1
                 shift
                 ;;
+            --projects-root)
+                [[ -n "${2:-}" ]] || { print_error "--projects-root requires an argument"; return 1; }
+                DPX_ARGS["projects_root"]="$2"
+                shift 2
+                ;;
+            --lang)
+                [[ -n "${2:-}" ]] || { print_error "--lang requires an argument"; return 1; }
+                DPX_ARGS["lang"]="$2"
+                shift 2
+                ;;
+            --db-user)
+                [[ -n "${2:-}" ]] || { print_error "--db-user requires an argument"; return 1; }
+                DPX_ARGS["db_user"]="$2"
+                shift 2
+                ;;
+            --db-password)
+                [[ -n "${2:-}" ]] || { print_error "--db-password requires an argument"; return 1; }
+                DPX_ARGS["db_password"]="$2"
+                shift 2
+                ;;
 
             # Unknown parameters
             -*)

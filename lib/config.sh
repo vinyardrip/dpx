@@ -35,6 +35,10 @@ declare -A DEFAULT_CONFIG=(
     ["admin_email"]="admin@example.com"
     ["admin_pass"]="admin"
     ["project_tld"]="lo"
+    ["default_tunnel_provider"]="ngrok"   # ngrok | cloudflare (dpx tunnel)
+    ["db_user"]="db"                      # MySQL/MariaDB credentials used by scaffolders
+    ["db_password"]="db"
+    ["cli_lang"]="auto"                   # auto | en | ru (CLI output language)
 )
 
 # =================================================================
@@ -136,4 +140,113 @@ get_default_php_version() {
 
 get_project_tld() {
     get_config "project_tld"
+}
+# =================================================================
+# USER CONFIG FILE & FIRST-RUN WIZARD (v1.4.0)
+#
+# Canonical user configuration path: ~/.config/dpx/dpx.conf
+# The wizard writes managed keys via upsert, preserving any manual
+# lines the user added. Non-interactive sessions never hang: they
+# receive a hint pointing at `dpx config`.
+# =================================================================
+
+config_user_file() {
+    printf '%s/.config/%s/%s.conf\n' "${HOME}" "$TOOL_NAME" "$TOOL_NAME"
+}
+
+config_needs_first_run() {
+    [[ ! -f "$(config_user_file)" ]]
+}
+
+# Upsert `key = value` into the user config, preserving all other
+# lines (comments, custom keys). Creates parent directories.
+config_upsert_kv() {
+    local key="$1" value="$2"
+    local file
+    file="$(config_user_file)"
+    ensure_directory "$(dirname "$file")"
+
+    if [[ -f "$file" ]] && grep -qE "^${key}[[:space:]]*=" "$file"; then
+        safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = ${value}|" "$file"
+    else
+        printf '%s = %s\n' "$key" "$value" >> "$file"
+    fi
+}
+
+# Interactive first-run/setup wizard.
+# STDOUT/STDERR: dialog; returns 0 in all non-fatal paths.
+# $1 = optional "force": explicit `dpx config` runs even with piped
+# stdin (answers/defaults are read); the first-run HOOK never forces.
+config_run_wizard() {
+    local force="${1:-}"
+    # Safety: never hang automated/non-interactive sessions unless forced.
+    if [[ "$force" != "force" && ! -t 0 ]]; then
+        print_info "$(t cfg.firstrun.hint)"
+        return 0
+    fi
+
+    local file
+    file="$(config_user_file)"
+
+    print_header "$(t cfg.wizard.title)"
+    print_info  "$(t cfg.wizard.hint) $file"
+    echo ""
+
+    local projects_root provider db_user db_password lang
+
+    projects_root="$(get_config 'ddev_projects_base_path' "$HOME/projects")"
+    prompt_input "$(t cfg.q.projects_root)" "$projects_root" projects_root
+    ensure_directory "$projects_root"
+
+    provider="$(get_config 'default_tunnel_provider' 'ngrok')"
+    while :; do
+        prompt_input "$(t cfg.q.provider) (ngrok/cloudflare)" "$provider" provider
+        case "$provider" in
+            ngrok|cloudflare|cloudflared) provider="${provider%cloudflared}"; provider="${provider:-cloudflare}"
+                [[ "$provider" == "cloudflared" ]] && provider="cloudflare"
+                break ;;
+            *) print_warning "$(t err.unknown.choice "$provider")" ;;
+        esac
+    done
+
+    db_user="$(get_config 'db_user' 'db')"
+    prompt_input "$(t cfg.q.db_user)" "$db_user" db_user
+
+    db_password="$(get_config 'db_password' 'db')"
+    prompt_input "$(t cfg.q.db_password)" "$db_password" db_password
+
+    lang="$(get_config 'cli_lang' 'auto')"
+    while :; do
+        prompt_input "$(t cfg.q.lang) (auto/en/ru)" "$lang" lang
+        case "$lang" in
+            auto|en|ru) break ;;
+            *) print_warning "$(t err.unknown.choice "$lang")" ;;
+        esac
+    done
+
+    config_upsert_kv "ddev_projects_base_path" "$projects_root"
+    config_upsert_kv "default_tunnel_provider" "$provider"
+    config_upsert_kv "db_user"                 "$db_user"
+    config_upsert_kv "db_password"             "$db_password"
+    config_upsert_kv "cli_lang"                "$lang"
+
+    load_config   # re-read so the current process uses new values
+    dpx_detect_lang
+
+    print_success "$(t cfg.saved): $file"
+    return 0
+}
+
+# First-run hook invoked by the entry point before any command.
+config_first_run_hook() {
+    config_needs_first_run || return 0
+
+    # Interactive terminals get the full wizard; automated sessions
+    # must never hang - a short hint is enough.
+    if [[ -t 0 && "${DPX_SKIP_FIRST_RUN:-}" != "1" ]]; then
+        config_run_wizard
+    else
+        print_info "$(t cfg.firstrun.hint)"
+    fi
+    return 0
 }

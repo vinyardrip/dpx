@@ -1263,6 +1263,17 @@ cmd_tunnel() {
     local provider
     provider=$(get_arg "provider" "")
     if [[ -z "$provider" ]]; then
+        # Prefer the provider configured via `dpx config` when its
+        # binary is actually available; fall back to interactive menu.
+        local preferred
+        preferred="$(get_config 'default_tunnel_provider' '')"
+        case "$preferred" in
+            ngrok)      command -v ngrok      >/dev/null 2>&1 && provider="ngrok" ;;
+            cloudflare) command -v cloudflared >/dev/null 2>&1 && provider="cloudflare" ;;
+        esac
+        [[ -n "$provider" ]] && print_info "Using configured provider: $provider"
+    fi
+    if [[ -z "$provider" ]]; then
         provider=$(tunnel_select_provider)
         if [[ $? -ne 0 ]] || [[ -z "$provider" ]]; then
             print_error "Provider tunnel not found."

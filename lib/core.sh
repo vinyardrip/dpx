@@ -27,6 +27,8 @@ fi
 # paths.sh - detects DPX_ROOT, DPX_OS_TYPE, DPX_SED_INPLACE_EXT
 source "${DPX_ROOT}/lib/paths.sh"
 
+# config.sh - download configurations
+source "${DPX_ROOT}/lib/config.sh"
 # i18n.sh - locale detection & message translation (DPX_LANG/LC_ALL/LANG)
 source "${DPX_ROOT}/lib/i18n.sh"
 
@@ -36,8 +38,6 @@ source "${DPX_ROOT}/lib/io.sh"
 # utils.sh - general utilities
 source "${DPX_ROOT}/lib/utils.sh"
 
-# config.sh - download configurations
-source "${DPX_ROOT}/lib/config.sh"
 
 # args.sh - parsing arguments
 source "${DPX_ROOT}/lib/args.sh"
@@ -87,6 +87,7 @@ readonly REAL_HOME
 
 # Load configuration
 load_config
+dpx_detect_lang   # resolve CLI language now that user config is loaded
 
 # =================================================================
 # EXPANDED PATH In CONFIGURATIONS

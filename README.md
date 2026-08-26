@@ -1,5 +1,7 @@
 # DPX — DDEV Project eXtend
 
+[Читать на русском / Read in Russian](README.ru.md)
+
 > **v1.4.0 (Stable)**
 
 ![Version](https://img.shields.io/badge/version-1.4.0-blue)
@@ -8,845 +10,175 @@
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-Универсальный CLI для управления DDEV-проектами. DPX расширяет DDEV командами для работы с базами данных, миграцией с Devilbox, сменой версий PHP, управлением метаданными проектов, пробросом туннелей для показа сайта заказчику через Cloudflare и автоматическим обновлением из репозитория.
+Universal CLI for managing DDEV projects. DPX extends DDEV with database operations (refresh from production, snapshots, restore), project scaffolding for five CMS/framework stacks, Cloudflare & ngrok tunnels with automatic rollback, PHP version switching, project metadata, and self-updates.
 
 ---
 
-**Проект в активной разработке.** Стабильные команды: `list`, `set-php`, `edit`, `ddev`, `tunnel`, `db-snap`, `db-restore`, `to-prod`, `backup`, `new`. Команды `migrate`, `deploy`, `refresh` — требуют дополнительного тестирования на разных окружениях. Обратная связь и баг-репорты приветствуются.
+**Actively developed.** Stable commands: `list`, `set-php`, `edit`, `ddev`, `tunnel`, `db-snap`, `db-restore`, `to-prod`, `backup`, `new`, `config`. Commands `migrate`, `deploy`, `refresh` need additional field testing on different environments. Feedback and bug reports are welcome.
 
 ---
 
-## Содержание
+## Table of Contents
 
-- [Безопасность данных (Data Integrity)](#безопасность-данных-data-integrity)
-- [Требования](#требования)
-- [Установка](#установка)
-- [Обновление и удаление](#обновление-и-удаление)
-- [Использование](#использование)
-- [Команды](#команды)
-- [Архитектура](#архитектура)
-- [Конфигурация](#конфигурация)
-- [Safe Sudo Protocol](#safe-sudo-protocol)
-- [Тестовое окружение](#тестовое-окружение)
-- [Совместимость](#совместимость)
-- [VPN и решение проблем](#vpn-и-решение-проблем)
-- [План развития (Roadmap)](#план-развития-roadmap)
-- [Лицензия](#лицензия)
+- [Data Integrity](#data-integrity)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Command Matrix](#command-matrix)
+- [Architecture Overview](#architecture-overview)
+- [Configuration](#configuration)
+- [Tunnels](#tunnels)
+- [Testing & Quality Gates](#testing--quality-gates)
+- [Roadmap](#roadmap)
+- [License](#license)
 
 ---
 
-## Безопасность данных (Data Integrity)
+## Data Integrity
 
-DPX работает с данными по принципу **Zero-Trust**: ни одна мутация (замена URL, смена PHP, импорт дампа, патч конфига) не начинается без подготовки пути назад. Инструмент спроектирован так, чтобы при любом сбое — ошибка команды, Ctrl+C, падение контейнера, kill -9 — система вернулась в исходное состояние.
+DPX treats data with a **Zero-Trust** policy: no mutation (URL rewrite, PHP switch, dump import, config patch) starts without an escape path. Snapshots are taken before destructive DB work (`ddev snapshot`), `wp-config.php` edits follow a backup → patch → `php -l` → verify → rollback cycle, and `/etc/hosts` changes go through a Safe-Sudo protocol (backup → edit → verify → rollback). Interrupting any operation with Ctrl+C triggers the registered cleanup traps: wp-config is restored byte-for-byte from snapshot, URLs are rolled back, the tunnel process and temp files are removed.
 
-**Три уровня защиты:**
+## Requirements
 
-1. **Snapshot-first** — перед любой мутацией БД создаётся снапшот DDEV. Имя снапшота фиксируется на диске (`.dpx/current_snapshot`). Если сессия прерывается, trap-обработчик найдёт метку и выполнит откат автоматически.
+| Dependency                | Min version | Notes                                              |
+| ------------------------- | :---------: | -------------------------------------------------- |
+| **Bash**                  |  **4.4+**   | Associative arrays, `read -ra`, `mapfile`          |
+| DDEV                      |   1.21.0+   | Local development environment                      |
+| Docker                    |   20.10+    | Container engine (daemon running)                   |
+| jq                        |    1.5+     | Parsing JSON output of `ddev describe` / ngrok API |
+| sed, grep, awk, curl, tar |      —      | Standard GNU/BSD utilities                         |
 
-2. **Rollback Protocol** — для `wp-config.php` используется цикл: `cp → бэкап → правка → php -l валидация → верификация маркера`. Если любой шаг падает — `mv -f` из бэкапа восстанавливает оригинал побайтово. Никакого «попробуем и посмотрим».
+### macOS note
 
-3. **Safe Sudo** — правка системных файлов (`/etc/hosts`) проходит через: бэкап → sudo-правка → проверка → откат при ошибке. Кэширование sudo-прав на время сессии (3 попытки, таймаут 60 с).
+macOS ships Bash 3.2 which is **not supported** (no associative arrays). Install modern Bash via Homebrew and make sure it precedes `/bin/bash` in `PATH`. All BSD-specific logic (BSD `sed -i ''`, `stat -f`, `readlink` without `-f`, bsdtar option order) is covered by the automated simulation suite, so no manual adjustments are required.
 
-**Пример: аварийное завершение туннеля.** Пользователь нажал Ctrl+C во время замены URL в БД. Срабатывает trap:
-
-- Восстановление `wp-config.php` из бэкапа (mv -f)
-- Откат URL в БД (snapshot restore или reverse search-replace)
-- Остановка cloudflared
-- Удаление временных файлов
-
-Каждый шаг логируется в `.dpx/debug.log` внутри проекта. После отката — конфиг и БД идентичны состоянию до запуска туннеля.
-
----
-
-## Требования
-
-| Зависимость               | Мин. версия | Примечание                                        |
-| ------------------------- | :---------: | ------------------------------------------------- |
-| **Bash**                  |  **4.4+**   | Ассоциативные массивы, `read -ra`, `mapfile`      |
-| DDEV                      |   1.21.0+   | Окружение для локальной разработки                |
-| Docker                    |   20.10+    | Контейнерный движок (daemon running)              |
-| jq                        |    1.5+     | Парсинг JSON-вывода `ddev describe --format=json` |
-| sed, grep, awk, curl, tar |      —      | Стандартные утилиты GNU/BSD                       |
-
-### macOS: обязательное требование Bash 4.0+
-
-macOS поставляется с Bash 3.2 (последняя версия под лицензией GPLv2). DPX **не запустится** на Bash 3.2 — логика сравнения версий, ассоциативные массивы и `read -ra` требуют минимум Bash 4.0. Это техническое ограничение: Bash 3.2 не поддерживает `declare -A`, `read -ra` и ряд других конструкций, используемых в ядре и библиотеках DPX.
-
-```bash
-# 1. Установите современный Bash
-brew install bash
-
-# 2. Добавьте в ~/.zshrc или ~/.bash_profile:
-export PATH="/opt/homebrew/bin:$PATH"
-# Для Intel Mac:
-export PATH="/usr/local/bin:$PATH"
-
-# 3. Перезапустите терминал и проверьте
-bash --version   # должно быть 4.0 или выше
-```
-
----
-
-## Установка
-
-### Стандартная установка (симлинк в ~/.local/bin)
-
-DPX устанавливается через инсталлятор, который создаёт символическую ссылку `~/.local/bin/dpx`, указывающую на директорию с исходным кодом. Это не требует `sudo` и позволяет обновляться через `git pull` без переустановки.
+## Installation
 
 ```bash
 git clone https://github.com/vinyardrip/dpx.git
 cd dpx
-./install.sh
+./install.sh            # symlink into ~/.local/bin (no sudo)
 ```
 
-Если `~/.local/bin` отсутствует в `PATH`, инсталлятор создаст директорию и подскажет, как добавить её в конфигурацию shell:
+Global install: `sudo ./install.sh install-global`. Dependency check only: `./install.sh check`.
+Updates: `dpx update` (git fetch + pull + symlink reinstall). Uninstall: `./install.sh uninstall`.
+
+## Quick Start
 
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
+dpx                     # first run opens the configuration wizard if no user config exists
+dpx list                # show all DDEV projects
+dpx new                 # scaffold a project (interactive type selector)
+dpx tunnel              # share a running project via public URL
+dpx refresh             # refresh local DB from a production dump
+dpx backup              # full project backup (files + database)
+dpx config --show       # inspect active configuration
 ```
 
-После добавления — перезапустите терминал или выполните `source ~/.bashrc` (или `~/.zshrc`).
+## Command Matrix
 
-### Глобальная установка (/usr/local/bin)
+| Command        | Purpose                                                                    | Highlights                                                                 |
+| -------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `dpx new`      | Scaffold a new project                                                     | 6 types: WordPress, Joomla, OpenCart, ocStore, Laravel, Plain PHP; flags `--cms=`, `--php=`, `--db`, `-y`; positional name supported |
+| `dpx new-wp`   | Backward-compatible alias                                                  | Equivalent to `dpx new --cms=wordpress`; WP flags pass through              |
+| `dpx tunnel`   | Public URL for a running project                                           | Providers: `cloudflare` and `ngrok`; smart wp-config block; Nginx hot-patch; Ctrl+C = full rollback |
+| `dpx migrate`  | Migrate a project from Devilbox to DDEV                                    | DB transfer, PHP version mapping                                            |
+| `dpx deploy`   | Deploy an existing codebase onto DDEV                                      | Import production dump, choose CMS type                                     |
+| `dpx refresh`  | Refresh local DB from production                                           | URL replacement (WP search-replace or SQL-level), soft container restart before import |
+| `dpx db-snap`  | Quick local DB snapshot                                                    | Rotation keeps last 3                                                       |
+| `dpx db-restore` | Restore DB from local backup                                             | Protective pre-dump, CMS-aware post-import                                  |
+| `dpx to-prod`  | Prepare local DB for production export                                     | Reverse URL replacement, rotation                                           |
+| `dpx backup`   | Full project backup (files + DB)                                           | `FULL_<name>_<timestamp>.tar.gz`, excludes heavy dirs, retention N          |
+| `dpx config`   | Interactive configuration wizard / `--show`                                 | Writes `~/.config/dpx/dpx.conf`                                             |
+| `dpx ddev`     | Run any DDEV command for a selected project                                | Works outside project directories                                           |
+| `dpx list`     | List projects                                                              | Sort by php/status, JSON output, grouping                                   |
+| `dpx set-php`  | Change project PHP version                                                 | Automatic DB backup first                                                   |
+| `dpx edit`     | Project metadata (`php_max`, notes)                                        | Stored in `~/.config/dpx/projects.json`                                     |
+| `dpx info`     | Environment & configuration report                                         | Dependency status with color indicators                                     |
+| `dpx update`   | Self-update from Git                                                       | Shows incoming commits before applying                                      |
 
-Требует `sudo`:
-
-```bash
-./install.sh install-global
-```
-
-### Автоматическая вычистка старых алиасов
-
-Если вы ранее использовали `alias dpx=...` в `.bashrc`, `.zshrc`, `.bash_profile` или `.profile`, инсталлятор обнаружит эти строки и предложит удалить их автоматически. Симлинки и алиасы конфликтуют — алиасы должны быть удалены для корректной работы. Без их удаления установка будет заблокирована.
-
-### Только проверка зависимостей
-
-Без установки, только диагностика окружения:
-
-```bash
-./install.sh check
-```
-
----
-
-## Обновление и удаление
-
-```bash
-# Обновление: git pull + переустановка симлинка
-./install.sh update
-
-# Или через команду dpx:
-dpx update           # проверка и установка обновлений из репозитория
-dpx update --check   # только проверить наличие обновлений
-```
-
-Команда `dpx update` выполняет `git fetch` + `git pull` в директории репозитория, сравнивает локальную и удалённую версии, показывает список новых коммитов и подтверждает установку. После обновления автоматически переустанавливает симлинк.
-
-```bash
-# Удаление: симлинк + предложение удалить ~/.config/dpx/
-./install.sh uninstall
-```
-
----
-
-## Использование
-
-```bash
-dpx --help                    # общая справка
-dpx -v                        # версия и ОС
-dpx <команда> --help          # справка по конкретной команде
-dpx commands                  # список доступных команд
-dpx info                      # конфигурация и версии окружения
-```
-
-Быстрый старт:
-
-```bash
-dpx list                      # показать все DDEV-проекты
-dpx tunnel --project-name mysite   # пробросить туннель заказчику
-dpx db-snap -p mysite         # сделать снимок БД
-dpx backup                    # полный бэкап проекта (файлы + БД)
-dpx refresh                   # обновить БД с продакшена
-dpx set-php --php-version 8.2 # сменить PHP
-dpx edit mysite --php-max 8.2 # зафиксировать максимальную рабочую версию PHP
-dpx update                    # проверить обновления
-```
-
----
-
-## Команды
-
-### dpx list
-
-Список DDEV-проектов с версиями PHP и статусами запуска. Поддерживает сортировку, группировку и разные форматы вывода.
-
-```bash
-dpx list                     # таблица по умолчанию
-dpx list --sort-by php       # сортировка по версии PHP
-dpx list --sort-by status    # сортировка по статусу
-dpx list --group             # группировка по PHP
-dpx list --format json       # вывод в JSON
-```
-
-| Опция             | Описание                                     |
-| ----------------- | -------------------------------------------- |
-| `--sort-by FIELD` | Сортировать по полю: `name`, `php`, `status` |
-| `--format FORMAT` | Формат вывода: `table`, `json`, `simple`     |
-| `--group`         | Группировать по версии PHP                   |
-
----
-
-### dpx edit
-
-Редактирование метаданных проекта — максимальная рабочая версия PHP (`php_max`), тип проекта, заметки, дата тестирования. Метаданные хранятся в `~/.config/dpx/projects.json` и используются командой `list` для отображения информации о проектах.
-
-```bash
-dpx edit                     # интерактивный выбор проекта
-dpx edit mysite --show       # показать метаданные проекта
-dpx edit mysite --php-max 8.2  # установить максимальную рабочую версию PHP
-dpx edit mysite --notes "На PHP 8.3 фатальная ошибка"  # добавить заметку
-dpx edit mysite --delete     # удалить все метаданные проекта
-```
-
-| Опция               | Описание                                                      |
-| ------------------- | ------------------------------------------------------------- |
-| `--show`            | Показать текущие метаданные проекта                           |
-| `--delete`          | Удалить все метаданные проекта                                |
-| `--php-max VERSION` | Установить максимальную рабочую версию PHP (формат: 8.2, 7.4) |
-| `--notes "текст"`   | Добавить заметку к проекту                                    |
-| `-h, --help`        | Показать справку                                              |
-
-**Типичный workflow с set-php и edit:**
-
-1. `dpx set-php mysite` — тестируем разные версии PHP, подбирая максимальную рабочую
-2. Сайт работает на PHP 8.2, на 8.3 падает
-3. `dpx edit mysite --php-max 8.2` — фиксируем результат в метаданных
-4. `dpx list` — видим `php_max` в списке проектов
-
----
-
-### dpx set-php
-
-Изменение версии PHP проекта с автоматическим бэкапом БД перед операцией.
-
-```bash
-dpx set-php                            # интерактивный выбор
-dpx set-php --project-name mysite
-dpx set-php --php-version 8.1 -y       # прямая смена без подтверждений
-```
-
-| Опция            | Описание                 |
-| ---------------- | ------------------------ |
-| `--project-name` | Имя проекта DDEV         |
-| `--php-version`  | Новая версия PHP         |
-| `-y, --yes`      | Пропустить подтверждения |
-
-Автоматически: создаёт бэкап БД, перезапускает проект (если запущен), сбрасывает кэш WordPress.
-
----
-
-### dpx ddev
-
-Обёртка над DDEV — выполнение любой команды DDEV для выбранного проекта. Ключевая особенность: если вы находитесь **вне директории проекта**, DPX не падает с ошибкой, а запускает **интерактивный выбор проекта** из списка доступных, переходит в его папку и выполняет команду.
-
-```bash
-dpx ddev start               # если вне папки → интерактивный выбор → запуск
-dpx ddev stop                # если вне папки → выбор проекта → остановка
-dpx ddev ssh                 # вход в контейнер выбранного проекта
-dpx ddev exec wp cache flush # WP-CLI для выбранного проекта
-dpx ddev describe            # информация о проекте
-dpx ddev logs -f             # логи с любыми флагами DDEV
-```
-
-**Как это работает:**
-
-- Если вы находитесь **внутри** папки проекта (есть `.ddev/config.yaml`), команда прозрачно передаётся в оригинальный DDEV — без задержек и обёрток.
-- Если вы **вне** папки проекта, DPX показывает таблицу доступных проектов, вы выбираете нужный, и команда выполняется в контексте этого проекта.
-
-**Пример интерактивного выбора:**
+## Architecture Overview
 
 ```
-$ dpx ddev start
-
-  Вы вне директории проекта. Выберите проект для 'ddev start':
-
-  #  Имя проекта      PHP    Статус
-  1  mysite           8.1    stopped
-  2  clientshop       8.2    stopped
-  3  blog             7.4    running
-
-  Ваш выбор [1-3]: 1
-
-  Переход в проект [mysite] и выполнение: ddev start
-  ...
+dpx.sh                  Entry point / router (per-command source, syntax-checked)
+commands/*.sh           Thin command layer (arg parsing + flow orchestration)
+lib/
+├── core.sh             Module loader; loads the chain below in order
+├── paths.sh            OS detection (linux/macos), DPX_ROOT resolution
+├── i18n.sh             Locale chain DPX_LANG -> LC_ALL -> LANG -> en; t() resolver
+├── io.sh               print_* output helpers (stderr), color handling
+├── config.sh           Cascaded configuration (system -> user -> project)
+├── args.sh             CLI argument parsing (--key=value supported)
+├── checks.sh           Dependency/version gates
+├── sudo.sh             Safe-sudo protocol for privileged file edits
+├── cms.sh              CMS registry, interactive selectors, cache flush handlers
+├── projects.sh         Project discovery/selection
+├── ddev.sh             DDEV wrappers (start/restart/import-db/export-db...)
+├── database.sh         Dump import/export, DB-name detection, snapshots
+├── backup.sh           Full-project backups with rotation
+├── devilbox.sh         Devilbox integration (migrate)
+├── meta.sh             projects.json metadata
+└── utils.sh            safe_sed_inplace, prompts, validation helpers
+tests/test_*.sh         Unit/e2e suites (see Testing)
 ```
 
----
+Design rules:
 
-### dpx deploy
+- Every module has a re-entrancy guard; the loader order respects dependencies.
+- **STDOUT carries data, STDERR carries UI.** Functions returning values (e.g. `project_full_backup`) never mix dialog text into their result.
+- Commands are individually sourced by the router and syntax-checked (`bash -n`) before execution.
 
-Развертывание существующего проекта на DDEV с импортом БД.
+## Configuration
 
-```bash
-dpx deploy
-dpx deploy --project-name mysite --cms-type wordpress -y
-```
-
-| Опция            | Описание                                   |
-| ---------------- | ------------------------------------------ |
-| `--project-name` | Имя папки проекта                          |
-| `--cms-type`     | Тип CMS: `wordpress`, `joomla`, `opencart` |
-| `--db-file`      | Имя файла БД из `db_prod_path`             |
-| `--prod-url`     | URL продакшен-сайта                        |
-| `--php-version`  | Версия PHP (по умолчанию из конфига)       |
-| `--db-type`      | Тип БД: `mysql`, `mariadb`                 |
-| `--db-version`   | Версия БД                                  |
-| `-y, --yes`      | Пропустить подтверждения                   |
-
----
-
-### dpx new
-
-Универсальное создание проекта на DDEV с выбором типа. Без аргументов запускает интерактивный выбор:
-
-```
-$ dpx new
-
---- Выберите тип проекта ---
-  1) WordPress
-  2) Joomla
-  3) OpenCart (Official)
-  4) ocStore (OpenCart Russia/SEO Pro)
-  5) Laravel
-  6) Plain PHP / HTML
-
-Выберите [1-6]: 4
-```
-
-```bash
-dpx new                                    # полностью интерактивно
-dpx new myshop --cms=laravel --php=8.3 -y  # Laravel без вопросов
-dpx new blog --type wordpress              # алиас --type
-dpx new corp --cms php --db                # Plain PHP + создание БД
-```
-
-| Опция                 | Описание                                                            |
-| --------------------- | -------------------------------------------------------------------- |
-| `[project-name]`      | Имя проекта первым позиционным аргументом (или `--project-name`)     |
-| `--cms TYPE`          | Тип: `wordpress`, `joomla`, `opencart`, `ocstore`, `laravel`, `php` (алиасы: `wp`, `ocs`, `lara`, `html`; также форма `--cms=TYPE` и `--type`) |
-| `--php VERSION`       | Версия PHP (по умолчанию из конфига)                                 |
-| `--db`                | Создать базу данных сразу после старта контейнера                    |
-| `-y, --yes`           | Пропустить подтверждения                                             |
-
-**Что делает каждый тип:**
-
-| Тип        | Действия                                                                                                   |
-| ---------- | ----------------------------------------------------------------------------------------------------------- |
-| WordPress  | DDEV config → WP-CLI установка → стартовая тема → очистка стандартных тем/плагинов                          |
-| Joomla     | Скачивание последнего релиза (GitHub API → fallback source) → распаковка → DDEV `project_type: php`         |
-| OpenCart   | Последний релиз с GitHub Releases → распаковка (upload/ нормализуется в корень) → DDEV `project_type: php`  |
-| ocStore    | Локализованный форк OpenCart со встроенным **SEO Pro** (`myopencart/ocstore`) → тот же layout-handling, что у OpenCart (`upload/` → корень) → DDEV `project_type: php`. URL релиза: GitHub API → source-fallback → `DPX_OCSTORE_ARCHIVE_URL` |
-| Laravel    | DDEV `project_type: laravel`, `docroot: public` → `composer create-project` → `.env`: `DB_HOST=db`, `DB_DATABASE=db`, `DB_USERNAME=db`, `DB_PASSWORD=db`, `APP_URL` |
-| Plain PHP  | `index.php` + DDEV `project_type: php`; с `--db` — создание базы                                            |
-
-URL релиза Joomla/OpenCart/ocStore можно зафиксировать вручную через переменные окружения `DPX_JOOMLA_ARCHIVE_URL` / `DPX_OPENCART_ARCHIVE_URL` / `DPX_OCSTORE_ARCHIVE_URL`.
-
-При ошибке каркаса созданная директория автоматически удаляется — мусора не остаётся.
-
----
-
-### dpx new-wp
-
-> **v1.7.0:** команда сохранена для обратной совместимости и теперь является тонкой оберткой над `dpx new --cms=wordpress`. Вся документация типов — в разделе [`dpx new`](#dpx-new).
-
-```bash
-dpx new-wp                          # = dpx new --cms=wordpress
-dpx new-wp mysite --php-version 8.2 # WP-специфичные флаги передаются сквозь
-```
-
-WP-специфичные опции (`--locale`, `--admin-user/pass/email`, `--no-theme`) работают как прежде и проксируются в универсальный движок.
-
----
-
-### dpx refresh
-
-Обновление локальной БД данными с продакшена с полной заменой URL.
-
-```bash
-dpx refresh                            # полностью интерактивный
-dpx refresh --project-name mysite
-dpx refresh --prod-url https://site.by -y
-```
-
-| Опция            | Описание                                      |
-| ---------------- | --------------------------------------------- |
-| `--project-name` | Имя проекта DDEV                              |
-| `--cms-type`     | Тип CMS: `wordpress`, `joomla`, `opencart`    |
-| `--db-file`      | Имя файла БД из `db_prod_path`                |
-| `--prod-url`     | URL продакшен-сайта                           |
-| `--prod-tld`     | Доменная зона продакшена (по умолчанию: `by`) |
-| `--no-backup`    | Не создавать резервную копию                  |
-| `-y, --yes`      | Пропустить подтверждения                      |
-
-**WordPress:** полная замена URL (с протоколом, без, протокол-относительные), корректная обработка сериализованных данных ACF. После импорта — проверка доступности и полная очистка кэшей (транзиенты, Redis, файловый кэш).
-
-**Joomla / OpenCart:** замена URL в SQL-файле перед импортом. После импорта — очистка собственных кэшей: Joomla (`cache/`, `administrator/cache/`), OpenCart (`system/storage/cache`, модификации). Для plain PHP пост-обработка не требуется.
-
-**Стабильность импорта:** перед каждым импортом выполняется мягкий перезапуск контейнеров (`ddev restart`) — сбрасываются соединения MySQL и состояние InnoDB, что предотвращает lock timeouts и ошибки буферов (`max_allowed_packet`) на горячих импортах.
-
-Автоматически: определяет имя БД из конфига CMS, ищет подходящий дамп в `db_prod_path`, создаёт бэкап текущей БД.
-
----
-
-### dpx to-prod
-
-Подготовка локальной БД к выгрузке на продакшен.
-
-```bash
-dpx to-prod
-dpx to-prod --project-name mysite --prod-url https://mysite.by
-```
-
-**WordPress:** замена локальных URL → продакшен URL, экспорт БД, восстановление локальных URL обратно. Для других CMS — простой экспорт. Ротация дампов: хранится 3 последних файла TO_PROD.
-
----
-
-### dpx db-snap
-
-Быстрый снимок локальной БД в папку `db_local_path`.
-
-```bash
-dpx db-snap              # интерактивный выбор проекта
-dpx db-snap -p mysite    # указать проект напрямую
-```
-
-Формат файла: `PROJECT_SNAP_YYMMDD_HHMM.sql`. Без gzip — для быстрого просмотра и редактирования. Автоматическая ротация: хранится 3 последних снимка.
-
----
-
-### dpx db-restore
-
-Восстановление БД из локального бэкапа.
-
-```bash
-dpx db-restore
-```
-
-Показывает список доступных бэкапов с размерами и создаёт защитный дамп текущей БД перед восстановлением. Ротация защитных дампов: 3 последних.
-
-**CMS-специфичная пост-обработка:** после импорта выполняются процедуры, соответствующие типу проекта (автоопределение по структуре файлов или флаг `--cms-type`):
-
-| Тип CMS    | Пост-обработка                                                        |
-| ---------- | ---------------------------------------------------------------------- |
-| WordPress  | Проверка доступности (`wp core is-installed`) и полная очистка кэшей   |
-| Joomla     | Очистка `cache/` и `administrator/cache/`                              |
-| OpenCart   | Очистка `system/storage/cache` и модификаций                           |
-| PHP        | Пост-обработка не требуется                                            |
-
-| Опция        | Описание                                                       |
-| ------------ | --------------------------------------------------------------- |
-| `--cms-type` | Тип CMS: `wordpress`, `joomla`, `opencart`, `php` (по умолчанию — автоопределение) |
-
----
-
-### dpx backup
-
-Полный бэкап проекта: файлы проекта + дамп базы данных в одном tar.gz-архиве. Предназначен для создания «точки возврата» перед опасными операциями.
-
-```bash
-dpx backup                                  # интерактивный выбор проекта
-dpx backup --project-name mysite            # прямой запуск
-dpx backup --project-name mysite --keep 5   # хранить 5 последних архивов
-```
-
-| Опция            | Описание                                                 |
-| ---------------- | --------------------------------------------------------- |
-| `--project-name` | Имя проекта DDEV                                          |
-| `--output DIR`   | Директория для архива (по умолчанию: `full_backup_path`)  |
-| `--keep N`       | Сколько последних архивов хранить (по умолчанию: `3`)     |
-| `-y, --yes`      | Пропустить подтверждения                                  |
-| `-h, --help`     | Показать справку                                          |
-
-Формат архива: `FULL_<проект>_YYYY-MM-DD_HHMMSS.tar.gz`. Внутри — файлы проекта и дамп БД (`<проект>_db.sql.gz`, через `ddev export-db --gzip=true`).
-
-**Автоматические исключения** (тяжёлые и генерируемые каталоги): `.ddev/.importdb`, `.ddev-db-snapshots`, `.ddev-backups`, `backups`, `node_modules`, `vendor`, `.git`.
-
-После создания архив проверяется на целостность (`tar -tzf`), затем выполняется ротация — остаются последние N архивов проекта. Для экспорта БД проект должен быть запущен; DPX предложит запустить его при необходимости.
-
-Функция `project_full_backup()` из `lib/backup.sh` доступна и программно: STDOUT возвращает путь к архиву, весь диалоговый вывод идёт в STDERR (тот же контракт, что у `db_backup_local()`).
-
----
-
-### dpx migrate
-
-Миграция проекта с Devilbox на DDEV.
-
-> **Статус:** требует тестирования на разных окружениях. Если у вас есть опыт миграции — обратная связь приветствуется.
-
-```bash
-dpx migrate
-dpx migrate --project-name mysite --devilbox-folder oldsite -y
-```
-
-| Опция               | Описание                           |
-| ------------------- | ---------------------------------- |
-| `--project-name`    | Имя проекта для DDEV               |
-| `--devilbox-folder` | Имя папки в Devilbox/data          |
-| `--cms-type`        | Тип CMS                            |
-| `--php-version`     | Версия PHP для DDEV                |
-| `--no-db`           | Проект без базы данных             |
-| `--keep-backup`     | Не удалять бэкап БД после миграции |
-| `-y, --yes`         | Пропустить подтверждения           |
-
----
-
-### dpx tunnel
-
-Проброс публичного туннеля для показа проекта заказчику через Cloudflare Tunnel. Для WordPress автоматически патчит `wp-config.php` и заменяет URL в БД. При завершении (Ctrl+C) — полный откат всех изменений.
-
-```bash
-dpx tunnel                              # интерактивный выбор
-dpx tunnel --project-name mysite
-dpx tunnel --project-name mysite --cms-type wordpress -y
-dpx tunnel --provider cloudflare --project-name mysite
-```
-
-| Опция            | Описание                                                      |
-| ---------------- | ------------------------------------------------------------- |
-| `--project-name` | Имя проекта DDEV                                              |
-| `--cms-type`     | Тип CMS: `wordpress`, `joomla`, `opencart`, `php`             |
-| `--provider`     | Провайдер туннеля: `cloudflare`, `ngrok` (оба рабочие)        |
-| `-y, --yes`      | Пропустить подтверждения                                      |
-| `-h, --help`     | Справка по команде                                            |
-
-#### Как работает туннель для WordPress
-
-**Порядок операций (v1.4.0):** старт туннеля → замена URL в БД → патч `wp-config.php`. Этот порядок критичен: WP-CLI игнорирует `wp search-replace` для `WP_HOME`/`WP_SITEURL`, если эти константы уже определены в wp-config. Поэтому БД мутируется первой, а конфиг патчится после.
-
-1. **DPX_SMART_TUNNEL** — в `wp-config.php` внедряется PHP-блок сразу после `<?php`. Блок читает `X-Forwarded-Host` от Cloudflare и подменяет `HTTP_HOST`, чтобы WordPress генерировал URL с доменом туннеля (а не локальным `.lo`). Также проверяет `X-Forwarded-Proto` для корректного определения HTTPS. Если домен не заканчивается на локальный TLD — динамически определяет `WP_HOME`/`WP_SITEURL`. Существующие `define('WP_HOME', ...)` в конфиге автоматически оборачиваются в `if (!defined('WP_HOME'))` для предотвращения конфликта констант.
-
-2. **Замена URL в БД** — три прохода: HTTPS → HTTP → голый домен. Покрывает ссылки в контенте, меню, настройках Flatsome/Elementor (которые хранят URL без протокола). Все WP-CLI вызовы выполняются через `php -d display_errors=0` для подавления PHP warnings/deprecations.
-
-3. **Nuclear cache clear** — физическое удаление `wp-content/cache/*` и `wphb-cache/*` (W3TC, Hummingbird, WP Rocket), `redis-cli flushall`, WP-CLI `cache flush` + `transient delete --all`, Flatsome CSS cache cleanup.
-
-4. **Откат при Ctrl+C** — строгий порядок: сначала восстановление `wp-config.php` из бэкапа (mv -f), затем откат URL в БД (snapshot restore или reverse search-replace), «Финальный аккорд» — повторное cp -f бэкапа поверх конфига (на случай, если DDEV перегенерировал wp-config), остановка cloudflared, удаление лог-файла.
-
-5. **Config integrity verification** — после патча `wp-config.php` выполняется `ddev exec php -l` для проверки PHP-синтаксиса. Если ошибка — автоматический откат из бэкапа.
-
-#### Файлы внутри проекта
-
-Во время работы туннеля в корне проекта создаётся папка `.dpx/`:
-
-| Файл                    | Назначение                                                                                                              |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `.dpx/current_snapshot` | Имя снапшота DDEV для отката БД. **Не удалять** пока туннель активен — без него откат невозможен.                       |
-| `.dpx/debug.log`        | Лог отладки: результаты проходов search-replace, оставшиеся вхождения старого URL. Перезаписывается при каждом запуске. |
-
-> **Важно:** папка `.dpx/` и её содержимое предназначены для внутренней работы DPX. Файл `current_snapshot` удаляется только после успешного отката БД. Ручное удаление во время активного туннеля приведёт к переходу на План Б (reverse search-replace) при откате.
-
-#### Установка cloudflared
-
-```bash
-# Ubuntu / Debian
-curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg
-echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared $(lsb_release -cs) main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
-sudo apt update && sudo apt install cloudflared
-
-# Arch / EndeavourOS
-sudo pacman -S cloudflared
-
-# macOS
-brew install cloudflared
-```
-
-Дополнительно для туннеля требуется `jq` (для парсинга `ddev describe --format=json`).
-
----
-
-### dpx update
-
-Проверка и установка обновлений DPX из репозитория [https://github.com/vinyardrip/dpx](https://github.com/vinyardrip/dpx).
-
-```bash
-dpx update              # проверка и установка обновлений
-dpx update --check      # только проверить наличие обновлений (без установки)
-dpx update -y           # обновить без подтверждений
-```
-
-| Опция        | Описание                                           |
-| ------------ | -------------------------------------------------- |
-| `--check`    | Только проверить наличие обновлений, без установки |
-| `-y, --yes`  | Автоматически подтверждать установку               |
-| `-h, --help` | Показать справку                                   |
-
-Команда выполняет `git fetch origin`, сравнивает локальную и удалённую ветки, показывает количество коммитов позади и список изменений. После подтверждения выполняет `git pull` и переустанавливает симлинк через `install.sh`.
-
----
-
-### dpx info
-
-Вывод текущей конфигурации DPX, версий установленных инструментов и путей к рабочим директориям. Полезно для диагностики проблем.
-
-```bash
-dpx info
-```
-
-Выводит:
-
-- **Системное окружение** — ОС, версия Bash, HOME, DPX_ROOT
-- **Зависимости** — Bash, DDEV, Docker, jq, cloudflared, git — с цветовой индикацией статуса (OK / УСТАРЕЛ / НЕ НАЙДЕН)
-- **Конфигурация** — путь к файлу конфигурации, все ключевые параметры (workspace, пути к БД, PHP по умолчанию, TLD)
-- **Метаданные** — путь к `projects.json`, количество проектов с сохранёнными метаданными
-- **DDEV проекты** — список запущенных проектов
-
----
-
-## Архитектура
-
-Структура проекта соответствует фактическому содержимому репозитория:
-
-```
-dpx/
-├── .version                # 1.4.0 (Single Source of Truth)
-├── .gitignore
-├── LICENSE                 # MIT
-├── PLAN.md                 # Контекст-снапшот проекта
-├── README.md
-├── dpx.sh                  # Точка входа (router)
-├── install.sh              # Инсталлятор (alias cleanup + symlink)
-├── run_tests.sh            # Запуск тестов (+ ShellCheck gate)
-├── commands/
-│   ├── backup.sh           # Полный бэкап проекта (файлы + БД)
-│   ├── db-restore.sh       # Восстановление БД
-│   ├── db-snap.sh          # Снимок БД
-│   ├── ddev.sh             # Обёртка DDEV-команд (интерактивный выбор проекта)
-│   ├── deploy.sh           # Развёртывание проекта
-│   ├── edit.sh             # Редактирование метаданных (projects.json)
-│   ├── info.sh             # Конфигурация и версии окружения
-│   ├── list.sh             # Список проектов
-│   ├── migrate.sh          # Миграция с Devilbox
-│   ├── new.sh              # Универсальное создание проектов (5 типов)
-│   ├── new-wp.sh           # Обертка совместимости (= new --cms=wordpress)
-│   ├── refresh.sh          # Обновление БД с продакшена
-│   ├── set-php.sh          # Смена версии PHP
-│   ├── to-prod.sh          # Подготовка БД для продакшена
-│   ├── tunnel.sh           # Проброс туннеля (Cloudflare)
-│   └── update.sh           # Проверка и установка обновлений
-├── config/
-│   └── dpx.conf            # Конфигурация по умолчанию
-├── lib/
-│   ├── args.sh             # Парсинг аргументов CLI (ассоциативные массивы)
-│   ├── backup.sh           # project_full_backup: tar.gz + дамп БД + ротация
-│   ├── checks.sh           # Проверки зависимостей и версий (MIN_*)
-│   ├── cms.sh              # Определение и поддержка CMS
-│   ├── config.sh           # Загрузка конфигурации (каскадное слияние)
-│   ├── core.sh             # Ядро: загрузчик модулей, DPX_VERSION, REAL_HOME
-│   ├── database.sh         # Операции с БД (экспорт, импорт, ротация)
-│   ├── ddev.sh             # Обёртки DDEV (start, stop, describe)
-│   ├── devilbox.sh         # Управление Devilbox (для migrate)
-│   ├── io.sh               # Цветной вывод, NO_COLOR, CI/CD
-│   ├── meta.sh             # Метаданные проектов (projects.json через jq)
-│   ├── paths.sh            # Определение путей (GNU/BSD), DPX_OS_TYPE
-│   ├── projects.sh         # Выбор и валидация проектов
-│   ├── sudo.sh             # Safe Sudo Protocol (бэкап → правка → проверка → rollback)
-│   └── utils.sh            # Утилиты: safe_sed, валидация, подтверждения
-└── tests/
-    ├── test_core.sh
-    ├── test_framework.sh
-    ├── test_macos_sim.sh   # macOS/BSD-симуляция (shim'ы sed/stat/readlink/tar)
-    ├── test_new_cmd.sh     # Универсальный dpx new (типы, обертка, каркасы)
-    └── test_tunnel_patch.sh # Nginx/Smart-Tunnel патчи + ngrok driver
-```
-
-### Единая версия (Single Source of Truth)
-
-Версия проекта хранится **исключительно** в файле `.version` в корне репозитория. Все компоненты — `dpx.sh`, `install.sh`, `lib/core.sh`, `commands/tunnel.sh` — читают версию динамически из этого файла. Захардкоженные номера версий отсутствуют. Для обновления версии достаточно изменить одну строку в `.version`.
-
-### Порядок загрузки модулей
-
-Модули загружаются в `lib/core.sh` в строгом порядке, учитывающем зависимости:
-
-`paths` → `io` → `utils` → `config` → `args` → `checks` → `sudo` → `meta`
-
-Каждый модуль защищён от повторного подключения через `readonly _DPX_*_LOADED=1`.
-
----
-
-## Конфигурация
-
-Файл конфигурации ищется в следующем порядке (первый найденный используется):
-
-1. `~/.config/dpx/dpx.conf` — пользовательский (приоритет)
-2. `./config/dpx.conf` — локальный (в директории проекта)
-
-> **Примечание:** в текущей версии конфигурация настраивается вручную. Скопируйте `config/dpx.conf` в `~/.config/dpx/dpx.conf` и отредактируйте пути под вашу структуру. Примеры значений есть в файле. Интерактивная настройка при установке — в планах развития.
-
-Пример `config/dpx.conf`:
+Settings live in `~/.config/dpx/dpx.conf` (INI-style `key = value`). A project-local `config/dpx.conf` can override individual keys; system-wide `/etc/dpx/dpx.conf` is read first when present.
 
 ```ini
-# --- Пути к базам данных ---
-db_prod_path = ~/projects/work/db_prod
-db_local_path = ~/projects/work/db_local
-
-# --- Полные бэкапы проектов (файлы + БД) ---
-full_backup_path = ~/projects/work/backups
-full_backup_keep = 3
-
-# --- DDEV проекты ---
-ddev_projects_base_path = ~/projects/work/php
-
-# --- Devilbox (для миграции) ---
-devilbox_path_root = ~/projects/work/devilbox
-devilbox_data_base_path = ~/projects/work/devilbox/data
-
-# --- Настройки по умолчанию ---
+ddev_projects_base_path = ~/projects/php
+default_tunnel_provider = ngrok        # ngrok | cloudflare
+db_user = db                           # MySQL/MariaDB credentials used by scaffolders
+db_password = db
+cli_lang = auto                        # auto | en | ru  (CLI output language)
 default_php_version = 8.1
-default_db_type = mysql
-default_db_version = 8.0
-default_prod_tld = by
 project_tld = lo
-
-# --- WordPress ---
-starter_theme_path = ~/projects/work/_s-template
-admin_user = admin
-admin_email = admin@example.com
-admin_pass = admin
+full_backup_path = ~/projects/backups
+full_backup_keep = 3
 ```
 
----
-
-## Safe Sudo Protocol
-
-Модуль `lib/sudo.sh` реализует протокол безопасной работы с привилегированными файлами. Любая правка системных файлов (`/etc/hosts`, `wp-config.php` с правами root) проходит через цикл:
-
-**Бэкап (`.bak`) → Правка → Проверка → Rollback или Cleanup**
-
-### Кэширование sudo-прав
-
-В отличие от наивного подхода, когда каждая операция запрашивает пароль заново, DPX использует `dpx_sudo()` — функцию, которая выполняет команды через `sudo` с **циклом аутентификации**: 3 попытки ввода пароля, таймаут 60 секунд. После первой успешной аутентификации `sudo` кэширует права на время сессии (обычно 15 минут по умолчанию в Linux), и последующие вызовы `dpx_sudo` не запрашивают пароль повторно. Это безопасно: кэш хранится только в памяти, привязан к терминалу и автоматически истекает.
-
-### Справочник функций
-
-| Функция                    | Назначение                                                                           |
-| -------------------------- | ------------------------------------------------------------------------------------ |
-| `dpx_sudo()`               | Выполнение команд через sudo: 3 попытки, таймаут 60 с, fallback `gtimeout` для macOS |
-| `dpx_snapshot()`           | Создание бэкапа `file` → `file.bak`                                                  |
-| `dpx_rollback()`           | Восстановление из `.bak` (с sudo при необходимости)                                  |
-| `dpx_cleanup_snapshot()`   | Удаление `.bak` после успешной операции                                              |
-| `dpx_hosts_add()`          | Безопасное добавление записи в `/etc/hosts` с проверкой через ping/DNS               |
-| `dpx_hosts_remove()`       | Безопасное удаление записи из `/etc/hosts`                                           |
-| `dpx_wp_config_snapshot()` | Бэкап `wp-config.php`                                                                |
-| `dpx_wp_config_rollback()` | Восстановление `wp-config.php` из бэкапа                                             |
-| `dpx_wp_config_cleanup()`  | Удаление бэкапа `wp-config.php`                                                      |
-
-Гарантия: если правка проваливается — оригинал восстанавливается из бэкапа. Если правка успешна — бэкап удаляется, не оставляя мусора.
-
----
-
-## Тестовое окружение
-
-Тестовый набор DPX — **154 теста**, покрывающих логику на двух платформенных профилях: нативный Linux и симуляция macOS (Darwin).
+Manage it without hand-editing:
 
 ```bash
-./run_tests.sh                    # полный прогон: ShellCheck gate + все тесты
-bash tests/test_macos_sim.sh      # только macOS/BSD-симуляция
+dpx config            # interactive wizard: projects root, tunnel provider,
+                      # DB credentials, CLI language
+dpx config --show     # print active values and the config file path
+dpx config --projects-root ~/work/php --provider cloudflare --lang ru -y
 ```
 
-| Компонент        | Покрытие                                                                    |
-| ---------------- | ---------------------------------------------------------------------------- |
-| `test_core`      | Переменные окружения, файловые операции, парсинг аргументов (`parse_args`)   |
-| `test_framework` | Самопроверка ассертов тестового фреймворка                                   |
-| `test_macos_sim` | BSD-симуляция: `sed -i ''`, `stat -f`, `readlink` без `-f`, порядок опций bsdtar, полный бэкап, импорт с заменой URL |
-| `test_tunnel_patch` | Nginx Hot-Patch и Smart-Tunnel контент, извлечение DB_NAME из конфигов CMS, ngrok driver (парсеры API, жизненный цикл) |
-| `test_new_cmd`  | Универсальный `dpx new`: типы (вкл. ocStore), меню, обертка new-wp, нормализация docroot, .env-rewriter, резолвер релизов |
-| ShellCheck gate  | Статический анализ раннера и тестов перед прогоном (находки падают сборку)   |
+**First-run:** the first `dpx` invocation on a machine without `~/.config/dpx/dpx.conf` automatically starts the setup wizard (interactive terminals only; non-interactive sessions get a hint pointing at `dpx config`).
 
-**Симуляция macOS без Mac.** Suite `tests/test_macos_sim.sh` выставляет `OSTYPE=darwin*` внутри изолированных процессов Bash и подключает shim'ы BSD-утилит в `PATH`: семантика `sed -i ''`, форматы `stat -f %m/%z`, отсутствие `readlink -f` (macOS < 12.3), строгий порядок опций bsdtar. Кроссплатформенная логика DPX проверяется автоматически на Linux-машине.
+## Tunnels
 
-| Параметр   | Значение                 |
-| ---------- | ------------------------ |
-| **ОС**     | EndeavourOS (Arch Linux) |
-| **Bash**   | 5.3.9                    |
-| **Docker** | 29.4.3                   |
-| **DDEV**   | 1.25.2                   |
-| **jq**     | 1.8.1                    |
+`dpx tunnel` publishes a running project through Cloudflare Tunnel or ngrok. For WordPress it performs three coordinated steps — DB URL replacement, injection of the `DPX_SMART_TUNNEL` block into `wp-config.php` (conditional HTTPS via `X-Forwarded-Proto`, forced Host), and an Nginx hot-patch adding `absolute_redirect off` / `port_in_redirect off` plus forwarded proxy headers — then registers cleanup traps so Ctrl+C restores everything. The ngrok driver extracts the public HTTPS URL from the local API (`127.0.0.1:4040/api/tunnels`) using a jq → python3 → grep parser chain.
 
-Основное тестирование проводится на EndeavourOS. macOS-логика покрыта автоматической BSD-симуляцией; прогоны на реальном железе Mac и WSL2 пока не проводились — обратная связь от пользователей этих платформ приветствуется.
+## Testing & Quality Gates
 
----
+```bash
+./run_tests.sh                    # ShellCheck gate + all suites (Linux profile)
+bash tests/test_macos_sim.sh      # macOS/BSD simulation suite standalone
+```
 
-## Совместимость
+Current state: **171 tests passing** across two platform profiles (native Linux and Darwin simulation with BSD shims for `sed`/`stat`/`readlink`/`tar`). The runner integrates a ShellCheck gate — findings fail the build. Suites: core, framework self-checks, macOS simulation, universal `new` scaffolding, tunnel patches + ngrok driver, configuration wizard, i18n locale layer.
 
-| ОС                                                        | Статус                  | Примечание                                         |
-| --------------------------------------------------------- | ----------------------- | -------------------------------------------------- |
-| Linux (Arch, EndeavourOS, Ubuntu, Debian, Fedora, CentOS) | ✅ Поддерживается       | Основное тестирование: EndeavourOS                 |
-| macOS (Homebrew Bash 4.0+)                                | ⚠️ Симуляционное тестирование | BSD-логика покрыта автотестами (`test_macos_sim.sh`), нужен фидбек с реального железа |
-| macOS (системный Bash 3.2)                                | ❌ Не поддерживается    | Нет ассоциативных массивов                         |
-| Windows (WSL2)                                            | ⚠️ Требует тестирования | Через WSL2 + DDEV, нужен фидбек                    |
+## Roadmap
 
-Кроссплатформенные решения, встроенные в DPX:
+- [x] Interactive setup wizard (`dpx config`, first-run auto trigger)
+- [x] Universal `dpx new` with 6 project types incl. ocStore
+- [x] ngrok provider implementation
+- [x] Internal comments and CLI interface translated to English (ru available via locale/config)
+- [ ] Field testing of `migrate`, `deploy`, `refresh` (Ubuntu, Debian, Fedora)
+- [ ] Real-hardware macOS runs (Homebrew Bash) — BSD logic already covered by simulation tests
+- [ ] WSL2 verification
 
-- `safe_sed_inplace()` — автоочистка `.bak` файлов на macOS (BSD `sed -i ''`)
-- `project_full_backup()` — порядок опций bsdtar (`--exclude` до `-f`) и POSIX-совместимая ротация архивов
-- `dpx_resolve_symlink()` — разрешение симлинков без GNU `readlink -f` (macOS < 12.3)
-- `dpx_docker_compose()` — обёртка для `docker compose` v2 / `docker-compose` v1
-- `timeout` / `gtimeout` — fallback для macOS (coreutils)
-- `ping -W` (Linux) / `ping -t` (macOS) — кроссплатформенный таймаут
-- `getent` (Linux) / `dscl` (macOS) — определение домашней директории
-
----
-
-## VPN и решение проблем
-
-### Локальные проекты не открываются при включённом VPN
-
-Локальные домены DDEV (например, `.lo` или `.ddev.site`) резолвятся на `127.0.0.1`. При активном VPN весь DNS-трафик часто перенаправляется на серверы провайдера — локальный роутер DDEV становится недоступен, браузер выдаёт `ERR_NAME_NOT_RESOLVED` или `ERR_CONNECTION_REFUSED`.
-
-**Решение:**
-
-1. Отключите VPN на время работы с локальными проектами.
-2. Или (предпочтительно): добавьте доменные зоны `*.lo` и `*.ddev.site` с адресом `127.0.0.1` в исключения VPN-клиента (Split Tunneling / Whitelist / Bypass VPN for local networks).
-
-### Cloudflare-туннель не стартует
-
-- Убедитесь, что `cloudflared` установлен и доступен в `PATH`.
-- Проверьте, что проект DDEV запущен: `ddev list`.
-- Проверьте лог: путь к лог-файлу указывается при запуске туннеля.
-
-### wp-config.php повреждён после прерывания
-
-DPX создаёт бэкап `wp-config.php.bak` перед любыми правками и восстанавливает его при ошибке или Ctrl+C. Если бэкап по какой-то причине отсутствует — вручную восстановите `wp-config.php` из DDEV-шаблона: `ddev config --auto` пересоздаст файл.
-
----
-
-## План развития (Roadmap)
-
-- [ ] Тестирование `migrate`, `deploy`, `refresh` на разных окружениях (Ubuntu, Debian, Fedora)
-- [x] Тестирование `new-wp` — интегрировано в универсальный `dpx new` + suite `test_new_cmd` (v1.7.0)
-- [x] Поддержка Joomla, OpenCart, Laravel, plain PHP в туннелировании и URL-замене — каркасы всех типов реализованы в `dpx new` (v1.7.0); туннелирование для не-WP остаётся port-forward без URL-замены
-- [x] Реализация провайдера `ngrok` (v1.6.0: API-driven URL extraction + fallback-парсеры)
-- [ ] Прогоны на реальном macOS-железе (Homebrew Bash) и WSL2 — BSD-логика уже покрыта симуляционными автотестами, нужен живой фидбек
-- [ ] Интерактивная настройка конфигурации при установке (с перезаписью `dpx.conf`)
-- [x] Рефакторинг: перевод внутренних комментариев кода и CLI-интерфейса на английский язык (English is now the default CLI language; `DPX_LANG`/`LC_ALL`/`LANG` автоматически включают русский для покрытых строк — см. `lib/i18n.sh`)
-
----
-
-
-
-## Разработка и стек
-
-Инструмент спроектирован в рамках концепции **Human-AI Collaboration**. Архитектура системы, логика миграций и протоколы безопасности (Rollback/Snapshot) — результат инженерного проектирования автора, реализованный мощностями современных LLM-моделей.
-
-* **Lead Architect & QA:** **vinyardrip** — проектирование «мозга» системы, создание ТЗ, глубокое тестирование в реальных проектах  и финальная сборка.
-* **Core Development:** **GLM 5.0 Turbo** — написание основной кодовой базы и логики модулей.
-* **Technical Reviewer:** **Gemini 3.1 Pro Preview** — глубокий аудит кода, контроль архитектурной целостности и верификация логики безопасности.
-* **Assistant & Support:** **Gemini 3.1 Flash-Lite (GA)** — оперативная поддержка, помощь в отладке и документирование.
-
-"Этот инструмент я делал прежде всего для автоматизации своей ежедневной рутины. Если он окажется полезен и вам — буду рад."
-
----
-
-## Лицензия
+## License
 
 [MIT License](https://github.com/vinyardrip/dpx/blob/main/LICENSE)
 

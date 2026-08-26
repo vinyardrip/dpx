@@ -189,7 +189,7 @@ echo "${TEST_CYAN}=== router registration ===${TEST_RESET}"
 
 test_start "'new' registered in run_command dispatch"
 if grep -qE '\|new(-wp)?\|' "$DPX_ROOT/dpx.sh" \
-   && grep -qF '|refresh|migrate|ddev|tunnel|update|info|backup)' "$DPX_ROOT/dpx.sh" \
+   && grep -qF '|refresh|migrate|ddev|tunnel|update|info|backup|config)' "$DPX_ROOT/dpx.sh" \
    && grep -qF '|db-snap|db-restore|new-wp|new|refresh|migrate' "$DPX_ROOT/dpx.sh"; then
     test_pass
 else
@@ -197,13 +197,13 @@ else
 fi
 
 test_start "'new' in help-router list (--help interception)"
-if grep -qF '|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup)' "$DPX_ROOT/dpx.sh"; then
+if grep -qF '|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup|config)' "$DPX_ROOT/dpx.sh"; then
     test_pass
 else
     test_fail "help-router list missing 'new'"
 fi
 
-test_start "command/new.sh present and defines cmd_new"
+test_start "commands/new.sh present and defines cmd_new"
 if [[ -f "$DPX_ROOT/commands/new.sh" ]] && grep -qF "cmd_new()" "$DPX_ROOT/commands/new.sh"; then
     test_pass
 else
