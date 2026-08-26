@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Projects Module - работа со списком проектов
+# DPX Projects Module - work with list projects
 # =================================================================
 
-# Защита от повторного подключения
+# Re-entrancy guard
 [[ -n "${_DPX_PROJECTS_LOADED:-}" ]] && return 0
 readonly _DPX_PROJECTS_LOADED=1
 
-# Подключаем зависимости
+# Connect dependencies
 source "${DPX_ROOT}/lib/core.sh"
 source "${DPX_ROOT}/lib/ddev.sh"
 
 # =================================================================
-# ПОЛУЧЕНИЕ СПИСКА ПРОЕКТОВ
+# RECEIVED LIST PROJECTS
 # =================================================================
 
 projects_get_base_path() {
@@ -72,12 +72,12 @@ projects_get_php_version() {
 }
 
 # =================================================================
-# ИНТЕРАКТИВНЫЙ ВЫБОР ПРОЕКТА
+# INTERACTIVE SELECTION PROJECT
 # =================================================================
 
 projects_select_interactive() {
     local return_path=false
-    local prompt="${1:-Выберите проект}"
+    local prompt="${1:-Select project}"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -90,7 +90,7 @@ projects_select_interactive() {
     local base_path=$(projects_get_base_path)
 
     if [[ ! -d "$base_path" ]]; then
-        print_error "Директория проектов не найдена: $base_path" >&2
+        print_error "Director projects not found: $base_path" >&2
         return 1
     fi
 
@@ -122,7 +122,7 @@ projects_select_interactive() {
     local count=${#projects[@]}
 
     if [[ $count -eq 0 ]]; then
-        print_warning "DDEV проекты не найдены в: $base_path" >&2
+        print_warning "DDEV projects not founds in: $base_path" >&2
         return 1
     fi
 
@@ -130,7 +130,7 @@ projects_select_interactive() {
 
     echo "" >&2
     printf '%b' "$COLOR_BOLD" >&2
-    printf ' %-3s | %-31s | %-8s | %s\n' "№" "Проект" "PHP" "Статус" >&2
+    printf ' %-3s | %-31s | %-8s | %s\n' "№" "Project" "PHP" "Status" >&2
     printf '%b' "$COLOR_RESET" >&2
     echo "-----|---------------------------------|----------|---------" >&2
 
@@ -152,7 +152,7 @@ projects_select_interactive() {
     echo "" >&2
 
     local choice
-    read -r -p "Введите номер или имя проекта: " choice
+    read -r -p "Enter number ors name project: " choice
 
     local selected=""
 
@@ -168,7 +168,7 @@ projects_select_interactive() {
         done
 
         if [[ -z "$selected" ]]; then
-            print_error "Проект '$choice' не найден" >&2
+            print_error "Project '$choice' not found" >&2
             return 1
         fi
     else

@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Meta Module - управление метаданными проектов
-# Хранилище: ~/.config/dpx/projects.json
+# DPX Meta Module - management metadatas projects
+# Storage: ~/.config/dpx/projects.json
 # =================================================================
 
-# Защита от повторного подключения
+# Re-entrancy guard
 [[ -n "${_DPX_META_LOADED:-}" ]] && return 0
 readonly _DPX_META_LOADED=1
 
 # =================================================================
-# ПУТЬ К ФАЙЛУ ХРАНИЛИЩА
+# PATH To FILE STORAGE
 # =================================================================
 
-# Файл метаданных проектов
+# File metadata projects
 dpx_meta_file() {
     echo "${HOME}/.config/${TOOL_NAME}/projects.json"
 }
 
-# Инициализация хранилища (создаёт пустой файл если нет)
+# Initialization storage (creates empty file ifs no)
 dpx_meta_init() {
     local meta_file
     meta_file=$(dpx_meta_file)
@@ -29,10 +29,10 @@ dpx_meta_init() {
 }
 
 # =================================================================
-# ЧТЕНИЕ МЕТАДАННЫХ
+# READING METADATA
 # =================================================================
 
-# Получить значение по ключу для проекта
+# Get value by key for project
 # dpx_meta_get <project_name> <key> [default]
 dpx_meta_get() {
     local project_name="$1"
@@ -50,7 +50,7 @@ dpx_meta_get() {
     echo "${value:-$default}"
 }
 
-# Получить все метаданные проекта (JSON)
+# Get all metadata project (JSON)
 # dpx_meta_get_all <project_name>
 dpx_meta_get_all() {
     local project_name="$1"
@@ -63,7 +63,7 @@ dpx_meta_get_all() {
         '.projects[$name] // empty' "$meta_file" 2>/dev/null
 }
 
-# Проверить наличие проекта в хранилище
+# Verify presence project in storage
 dpx_meta_exists() {
     local project_name="$1"
 
@@ -76,10 +76,10 @@ dpx_meta_exists() {
 }
 
 # =================================================================
-# ЗАПИСЬ МЕТАДАННЫХ
+# RECORD METADATA
 # =================================================================
 
-# Установить значение для проекта
+# Install value for project
 # dpx_meta_set <project_name> <key> <value>
 dpx_meta_set() {
     local project_name="$1"
@@ -99,7 +99,7 @@ dpx_meta_set() {
     mv "$temp_file" "$meta_file"
 }
 
-# Удалить ключ из проекта
+# Remove key from project
 # dpx_meta_unset <project_name> <key>
 dpx_meta_unset() {
     local project_name="$1"
@@ -118,7 +118,7 @@ dpx_meta_unset() {
     mv "$temp_file" "$meta_file"
 }
 
-# Удалить все метаданные проекта
+# Remove all metadata project
 # dpx_meta_delete <project_name>
 dpx_meta_delete() {
     local project_name="$1"
@@ -137,25 +137,25 @@ dpx_meta_delete() {
 }
 
 # =================================================================
-# СПЕЦИАЛИЗИРОВАННЫЕ ГЕТТЕРЫ
+# SPECIALIZED GETTERS
 # =================================================================
 
-# Получить php_max
+# Get php_max
 dpx_get_php_max() {
     dpx_meta_get "$1" "php_max" "-"
 }
 
-# Получить тип проекта
+# Get type project
 dpx_get_project_type() {
     dpx_meta_get "$1" "type" "-"
 }
 
-# Получить заметки
+# Get notes
 dpx_get_notes() {
     dpx_meta_get "$1" "notes" "-"
 }
 
-# Получить дату тестирования
+# Get date testing
 dpx_get_tested() {
     dpx_meta_get "$1" "tested" "-"
 }

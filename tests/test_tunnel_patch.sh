@@ -2,17 +2,17 @@
 # =================================================================
 # DPX Unit Tests: Tunnel Patches (Nginx/Smart-Tunnel) + DB Name Detection
 #
-# Покрывает:
+# Covers:
 #   - Nginx Hot-Patch: absolute_redirect/port_in_redirect + forwarded
-#     headers (Host, X-Forwarded-Proto) — контент генерируемого скрипта;
-#   - DPX_SMART_TUNNEL PHP-блок: условный HTTPS по X-Forwarded-Proto;
-#   - db_get_db_name(): динамическое извлечение имени БД из конфигов
-#     WordPress/Joomla/OpenCart + fallback-поведение;
-#   - Портативность извлечения под симуляцией BSD sed (darwin).
+#     headers (Host, X-Forwarded-Proto) — content generated script;
+#   - DPX_SMART_TUNNEL PHP-block: conditional HTTPS by X-Forwarded-Proto;
+#   - db_get_db_name(): dynamic extract nameds DATABASE from configs
+#     WordPress/Joomla/OpenCart + fallback-behavior;
+#   - Portability extract under simulation BSD sed (darwin).
 # =================================================================
 
 if (( BASH_VERSINFO[0] < 4 )); then
-    echo "ОШИБКА: Тесты требуют Bash 4.0+" >&2
+    echo "ERROR: Tests require Bash 4.0+" >&2
     exit 1
 fi
 
@@ -30,7 +30,7 @@ FIXTURES="$TEST_TEMP_DIR/fixtures"
 mkdir -p "$FIXTURES"
 
 # =================================================================
-# ФИКСТУРЫ КОНФИГОВ CMS
+# FIXTURES CONFIGS CMS
 # =================================================================
 
 mkdir -p "$FIXTURES/wp_classic" "$FIXTURES/wp_spaced" "$FIXTURES/wp_nodbname" \
@@ -50,8 +50,8 @@ define("DB_NAME",   "shop_prod_db");
 define( 'DB_USER', "db" );
 PHPEOF
 
-# Конфиг без DB_NAME (Bedrock-style): должен сработать WP-CLI фолбэк,
-# который вне окружения DDEV мягко вернёт пустоту.
+# Config without DB_NAME (Bedrock-style): must fired WP-CLI fallback,
+# which outside environment DDEV soft return emptiness.
 cat > "$FIXTURES/wp_nodbname/wp-config.php" << 'PHPEOF'
 <?php
 require __DIR__ . '/vendor/autoload.php';
@@ -79,7 +79,7 @@ define('DB_NAME', 'bad name;drop table');
 PHPEOF
 
 # =================================================================
-# ЗАГРУЗКА МОДУЛЕЙ (linux-профиль)
+# DOWNLOAD MODULE (linux-profile)
 # =================================================================
 
 source "$DPX_ROOT/lib/core.sh"
@@ -88,7 +88,7 @@ source "$DPX_ROOT/lib/database.sh"
 # shellcheck disable=SC1091
 source "$DPX_ROOT/commands/tunnel.sh"
 
-# Хелпер: маркер есть -> pass
+# Helper: marker consumes -> pass
 check_marker() { # $1 marker, $2 haystack
     if grep -qF -- "$1" <<<"$2"; then
         test_pass
@@ -97,7 +97,7 @@ check_marker() { # $1 marker, $2 haystack
     fi
 }
 
-# Хелпер: значение совпало -> pass (один вызов источника данных)
+# Helper: value matched -> pass (one calls source data)
 check_value() { # $1 expected, $2 actual
     if [[ "$1" == "$2" ]]; then
         test_pass
@@ -107,7 +107,7 @@ check_value() { # $1 expected, $2 actual
 }
 
 # =================================================================
-# СЕКЦИЯ A: db_get_db_name (нативный Linux)
+# SECTION A: db_get_db_name (native Linux)
 # =================================================================
 
 echo ""
@@ -139,7 +139,7 @@ fi
 test_start "Invalid DB name rejected (sanitized to empty)"
 err_file="$TEST_TEMP_DIR/err.log"
 result="$(db_get_db_name "$FIXTURES/wp_badname" wordpress 2>"$err_file")"
-if [[ -z "$result" ]] && grep -qF "некорректное имя БД" "$err_file"; then
+if [[ -z "$result" ]] && grep -qF "invalid database name" "$err_file"; then
     test_pass
 else
     test_fail "result='$result' stderr=$(cat "$err_file")"
@@ -154,7 +154,7 @@ else
 fi
 
 # =================================================================
-# СЕКЦИЯ B: NGINX HOT-PATCH CONTENT
+# SECTION B: NGINX HOT-PATCH CONTENT
 # =================================================================
 
 echo ""
@@ -169,7 +169,7 @@ test_start "port_in_redirect off present"
 check_marker "port_in_redirect off;" "$patch_script"
 
 test_start "proxy header Host forwarded (\$http_host)"
-# shellcheck disable=SC2016  # литерал $http_host — часть nginx-директивы
+# shellcheck disable=SC2016  # literal $http_host — hour nginx-directives
 check_marker 'proxy_set_header Host $http_host;' "$patch_script"
 
 test_start "proxy header X-Forwarded-Proto forced to https"
@@ -182,7 +182,7 @@ test_start "idempotent cleanup markers preserved"
 check_marker "# BEGIN_DPX_NGINX" "$patch_script"
 
 # =================================================================
-# СЕКЦИЯ C: DPX_SMART_TUNNEL PHP BLOCK
+# SECTION C: DPX_SMART_TUNNEL PHP BLOCK
 # =================================================================
 
 echo ""
@@ -191,7 +191,7 @@ echo "${TEST_CYAN}=== Smart Tunnel PHP block ===${TEST_RESET}"
 smart_block="$(tunnel_smart_block_render "tunnel.example.com")"
 
 test_start "conditional HTTPS via X-Forwarded-Proto check"
-# shellcheck disable=SC2016  # литеральный PHP-код, $_SERVER не раскрывается
+# shellcheck disable=SC2016  # literal PHP-code, $_SERVER not reveals
 check_marker "isset(\$_SERVER['HTTP_X_FORWARDED_PROTO']) && \$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https'" "$smart_block"
 
 test_start "HTTPS='on' set inside condition"
@@ -215,7 +215,7 @@ else
 fi
 
 # =================================================================
-# СЕКЦИЯ D: ПОРТАТИВНОСТЬ ИЗВЛЕЧЕНИЯ ПОД BSD SED (darwin-симуляция)
+# SECTION D: PORTABILITY EXTRACT UNDER BSD SED (darwin-simulation)
 # =================================================================
 
 echo ""
@@ -225,7 +225,7 @@ SHIM_BIN="$TEST_TEMP_DIR/bin"
 SCEN_DIR="$TEST_TEMP_DIR/scenarios"
 mkdir -p "$SHIM_BIN" "$SCEN_DIR"
 
-# BSD sed shim: только раздельная форма `-i EXT`, никаких long-opts
+# BSD sed shim: only separate form `-i EXT`, no way long-opts
 cat > "$SHIM_BIN/sed" << 'EOF'
 #!/usr/bin/env bash
 REAL_SED="${DPX_REAL_SED:-/usr/bin/sed}"
@@ -246,7 +246,7 @@ exec "$REAL_SED" "${args[@]}"
 EOF
 chmod +x "$SHIM_BIN/sed"
 
-# Сценарий: извлечение имён БД в darwin-окружении
+# Scenario: extract named DATABASE in darwin-environments
 cat > "$SCEN_DIR/dbnames.sh" << 'EOF'
 export OSTYPE=darwin23
 source "$DPX_ROOT/lib/paths.sh"
@@ -264,7 +264,7 @@ EOF
 run_darwin() {
     local script="$1"; shift
     (
-        # Изоляция окружения намеренная (подпроцесс сценария)
+        # Isolation environment intentional (subprocess scenario)
         # shellcheck disable=SC2030
         export PATH="$SHIM_BIN:$PATH"
         exec "${BASH}" "$script" "$@"
@@ -284,14 +284,14 @@ out="$(run_darwin "$SCEN_DIR/dbnames.sh" "$FIXTURES/opencart_site" 2>&1)"
 check_marker "R=oc_base" "$out"
 
 # =================================================================
-# СЕКЦИЯ E: WIRING REFRESH.SH (защита от регрессии связки)
+# SECTION E: WIRING REFRESH.SH (protect from regressions bundles)
 # =================================================================
 
 echo ""
 echo "${TEST_CYAN}=== refresh.sh integration wiring ===${TEST_RESET}"
 
 test_start "refresh.sh calls db_get_db_name with project context"
-# shellcheck disable=SC2016  # ищем литеральную строку исходника, не раскрытие
+# shellcheck disable=SC2016  # searching literal line source, not expanded
 if grep -qF 'db_get_db_name "$project_path" "$cms_type"' "$DPX_ROOT/commands/refresh.sh"; then
     test_pass
 else
@@ -307,13 +307,13 @@ else
 fi
 
 # =================================================================
-# СЕКЦИЯ F: NGROK DRIVER (парсеры API, цикл ожидания, жизненный цикл)
+# SECTION F: NGROK DRIVER (parsers API, loop expect, lifecycle loop)
 # =================================================================
 
 echo ""
 echo "${TEST_CYAN}=== ngrok provider: parsers ===${TEST_RESET}"
 
-# Фикстуры API-ответов ngrok (/api/tunnels)
+# Fixtures API-responses ngrok (/api/tunnels)
 NGROK_OK_JSON='{"tunnels":[{"name":"cmd","proto":"http","public_url":"http://abc.ngrok-free.app"},{"name":"cmd","proto":"https","public_url":"https://abc.ngrok-free.app"}]}'
 NGROK_SPACED_JSON='{"tunnels":[ {"proto":"https", "public_url" :  "https://spaced.ngrok.app" } ]}'
 NGROK_HTTP_ONLY_JSON='{"tunnels":[{"proto":"http","public_url":"http://only-http.ngrok.app"}]}'
@@ -345,7 +345,7 @@ check_value "" "$(tunnel_ngrok_parse_api "$NGROK_GARBAGE")"
 test_start "[ngrok] HTTP-only tunnel rejected (HTTPS required by spec)"
 check_value "" "$(tunnel_ngrok_parse_api "$NGROK_HTTP_ONLY_JSON")"
 
-# --- Цикл ожидания и жизненный цикл: подмена curl/ngrok через PATH ---
+# --- Loop expect and lifecycle loop: substitution curl/ngrok via PATH ---
 
 cat > "$SHIM_BIN/curl" << 'EOF'
 #!/usr/bin/env bash
@@ -354,13 +354,13 @@ EOF
 
 cat > "$SHIM_BIN/ngrok" << 'EOF'
 #!/usr/bin/env bash
-# Фейковый ngrok: живёт 60с как единый процесс (exec), лог пустой
+# Fake ngrok: lives 60with as single process (exec), log empty
 exec sleep 60
 EOF
 chmod +x "$SHIM_BIN/curl" "$SHIM_BIN/ngrok"
 
 test_start "[ngrok] wait loop extracts URL from mocked API (fast poll)"
-# Изоляция окружения в $( ) намеренная (shim-PATH, интервалы опроса)
+# Isolation environment in $( ) intentional (shim-PATH, intervals polling)
 # shellcheck disable=SC2030,SC2031
 out="$(
     {
@@ -368,7 +368,7 @@ out="$(
         TUNNEL_NGROK_POLL_INTERVAL=0.05
         TUNNEL_NGROK_MAX_WAIT=5
         export FAKE_NGROK_API_PAYLOAD="$NGROK_OK_JSON"
-        # [FIX] stdout потомка -> /dev/null, иначе $( ) ждёт закрытия пайпа
+        # [FIX] stdout child -> /dev/null, otherwise $( ) waits closed pipe
         sleep 30 >/dev/null 2>&1 & _DPX_TUNNEL_PID=$!
         tunnel_ngrok_wait_public_url
     }
@@ -383,7 +383,7 @@ out="$(
         export PATH="$SHIM_BIN:$PATH"
         TUNNEL_NGROK_POLL_INTERVAL=0.05
         export FAKE_NGROK_API_PAYLOAD="$NGROK_OK_JSON"
-        _DPX_TUNNEL_PID=999999   # заведомо несуществующий процесс
+        _DPX_TUNNEL_PID=999999   # knowingly nonexistent process
         tunnel_ngrok_wait_public_url
     }
 )" || rc_dead=$?
@@ -440,8 +440,8 @@ test_start "[ngrok] stop(): zero orphan processes after shutdown"
 check_marker "ORPHAN_CLEAN" "$lifecycle_out"
 
 test_start "[ngrok] host-header forwarded into command line"
-# Статическая гарантия: --host-header присутствует в сборке команды
-# shellcheck disable=SC2016  # литеральная строка исходника
+# Static guarantee: --host-header present in assembly command
+# shellcheck disable=SC2016  # literal line source
 if grep -qF '"--host-header=${host_header}"' "$DPX_ROOT/commands/tunnel.sh"; then
     test_pass
 else
@@ -449,7 +449,7 @@ else
 fi
 
 # =================================================================
-# СЕКЦИЯ G: NGROK ПАРСЕРЫ ПОД DARWIN (BSD-симуляция)
+# SECTION G: NGROK PARSERS UNDER DARWIN (BSD-simulation)
 # =================================================================
 
 echo ""
@@ -457,7 +457,7 @@ echo "${TEST_CYAN}=== ngrok parsers under simulated BSD ===${TEST_RESET}"
 
 cat > "$SCEN_DIR/ngrok_parse.sh" << 'EOF'
 export OSTYPE=darwin23
-# ngrok-функции живут в commands/tunnel.sh (он сам подтягивает lib/*)
+# ngrok-functions live in command/tunnel.sh (it itself pulls lib/*)
 source "$DPX_ROOT/lib/paths.sh"
 source "$DPX_ROOT/lib/io.sh"
 source "$DPX_ROOT/commands/tunnel.sh"
@@ -479,7 +479,7 @@ test_start "[darwin][ngrok] grep/cut fallback parser"
 check_marker "G=https://abc.ngrok-free.app" "$out"
 
 # =================================================================
-# ИТОГИ
+# SUMMARIES
 # =================================================================
 
 print_test_summary

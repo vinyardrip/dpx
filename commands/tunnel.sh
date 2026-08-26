@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Command: tunnel - проброс туннеля для показа проекта заказчику
-# Провайдеры: cloudflared (Cloudflare Tunnel), ngrok — оба полностью рабочие
-# Архитектура: DPX_SMART_TUNNEL — самоактивирующийся блок
-# Версия: v1.6.0 — ngrok provider (API-driven URL extraction + fallback parsers)
+# DPX Command: tunnel - forwarding tunnel for show project client
+# Providers: cloudflared (Cloudflare Tunnel), ngrok — both fully working
+# Architecture: DPX_SMART_TUNNEL — self-activating block
+# Version: v1.6.0 — ngrok provider (API-driven URL extraction + fallback parsers)
 # =================================================================
 
-# Подключаем модули
+# Connect modules
 source "${DPX_ROOT}/lib/core.sh"
 source "${DPX_ROOT}/lib/cms.sh"
 source "${DPX_ROOT}/lib/ddev.sh"
@@ -14,7 +14,7 @@ source "${DPX_ROOT}/lib/database.sh"
 source "${DPX_ROOT}/lib/projects.sh"
 
 # =================================================================
-# КОНСТАНТЫ
+# CONSTANTS
 # =================================================================
 
 readonly TUNNEL_MARKER_START="/** DPX_SMART_TUNNEL */"
@@ -24,18 +24,18 @@ readonly TUNNEL_PROVIDER_NGROK="ngrok"
 readonly WP_CONFIG_PROTECTED_TAIL=10
 
 # =================================================================
-# NGROK DRIVER — НАСТРАИВАЕМЫЕ ПАРАМЕТРЫ (v1.6.0)
+# NGROK DRIVER — CONFIGURABLE PARAMETERS (v1.6.0)
 #
-# TUNNEL_NGROK_API_PORT     порт локального ngrok API (inspect);
-#                           переопределяется через DPX_NGROK_API_PORT;
-#                           при заданном значении в команду добавляется
-#                           --web-addr (поддерживается ngrok v3).
-# TUNNEL_NGROK_MAX_WAIT     бюджет ожидания публичного URL, секунд;
+# TUNNEL_NGROK_API_PORT     port local ngrok API (inspect);
+#                           overrides via DPX_NGROK_API_PORT;
+#                           durings given values in command adds
+#                           --web-addr (supports ngrok v3).
+# TUNNEL_NGROK_MAX_WAIT     budget expect public URL, seconds;
 #                           DPX_NGROK_MAX_WAIT.
-# TUNNEL_NGROK_POLL_INTERVAL интервал опроса API, секунд; DPX_NGROK_POLL_INTERVAL.
+# TUNNEL_NGROK_POLL_INTERVAL interval polling API, seconds; DPX_NGROK_POLL_INTERVAL.
 #
-# Переменные НЕ readonly намеренно: тесты подменяют интервал,
-# чтобы не ждать полный таймаут.
+# Variable NOT readonly intentional: tests substitute interval,
+# so that not wait full timeout.
 # =================================================================
 
 TUNNEL_NGROK_API_PORT="${DPX_NGROK_API_PORT:-4040}"
@@ -61,36 +61,36 @@ _dpx_realpath() {
 }
 
 # =================================================================
-# СПРАВКА
+# HELP
 # =================================================================
 
 show_tunnel_help() {
     cat << EOF
- ${COLOR_BOLD}tunnel${COLOR_RESET} - Проброс туннеля для показа проекта заказчику
+ ${COLOR_BOLD}tunnel${COLOR_RESET} - Forwarding tunnel for show project client
 
- ${COLOR_BOLD}Использование:${COLOR_RESET}
-    ${TOOL_NAME} tunnel [опции]
+ ${COLOR_BOLD}Usage:${COLOR_RESET}
+    ${TOOL_NAME} tunnel [options]
 
- ${COLOR_BOLD}Описание:${COLOR_RESET}
-    Создает публичный туннель к локальному DDEV-проекту.
-    Для WordPress автоматически:
-      - Внедряет DPX_SMART_TUNNEL блок в wp-config.php
-      - Применяет Nginx Hot-Patch для отключения абсолютных редиректов.
-      - Заменяет URL в БД через wp search-replace.
-    При завершении (Ctrl+C) выполняется полный откат:
-    восстановление wp-config.php из снапшота (mv -f), возврат URL в БД, откат Nginx.
+ ${COLOR_BOLD}Description:${COLOR_RESET}
+    Creates public tunnel to local DDEV-project.
+    For WordPress automatics:
+      - Injects DPX_SMART_TUNNEL block in wp-config.php
+      - Applies Nginx Hot-Patch for disabled absolute redirects.
+      - Replaces URL in database via wp search-replace.
+    Durings completions (Ctrl+C) performs full rollback:
+    restor wp-config.php from snapshot (mv -f), return URL in database, rollback Nginx.
 
- ${COLOR_BOLD}Опции:${COLOR_RESET}
-    --project-name NAME    Имя проекта DDEV
-    --cms-type TYPE        Тип CMS (wordpress, joomla, opencart, php)
-    --provider PROVIDER    Провайдер туннеля: cloudflare | ngrok (оба рабочие)
-    -y, --yes              Пропустить подтверждения
-    -h, --help             Показать эту справку
+ ${COLOR_BOLD}Options:${COLOR_RESET}
+    --project-name NAME    Name project DDEV
+    --cms-type TYPE        Type CMS (wordpress, joomla, opencart, php)
+    --provider PROVIDER    Provider tunnel: cloudflare | ngrok (both working)
+    -y, --yes              Skipp confirmation
+    -h, --help             Show this help
 EOF
 }
 
 # =================================================================
-# УРОВЕНЬ 0: WP-CLI EXECUTOR
+# LEVEL 0: WP-CLI EXECUTOR
 # =================================================================
 
 tunnel_wp_exec() {
@@ -111,7 +111,7 @@ tunnel_wp_exec() {
 }
 
 # =================================================================
-# УРОВЕНЬ 1: ПРОВАЙДЕРЫ ТУННЕЛЕЙ
+# LEVEL 1: PROVIDERS TUNNEL
 # =================================================================
 
 tunnel_detect_providers() {
@@ -144,14 +144,14 @@ tunnel_select_provider() {
         echo "$providers" | head -1
         return 0
     else
-        print_header "Выберите провайдер туннеля"
+        print_header "Select provider tunnel"
         local i=1
         while IFS= read -r prov; do
             echo "  $i. $prov" >&2
             ((i++))
         done <<< "$providers"
         local choice
-        read -r -p "Выберите [1]: " choice
+        read -r -p "Select [1]: " choice
         choice="${choice:-1}"
         if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= count )); then
             echo "$providers" | sed -n "${choice}p"
@@ -164,11 +164,11 @@ tunnel_select_provider() {
 
 tunnel_cloudflare_check() {
     if ! command -v cloudflared >/dev/null 2>&1; then
-        print_error "cloudflared не найден."
-        print_info "Установка: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+        print_error "cloudflared not found."
+        print_info "Install: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
         return 1
     fi
-    print_success "cloudflared найден: $(cloudflared --version 2>&1 | head -1)"
+    print_success "cloudflared found: $(cloudflared --version 2>&1 | head -1)"
     return 0
 }
 
@@ -179,7 +179,7 @@ tunnel_cloudflare_start() {
 
     local -a cf_cmd=(cloudflared tunnel --url "$target_url")
 
-    # Передаём Host-заголовок для Traefik.
+    # Before Host-header for Traefik.
     if [[ -n "$host_header" ]]; then
         cf_cmd+=(--http-host-header "$host_header")
     fi
@@ -187,8 +187,8 @@ tunnel_cloudflare_start() {
     "${cf_cmd[@]}" > "$log_file" 2>&1 &
     local pid=$!
 
-    print_info "cloudflared запущен (PID: $pid)..."
-    print_info "Ожидание URL туннеля..."
+    print_info "cloudflared run (PID: $pid)..."
+    print_info "Expect URL tunnel..."
 
     local tunnel_url=""
     local max_wait=30
@@ -206,21 +206,21 @@ tunnel_cloudflare_start() {
     echo "" >&2
 
     if [[ -z "$tunnel_url" ]]; then
-        print_error "Не удалось получить URL туннеля за ${max_wait} секунд."
+        print_error "Not remove get URL tunnel for ${max_wait} seconds."
         if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; fi
         return 1
     fi
 
     _DPX_TUNNEL_PID="$pid"
     _DPX_TUNNEL_URL="$tunnel_url"
-    print_success "Туннель создан: $tunnel_url"
+    print_success "Tunnel creat: $tunnel_url"
     return 0
 }
 
 tunnel_cloudflare_stop() {
     local pid="$1"
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-        print_info "Остановка cloudflared (PID: $pid)..."
+        print_info "Stop cloudflared (PID: $pid)..."
         kill "$pid" 2>/dev/null
         local wait_count=0
         while kill -0 "$pid" 2>/dev/null && (( wait_count < 10 )); do
@@ -228,30 +228,30 @@ tunnel_cloudflare_stop() {
             ((wait_count++))
         done
         if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null; fi
-        print_success "cloudflared остановлен."
+        print_success "cloudflared stopped."
     fi
 }
 
 # =================================================================
 # NGROK DRIVER (v1.6.0)
 #
-# Контракт идентичен cloudflare-драйверу:
+# Contract identical cloudflare-driver:
 #   start(target_url, log_file, host_header) -> _DPX_TUNNEL_PID/_DPX_TUNNEL_URL;
 #   stop(pid) — TERM, grace, KILL.
 #
-# Публичный URL извлекается из локального API ngrok
-# (http://127.0.0.1:<port>/api/tunnels) с цепочкой парсеров:
+# Public URL extracts from local API ngrok
+# (http://127.0.0.1:<port>/api/tunnels) with chain parsers:
 #   jq -> python3 -> grep/cut fallback.
-# Выбирается ТОЛЬКО https:// endpoint (спецификация DPX).
+# Selects ONLY https:// endpoint (specification DPX).
 # =================================================================
 
-# Парсер JSON через jq: первый https-endpoint из массива tunnels.
+# Parser JSON via jq: first https-endpoint from array tunnels.
 _tunnel_ngrok_parse_jq() {
     local payload="$1"
     printf '%s' "$payload" | jq -r '[.tunnels[]? | select(.public_url? | startswith("https"))][0].public_url // empty' 2>/dev/null
 }
 
-# Парсер JSON через python3 (fallback, когда jq отсутствует).
+# Parser JSON via python3 (fallback, when jq missing).
 _tunnel_ngrok_parse_python() {
     local payload="$1"
     python3 - "$payload" 2>/dev/null << 'PYEOF'
@@ -268,7 +268,7 @@ except Exception:
 PYEOF
 }
 
-# Последний рубеж: grep+cut по сырому JSON (без внешних зависимостей).
+# Last line: grep+cut by raw JSON (without external dependency).
 _tunnel_ngrok_parse_grep() {
     local payload="$1"
     printf '%s' "$payload" \
@@ -277,7 +277,7 @@ _tunnel_ngrok_parse_grep() {
         | cut -d'"' -f4
 }
 
-# Диспетчер парсеров по доступности инструментов.
+# Dispatcher parsers by availabilities tools.
 tunnel_ngrok_parse_api() {
     local payload="$1"
     if command -v jq >/dev/null 2>&1; then
@@ -289,13 +289,13 @@ tunnel_ngrok_parse_api() {
     _tunnel_ngrok_parse_grep "$payload"
 }
 
-# GET локального inspect-API; пустой вывод при любой ошибке сети.
+# GET local inspect-API; empty output durings any error networks.
 tunnel_ngrok_fetch_api() {
     curl -sf --max-time 2 "http://127.0.0.1:${TUNNEL_NGROK_API_PORT}/api/tunnels" 2>/dev/null || true
 }
 
-# Цикл ожидания публичного URL с общим бюджетом TUNNEL_NGROK_MAX_WAIT.
-# Ранний выход, если процесс ngrok умер (ошибка конфигурации/authtoken).
+# Loop expect public URL with general budget TUNNEL_NGROK_MAX_WAIT.
+# Early exit, ifs process ngrok died (error configurations/authtoken).
 tunnel_ngrok_wait_public_url() {
     local deadline=$(( SECONDS + TUNNEL_NGROK_MAX_WAIT ))
     local payload url=""
@@ -323,19 +323,19 @@ tunnel_ngrok_wait_public_url() {
 
 tunnel_ngrok_check() {
     if ! command -v ngrok >/dev/null 2>&1; then
-        print_error "ngrok не найден."
-        print_info "Установка:"
+        print_error "ngrok not found."
+        print_info "Install:"
         print_info "  macOS:          brew install ngrok"
-        print_info "  Ubuntu/Debian:  snap install ngrok  (или .deb с ngrok.com/download)"
+        print_info "  Ubuntu/Debian:  snap install ngrok  (ors .deb with ngrok.com/download)"
         print_info "  Arch:           yay -S ngrok"
-        print_info "После установки авторизуйтесь: ngrok config add-authtoken <TOKEN>"
+        print_info "After installs authorize: ngrok config add-authtoken <TOKEN>"
         return 1
     fi
     if ! command -v curl >/dev/null 2>&1; then
-        print_error "curl не найден — ngrok-драйверу нужен доступ к локальному API."
+        print_error "curl not found — ngrok-driver needed access to local API."
         return 1
     fi
-    print_success "ngrok найден: $(ngrok --version 2>&1 | head -1)"
+    print_success "ngrok found: $(ngrok --version 2>&1 | head -1)"
     return 0
 }
 
@@ -346,12 +346,12 @@ tunnel_ngrok_start() {
 
     local -a cmd=(ngrok http)
 
-    # DDEV-router маршрутизирует по Host: без заголовка запросы
-    # на мультипроектной машине попадут в default vhost.
+    # DDEV-router routes by Host: without header requests
+    # on multi-project machine land in default vhost.
     [[ -n "$host_header" ]] && cmd+=("--host-header=${host_header}")
-    # Легаси-опция ngrok v2; v3 игнорирует регионы через конфиг.
+    # Legacy option ngrok v2; v3 ignores regions via config.
     [[ -n "${DPX_NGROK_REGION:-}" ]] && cmd+=("--region=${DPX_NGROK_REGION}")
-    # Пиновать inspect-API можно только на v3 (--web-addr); включается явно.
+    # Pinned inspect-API can only on v3 (--web-addr); includes explicit.
     [[ -n "${DPX_NGROK_API_PORT:-}" ]] && cmd+=("--web-addr=127.0.0.1:${TUNNEL_NGROK_API_PORT}")
 
     cmd+=("$target_url")
@@ -360,7 +360,7 @@ tunnel_ngrok_start() {
     local pid=$!
     _DPX_TUNNEL_PID="$pid"
 
-    print_info "ngrok запущен (PID: $pid); ожидание HTTPS URL (до ${TUNNEL_NGROK_MAX_WAIT} с)..."
+    print_info "ngrok run (PID: $pid); expect HTTPS URL (until ${TUNNEL_NGROK_MAX_WAIT} with)..."
 
     local tunnel_url=""
     tunnel_url=$(tunnel_ngrok_wait_public_url) || tunnel_url=""
@@ -368,36 +368,36 @@ tunnel_ngrok_start() {
 
     if [[ -z "$tunnel_url" ]]; then
         if ! kill -0 "$pid" 2>/dev/null; then
-            print_error "ngrok завершился сразу после старта. Последние строки лога:"
+            print_error "ngrok complete immediately after start. Last lines log:"
             tail -5 "$log_file" 2>/dev/null | sed 's/^/    /' >&2
             if grep -qiE 'ERR_NGROK_4018|authtoken' "$log_file" 2>/dev/null; then
-                print_info "Требуется authtoken: ngrok config add-authtoken <TOKEN>"
+                print_info "Requires authtoken: ngrok config add-authtoken <TOKEN>"
             fi
         else
-            print_error "API ngrok не вернул HTTPS URL за ${TUNNEL_NGROK_MAX_WAIT} с."
+            print_error "API ngrok not returned HTTPS URL for ${TUNNEL_NGROK_MAX_WAIT} with."
             kill "$pid" 2>/dev/null || true
         fi
         return 1
     fi
 
     _DPX_TUNNEL_URL="$tunnel_url"
-    print_success "Туннель создан: $tunnel_url"
+    print_success "Tunnel creat: $tunnel_url"
     return 0
 }
 
 tunnel_ngrok_stop() {
     local pid="$1"
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-        print_info "Остановка ngrok (PID: $pid)..."
+        print_info "Stop ngrok (PID: $pid)..."
         kill "$pid" 2>/dev/null
         local wait_count=0
         while kill -0 "$pid" 2>/dev/null && (( wait_count < 10 )); do
             sleep 0.5
             ((wait_count++))
         done
-        # Гарантия отсутствия orphan-процессов
+        # Guarantee missing orphan-process
         if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null; fi
-        print_success "ngrok остановлен."
+        print_success "ngrok stopped."
     fi
 }
 
@@ -406,7 +406,7 @@ tunnel_provider_check() {
     case "$provider" in
         "$TUNNEL_PROVIDER_CLOUDFLARE") tunnel_cloudflare_check ;;
         "$TUNNEL_PROVIDER_NGROK")      tunnel_ngrok_check ;;
-        *) print_error "Неизвестный провайдер: $provider"; return 1 ;;
+        *) print_error "Unknown provider: $provider"; return 1 ;;
     esac
 }
 
@@ -428,7 +428,7 @@ tunnel_provider_stop() {
 }
 
 # =================================================================
-# УРОВЕНЬ 2: ИНФРАСТРУКТУРА — DDEV & WP
+# LEVEL 2: INFRASTRUCTURE — DDEV & WP
 # =================================================================
 
 tunnel_get_http_port() {
@@ -478,7 +478,7 @@ tunnel_get_http_port() {
         return 0
     fi
 
-    print_warning "Не удалось определить хост-порт. Фолбек: 80"
+    print_warning "Not remove determin host port. Fallback: 80"
     echo "80"
 }
 
@@ -493,7 +493,7 @@ tunnel_get_local_domain() {
         local project_tld
         project_tld=$(get_config "project_tld")
         local_domain="${project_name}.${project_tld}"
-        print_warning "primary_url не получен. Фолбек: $local_domain"
+        print_warning "primary_url not received. Fallback: $local_domain"
     fi
 
     echo "$local_domain"
@@ -508,23 +508,23 @@ tunnel_get_target_url() {
         local project_tld
         project_tld=$(get_config "project_tld")
         project_url="https://${project_name}.${project_tld}"
-        print_warning "URL из ddev describe не получен. Фолбек: $project_url"
+        print_warning "URL from ddev describe not received. Fallback: $project_url"
     fi
     echo "$project_url"
 }
 
 # =================================================================
-# УРОВЕНЬ 2.1: ПАТЧИНГ wp-config.php — DPX_SMART_TUNNEL
+# LEVEL 2.1: PATCHING wp-config.php — DPX_SMART_TUNNEL
 # =================================================================
 
-# Генерация DPX_SMART_TUNNEL блока для wp-config.php.
+# Generation DPX_SMART_TUNNEL block for wp-config.php.
 #
-# [FIX v1.5.7] HTTPS выставляется ТОЛЬКО при подтверждённом проксировании:
-# Cloudflare/Traefik присылают X-Forwarded-Proto: https. Безусловный
-# `$_SERVER['HTTPS'] = 'on'` вызывал redirect-лупы на схемах, где
-# заголовок отсутствует (прямые HTTP-запросы к контейнеру).
+# [FIX v1.5.7] HTTPS sets ONLY durings confirmed proxieds:
+# Cloudflare/Traefik send X-Forwarded-Proto: https. Unconditional
+# `$_SERVER['HTTPS'] = 'on'` caused redirect-loops on schemes, where
+# header missing (direct HTTP-requests to container).
 #
-# STDOUT: PHP-блок. Аргумент $1 — домен туннеля.
+# STDOUT: PHP-block. Argument $1 — domain tunnel.
 tunnel_smart_block_render() {
     local tunnel_domain="$1"
     cat <<BLOCK_EOF
@@ -566,7 +566,7 @@ tunnel_cleanup_old_patches() {
     if [[ ! -f "$config_file" ]]; then return 0; fi
     if ! tunnel_has_old_markers "$config_file" && ! tunnel_is_config_patched "$config_file"; then return 0; fi
 
-    print_info "Обнаружены старые блоки DPX. Вычищаем..."
+    print_info "Detecteds old blocks DPX. Clean out..."
     local temp_file
     temp_file=$(create_temp_file)
 
@@ -577,7 +577,7 @@ tunnel_cleanup_old_patches() {
     ' "$config_file" > "$temp_file"
 
     if [[ ! -s "$temp_file" ]]; then
-        print_error "Ошибка очистки: пустой результат. Файл не перезаписан."
+        print_error "Error cleanups: empty result. File not overwrit."
         rm -f "$temp_file"
         return 1
     fi
@@ -585,10 +585,10 @@ tunnel_cleanup_old_patches() {
     mv "$temp_file" "$config_file"
 
     if ! tunnel_has_old_markers "$config_file" && ! tunnel_is_config_patched "$config_file"; then
-        print_success "Старые блоки DPX удалены."
+        print_success "Old blocks DPX delets."
         return 0
     else
-        print_warning "Не удалось полностью очистить старые блоки."
+        print_warning "Not remove fully clean old blocks."
         return 1
     fi
 }
@@ -606,34 +606,34 @@ tunnel_restore_wp_config() {
 tunnel_verify_config_integrity() {
     local project_path="$1"
     local config_file="$2"
-    print_info "Проверка целостности wp-config.php через WP-CLI..."
+    print_info "Check integrities wp-config.php via WP-CLI..."
     local wp_version
     wp_version=$(tunnel_wp_exec "$project_path" core version --quiet 2>/dev/null)
     if [[ -n "$wp_version" ]]; then
-        print_success "wp-config.php цел: WordPress $wp_version"
+        print_success "wp-config.php whole: WordPress $wp_version"
         return 0
     else
-        print_error "wp-config.php повреждён! WP-CLI не может прочитать конфиг."
+        print_error "wp-config.php corrupt! WP-CLI not may read back config."
         if tunnel_restore_wp_config "$config_file"; then
             wp_version=$(tunnel_wp_exec "$project_path" core version --quiet 2>/dev/null)
             if [[ -n "$wp_version" ]]; then
-                print_success "Конфиг восстановлен. WordPress $wp_version"
+                print_success "Config restor. WordPress $wp_version"
                 return 0
             else
-                print_error "Восстановленный конфиг также неработоспособен!"
+                print_error "Restored config also broken!"
                 return 1
             fi
         else
-            print_error "Бэкап недоступен. Требуется ручное исправление!"
+            print_error "Backup unavailable. Requires manual fix!"
             return 1
         fi
     fi
 }
 
 # =================================================================
-# Патч wp-config.php: внедрение DPX_SMART_TUNNEL блока (v1.5.6)
-# HARDCODE: мы жестко прописываем туннельный домен в $_SERVER,
-# чтобы DDEV's Traefik Host Header Spoofing не сбивал WP с толку.
+# Patch wp-config.php: injected DPX_SMART_TUNNEL block (v1.5.6)
+# HARDCODE: wes hard write in tunnel domain in $_SERVER,
+# so that DDEV's Traefik Host Header Spoofing not broke WP with point.
 # =================================================================
 tunnel_patch_wp_config() {
     local config_file="$1"
@@ -643,29 +643,29 @@ tunnel_patch_wp_config() {
     tunnel_domain=$(echo "$tunnel_url" | sed 's|https\?://||;s|/$||')
 
     if [[ ! -f "$config_file" ]]; then
-        print_warning "wp-config.php не найден. Пропускаем патчинг."
+        print_warning "wp-config.php not found. Skip patching."
         return 0
     fi
 
     local backup_file
     backup_file=$(tunnel_backup_wp_config "$config_file") || {
-        print_error "Сбой создания снапшота. Патч ОТМЕНЁН. Оригинал не изменён."
+        print_error "Sb creat snapshot. Patch CANCEL. Original not chang."
         return 1
     }
 
     if [[ ! -f "$backup_file" ]]; then
-        print_error "Снапшот не создался! Файл отсутствует: $backup_file"
+        print_error "Snapshot not created! File missing: $backup_file"
         return 1
     fi
 
     if ! tunnel_config_tail_intact "$config_file"; then
-        print_error "wp-config.php повреждён (отсутствует wp-settings.php)."
+        print_error "wp-config.php corrupt (missing wp-settings.php)."
         dpx_wp_config_cleanup "$config_file"
         return 1
     fi
 
     if ! tunnel_cleanup_old_patches "$config_file"; then
-        print_error "Ошибка очистки старых блоков. Откат из снапшота..."
+        print_error "Error cleanups old blocks. Rollback from snapshot..."
         tunnel_restore_wp_config "$config_file" || true
         return 1
     fi
@@ -678,7 +678,7 @@ tunnel_patch_wp_config() {
     php_tag_line=$(grep -n '<?php' "$config_file" 2>/dev/null | head -1 | cut -d: -f1)
 
     if [[ -z "$php_tag_line" ]]; then
-        print_error "Тег <?php не найден."
+        print_error "Tag <?php not found."
         tunnel_restore_wp_config "$config_file"
         return 1
     fi
@@ -689,7 +689,7 @@ tunnel_patch_wp_config() {
 
     local protected_start=$((total_lines - WP_CONFIG_PROTECTED_TAIL + 1))
     if (( php_tag_line >= protected_start )); then
-        print_error "Тег <?php в защищённой зоне хвоста."
+        print_error "Tag <?php in protected zone tail."
         tunnel_restore_wp_config "$config_file"
         return 1
     fi
@@ -711,14 +711,14 @@ tunnel_patch_wp_config() {
         "$temp_file"
 
     if [[ ! -s "$temp_file" ]]; then
-        print_error "Ошибка патча: пустой результат."
+        print_error "Error patch: empty result."
         rm -f "$temp_file"
         tunnel_restore_wp_config "$config_file"
         return 1
     fi
 
     if ! mv "$temp_file" "$config_file"; then
-        print_error "Не удалось перезаписать wp-config.php (ошибка mv)!"
+        print_error "Not remove overwrite wp-config.php (error mv)!"
         rm -f "$temp_file" 2>/dev/null
         tunnel_restore_wp_config "$config_file"
         return 1
@@ -727,25 +727,25 @@ tunnel_patch_wp_config() {
     local project_path
     project_path=$(dirname "$config_file")
     if ! dpx_wp_config_syntax_check "$project_path" "$config_file"; then
-        print_error "Синтаксическая ошибка! Откат из снапшота..."
+        print_error "Syntax error! Rollback from snapshot..."
         tunnel_restore_wp_config "$config_file"
         return 1
     fi
 
     if ! tunnel_is_config_patched "$config_file"; then
-        print_error "Smart-блок не внедрился. Верификация провалена."
+        print_error "Smart-block not injected. Verification failed."
         tunnel_restore_wp_config "$config_file"
         return 1
     fi
 
     if ! tunnel_config_tail_intact "$config_file"; then
-        print_error "Патч повредил хвост wp-config.php! Откат..."
+        print_error "Patch corrupted tail wp-config.php! Rollback..."
         tunnel_restore_wp_config "$config_file"
         return 1
     fi
 
-    print_success "wp-config.php: DPX_SMART_TUNNEL внедрён (Host: ${tunnel_domain})"
-    print_info "Снапшот сохранён до завершения туннеля: $backup_file"
+    print_success "wp-config.php: DPX_SMART_TUNNEL injected (Host: ${tunnel_domain})"
+    print_info "Snapshot saved until completion tunnel: $backup_file"
     return 0
 }
 
@@ -755,18 +755,18 @@ tunnel_unpatch_wp_config() {
     backup_file=$(_dpx_wp_config_backup_path "$config_file")
 
     if [[ -f "$backup_file" ]]; then
-        print_info "Восстановление wp-config.php из снапшота (mv -f)..."
+        print_info "Restor wp-config.php from snapshot (mv -f)..."
         if tunnel_restore_wp_config "$config_file"; then
-            print_success "wp-config.php восстановлен из снапшота (побайтово)."
+            print_success "wp-config.php restor from snapshot (byte-for-byte)."
             return 0
         else
-            print_error "КРИТИЧЕСКАЯ ОШИБКА: mv -f не удался!"
+            print_error "CRITICAL ERROR: mv -f not remove!"
             return 1
         fi
     fi
 
     if [[ -f "$config_file" ]] && tunnel_is_config_patched "$config_file"; then
-        print_warning "Снапшот отсутствует, но найдены DPX-блоки. awk-очистка..."
+        print_warning "Snapshot missing, but founds DPX-blocks. awk-cleanup..."
 
         local temp_file
         temp_file=$(create_temp_file)
@@ -779,15 +779,15 @@ tunnel_unpatch_wp_config() {
 
         if [[ -s "$temp_file" ]]; then
             if mv "$temp_file" "$config_file"; then
-                print_success "DPX-блоки удалены (legacy-фолбек)."
+                print_success "DPX-blocks delets (legacy-fallback)."
                 return 0
             else
-                print_error "Ошибка mv при фолбек-очистке!"
+                print_error "Error mv durings fallback cleanup!"
                 rm -f "$temp_file"
                 return 1
             fi
         else
-            print_error "awk-очистка дала пустой результат! Файл не перезаписан."
+            print_error "awk-cleanup gave empty result! File not overwrit."
             rm -f "$temp_file"
             return 1
         fi
@@ -797,32 +797,32 @@ tunnel_unpatch_wp_config() {
 }
 
 # =================================================================
-# УРОВЕНЬ 2.2: NGINX HOT-PATCH
+# LEVEL 2.2: NGINX HOT-PATCH
 # =================================================================
 
-# Генерация скрипта Nginx Hot-Patch (исполняется внутри web-контейнера
-# через `ddev exec`). Выделено в функцию, чтобы unit-тесты могли
-# верифицировать содержимое патча без запуска контейнера.
+# Generation script Nginx Hot-Patch (executes internals web-container
+# via `ddev exec`). Allocated in function, so that unit-tests coulds
+# verifi content patch without start container.
 #
-# [FIX v1.5.7] Добавлены proxy-заголовки: за reverse-proxy (Cloudflare ->
-# ddev-router -> nginx) Nginx строил абсолютные 301 Location из внутренних
-# scheme/port. `absolute_redirect off` + `port_in_redirect off` дают
-# относительные Location, а proxy_set_header пробрасывают корректные
-# Host/Proto в проксируемые location.
+# [FIX v1.5.7] Adds proxy-headers: for reverse-proxy (Cloudflare ->
+# ddev-router -> nginx) Nginx built absolute 301 Location from internal
+# scheme/port. `absolute_redirect off` + `port_in_redirect off` give
+# relative Location, and proxy_set_header forward correct
+# Host/Proto in we proxy location.
 tunnel_nginx_patch_render() {
     cat << 'PATCH_EOF'
 #!/bin/bash
 # DPX Nginx Hot-Patch v1.5.7 — absolute_redirect + port_in_redirect + forwarded headers
-# Эфемерность: исчезает при ddev restart (контейнер пересоздаётся).
+# Ephemerality: disappears durings ddev restart (container recreates).
 
-# --- Cleanup предыдущего патча (idempotent) ---
+# --- Cleanup previous patch (idempotent) ---
 for f in /etc/nginx/nginx.conf /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf; do
     [ -f "$f" ] || continue
     sed -i '/# BEGIN_DPX_NGINX/,/# END_DPX_NGINX/d' "$f" 2>/dev/null
 done
 rm -f /etc/nginx/conf.d/dpx-tunnel.conf 2>/dev/null
 
-# --- Инъекция: server-level директивы + location-блоки для WP admin ---
+# --- Injection: server-level directives + location-blocks for WP admin ---
 for f in /etc/nginx/nginx.conf /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf; do
     [ -f "$f" ] || continue
     grep -q "server[[:blank:]]*{" "$f" 2>/dev/null || continue
@@ -842,32 +842,32 @@ for f in /etc/nginx/nginx.conf /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d
     }1' "$f" > /tmp/_dpx_nginx_$$ && mv /tmp/_dpx_nginx_$$ "$f"
 done
 
-# --- Reload nginx (каскад методов для любой конфигурации DDEV) ---
+# --- Reload nginx (cascade methods for any configurations DDEV) ---
 nginx -t 2>&1 || exit 1
 _reload_ok=false
 
-# Метод 1: стандартный nginx -s reload (PID файл валиден)
+# Method 1: standard nginx -s reload (PID file valid)
 if [ -s /run/nginx.pid ]; then
     nginx -s reload 2>&1 && _reload_ok=true && echo "nginx: reloaded (PID file)"
 fi
 
-# Метод 2: service/openrc (некоторые контейнеры используют service wrapper)
+# Method 2: service/openrc (some containers use service wrapper)
 if [ "$_reload_ok" = false ] && command -v service >/dev/null 2>&1; then
     service nginx reload 2>/dev/null && _reload_ok=true && echo "nginx: reloaded (service)"
 fi
 
-# Метод 3: PID 1 — nginx/tini как init-процесс Docker
+# Method 3: PID 1 — nginx/tini as init-process Docker
 if [ "$_reload_ok" = false ]; then
     kill -HUP 1 2>/dev/null && sleep 0.3 && _reload_ok=true && echo "nginx: HUP sent to PID 1"
 fi
 
-# Метод 4: pgrep точное совпадение
+# Method 4: pgrep exact match
 if [ "$_reload_ok" = false ]; then
     _pid=$(pgrep -x nginx 2>/dev/null | head -1)
     [ -n "$_pid" ] && kill -HUP "$_pid" 2>/dev/null && _reload_ok=true && echo "nginx: HUP via pgrep (pid=$_pid)"
 fi
 
-# Метод 5: /proc сканирование (не требует ps/pgrep)
+# Method 5: /proc scanning (not requires ps/pgrep)
 if [ "$_reload_ok" = false ]; then
     for _p in /proc/[0-9]*; do
         _comm=$(cat "$_p/comm" 2>/dev/null) || continue
@@ -879,12 +879,12 @@ if [ "$_reload_ok" = false ]; then
     done
 fi
 
-# Метод 6: pkill SIGHUP всем nginx
+# Method 6: pkill SIGHUP everyone nginx
 if [ "$_reload_ok" = false ]; then
     pkill -HUP -x nginx 2>/dev/null && _reload_ok=true && echo "nginx: HUP via pkill"
 fi
 
-# Метод 7: ЯДЕРНЫЙ — убить и перезапустить nginx
+# Method 7: NUCLEAR — kill and restart nginx
 if [ "$_reload_ok" = false ]; then
     for _p in /proc/[0-9]*; do
         _comm=$(cat "$_p/comm" 2>/dev/null) || continue
@@ -895,7 +895,7 @@ if [ "$_reload_ok" = false ]; then
     nginx 2>/dev/null && _reload_ok=true && echo "nginx: nuclear restart"
 fi
 
-# Диагностика если ВСЁ провалилось
+# Diagnostics ifs ALL fail
 if [ "$_reload_ok" = false ]; then
     _diag=""
     for _p in /proc/[0-9]*; do
@@ -926,7 +926,7 @@ tunnel_patch_nginx() {
 
 tunnel_unpatch_nginx() {
     local project_path="$1"
-    print_info "Откат Nginx Hot-Patch..." >&2
+    print_info "Rollback Nginx Hot-Patch..." >&2
 
     local shared_dir="$project_path/.dpx"
     local patch_script="$shared_dir/_nginx_unpatch.sh"
@@ -958,13 +958,13 @@ UNPATCH_EOF
 }
 
 # =================================================================
-# УРОВЕНЬ 3: DATABASE SYNC — Движок миграции (v1.4.18)
+# LEVEL 3: database SYNC — Engine migrations (v1.4.18)
 # =================================================================
 
 _DPX_DB_MUTATING=0
 _DPX_ACTUAL_HOME=""
 
-# Получает РЕАЛЬНЫЙ home URL СТРОГО через SQL (без WP-CLI).
+# Gets REAL home URL PAGE via SQL (without WP-CLI).
 tunnel_get_actual_home() {
     local project_path="$1"
     db_sql_get_option "$project_path" "home"
@@ -973,20 +973,20 @@ tunnel_get_actual_home() {
 tunnel_wp_db_replace() {
     local project_path="$1" tunnel_url="$2"
 
-    print_info "Получение ACTUAL_HOME из БД (SQL-запрос)..."
+    print_info "Received ACTUAL_HOME from database (SQL-request)..."
     local actual_home
     actual_home=$(tunnel_get_actual_home "$project_path")
 
     if [[ -z "$actual_home" ]]; then
-        print_error "Не удалось получить home URL из БД (SQL). Остановка!"
+        print_error "Not remove get home URL from database (SQL). Stop!"
         return 1
     fi
 
     _DPX_ACTUAL_HOME="$actual_home"
-    print_info "ACTUAL_HOME из БД: $actual_home"
+    print_info "ACTUAL_HOME from database: $actual_home"
 
     if [[ "$actual_home" == "$tunnel_url" ]]; then
-        print_warning "URL совпадают. Замена не нужна."
+        print_warning "URL match. Replace not need."
         return 0
     fi
 
@@ -998,26 +998,26 @@ tunnel_wp_db_replace() {
 
     if [[ $replace_rc -ne 0 ]]; then
         _DPX_DB_MUTATING=0
-        print_error "Мутация БД провалилась. Ожидайте автоматического отката..."
+        print_error "Mutation database fail. Wait automatic rollback..."
         return 1
     fi
 
     _DPX_DB_MUTATING=0
 
-    # Сохраняем имя снапшота для tunnel_cleanup rollback
+    # Save name snapshot for tunnel_cleanup rollback
     if [[ -n "$snapshot_name" ]]; then
         mkdir -p "${project_path}/.dpx" 2>/dev/null
         echo "$snapshot_name" > "${project_path}/.dpx/current_snapshot"
     fi
 
-    # db_smart_replace_tunnel уже сделал db_wp_clear_cache внутри.
-    # Дополнительно сбрасываем rewrite rules
+    # db_smart_replace_tunnel already did db_wp_clear_cache internals.
+    # Additional reset rewrite rules
     tunnel_wp_exec "$project_path" rewrite flush --allow-root --quiet 2>/dev/null || true
 
     return 0
 }
 
-# Откат БД через ddev snapshot restore (v1.4.21)
+# Rollback database via ddev snapshot restore (v1.4.21)
 tunnel_wp_db_rollback() {
     local project_path="$1"
     local tunnel_url="${2:-$_DPX_TUNNEL_URL}"
@@ -1039,26 +1039,26 @@ tunnel_wp_db_rollback() {
 
     if [[ "$snapshot_available" == "true" ]]; then
         echo "" >&2
-        print_info "ОТКАТ БД (План А): Восстановление из снапшота $saved_snap_name..." >&2
+        print_info "ROLLBACK database (Plan And): Restor from snapshot $saved_snap_name..." >&2
 
         if dpx_exec_and_log "$project_path" ddev snapshot restore "$saved_snap_name"; then
             rollback_ok=true
-            print_success "База данных восстановлена из snapshot." >&2
+            print_success "Base data restor from snapshot." >&2
         else
             print_error "Snapshot restore FAILED: $saved_snap_name" >&2
-            print_warning "Переходим к Плану Б (reverse search-replace)..." >&2
+            print_warning "Transition to Plan B (reverse search-replace)..." >&2
         fi
         rm -f "$snap_file"
     fi
 
     if [[ "$rollback_ok" == "false" ]]; then
         if [[ -z "$tunnel_url" || -z "$local_url" ]]; then
-            print_error "Ручное восстановление невозможно: URL неизвестны." >&2
+            print_error "Manual restor impossible: URL unknowns." >&2
             return 1
         fi
 
         echo "" >&2
-        print_warning "ОТКАТ БД (План Б): Reverse search-replace (3 прохода)..." >&2
+        print_warning "ROLLBACK database (Plan B): Reverse search-replace (3 pass)..." >&2
 
         local tunnel_bare=$(echo "$tunnel_url" | sed 's|https\?://||;s|/$||')
         local local_bare=$(echo "$local_url" | sed 's|https\?://||;s|/$||')
@@ -1086,23 +1086,23 @@ tunnel_wp_db_rollback() {
         fi
 
         rollback_ok=true
-        print_success "Reverse search-replace завершён (3 прохода)." >&2
+        print_success "Reverse search-replace completion (3 pass)." >&2
     fi
 
     print_info "Post-rollback cleanup..." >&2
 
-    # Универсальная очистка
+    # Universal cleanup
     db_wp_clear_cache "$project_path"
 
     tunnel_wp_exec "$project_path" rewrite flush --allow-root --quiet 2>/dev/null || true
     rm -f "$snap_file"
 
-    print_success "БД возвращена к локальному состоянию. Кэш очищен." >&2
+    print_success "database returned to local state. Cache flushed." >&2
     return 0
 }
 
 # =================================================================
-# УРОВЕНЬ 4: ЖИЗНЕННЫЙ ЦИКЛ — Trap и очистка
+# LEVEL 4: LIFECYCLE LOOP — Trap and cleanup
 # =================================================================
 
 _DPX_TUNNEL_PROJECT_PATH=""
@@ -1121,26 +1121,26 @@ tunnel_cleanup() {
     local exit_code=$?
 
     # ==============================================================
-    # ATOMIC LOCK: предотвращаем двойной откат
+    # ATOMIC LOCK: prevent double rollback
     # ==============================================================
     if [[ "$_DPX_ROLLBACK_DONE" == "true" ]]; then exit "$exit_code"; fi
     _DPX_ROLLBACK_DONE=true
 
-    # Разоружаем trap ПЕРЕД любыми действиями
+    # Disarm trap BEFORE anies actions
     trap - INT TERM EXIT
 
     echo "" >&2
-    print_header "Завершение туннеля — откат"
+    print_header "Completion tunnel — rollback"
 
     # ==============================================================
-    # 1. ВОССТАНОВЛЕНИЕ wp-config.php (Часть 1)
+    # 1. RESTOR wp-config.php (Hour 1)
     # ==============================================================
     if [[ -n "$_DPX_TUNNEL_CONFIG_FILE" ]] && [[ -f "$_DPX_TUNNEL_CONFIG_FILE" ]]; then
         tunnel_unpatch_wp_config "$_DPX_TUNNEL_CONFIG_FILE"
     fi
 
     # ==============================================================
-    # 2. ОТКАТ БД
+    # 2. ROLLBACK database
     # ==============================================================
     if [[ -n "$_DPX_TUNNEL_PROJECT_PATH" && -n "$_DPX_TUNNEL_URL" && -n "$_DPX_TUNNEL_LOCAL_URL" ]]; then
         if [[ "$_DPX_TUNNEL_CMS_TYPE" == "wordpress" ]]; then
@@ -1149,47 +1149,47 @@ tunnel_cleanup() {
     fi
 
     # ==============================================================
-    # 3. ФИНАЛЬНЫЙ АККОРД (Подавление вмешательства DDEV)
+    # 3. FINAL CHORD (Suppressed interference DDEV)
     # ==============================================================
     if [[ -n "$_DPX_TUNNEL_CONFIG_FILE" ]]; then
         local backup_file
         backup_file=$(_dpx_wp_config_backup_path "$_DPX_TUNNEL_CONFIG_FILE")
         if [[ -f "$backup_file" ]]; then
-            print_info "Финальный аккорд: жесткое восстановление wp-config.php..." >&2
+            print_info "Final chord: hard restor wp-config.php..." >&2
             cp -f "$backup_file" "$_DPX_TUNNEL_CONFIG_FILE" 2>/dev/null
         fi
 
-        # Проверка и удаление метки
+        # Check and delet markers
         if grep -q "DPX_SMART_TUNNEL" "$_DPX_TUNNEL_CONFIG_FILE" 2>/dev/null; then
-            print_error "КРИТИЧЕСКАЯ ОШИБКА: DPX_SMART_TUNNEL всё ещё в файле после отката!" >&2
+            print_error "CRITICAL ERROR: DPX_SMART_TUNNEL all yet in file after rollback!" >&2
         else
             dpx_wp_config_cleanup "$_DPX_TUNNEL_CONFIG_FILE"
         fi
     fi
 
     # ==============================================================
-    # 3.5. ОТКАТ NGINX HOT-PATCH
+    # 3.5. ROLLBACK NGINX HOT-PATCH
     # ==============================================================
     if [[ -n "$_DPX_TUNNEL_PROJECT_PATH" ]]; then
         tunnel_unpatch_nginx "$_DPX_TUNNEL_PROJECT_PATH"
     fi
 
     # ==============================================================
-    # 4. Остановка провайдера и логов
+    # 4. Stop provider and logs
     # ==============================================================
     [[ -n "$_DPX_TUNNEL_PID" ]] && tunnel_provider_stop "$_DPX_TUNNEL_PROVIDER" "$_DPX_TUNNEL_PID"
     [[ -n "$_DPX_TUNNEL_LOG_FILE" && -f "$_DPX_TUNNEL_LOG_FILE" ]] && rm -f "$_DPX_TUNNEL_LOG_FILE"
 
-    print_celebration "Откат завершён. Проект вернулся к локальному состоянию."
+    print_celebration "Rollback completion. Project returned to local state."
     exit "$exit_code"
 }
 
 # =================================================================
-# ИНТЕЛЛЕКТУАЛЬНЫЙ КОНТЕКСТ — Автоопределение проекта
+# SMART CONTEXT — Autodetection project
 # =================================================================
 
 tunnel_detect_project_from_cwd() {
-    # Метод 1: Файловая система — .ddev/config.yaml (БЫСТРЫЙ)
+    # Method 1: File system — .ddev/config.yaml (FAST)
     local search_dir
     search_dir=$(_dpx_realpath "$PWD")
     while [[ -n "$search_dir" && "$search_dir" != "/" ]]; do
@@ -1208,7 +1208,7 @@ tunnel_detect_project_from_cwd() {
         search_dir=$(dirname "$search_dir")
     done
 
-    # Метод 2: DDEV auto-detection (ФОЛБЕК)
+    # Method 2: DDEV auto-detection (FALLBACK)
     local proj_name
     proj_name=$(ddev describe -j 2>/dev/null | jq -r '.raw.name // empty' 2>/dev/null)
     if [[ -n "$proj_name" ]]; then
@@ -1241,7 +1241,7 @@ tunnel_detect_project_path_from_cwd() {
 }
 
 # =================================================================
-# ОСНОВНАЯ ФУНКЦИЯ
+# MAIN FUNCTION
 # =================================================================
 
 cmd_tunnel() {
@@ -1252,11 +1252,11 @@ cmd_tunnel() {
         return 0
     fi
 
-    print_header "Проброс туннеля v${DPX_VERSION}"
+    print_header "Forwarding tunnel v${DPX_VERSION}"
 
     if ! command -v jq >/dev/null 2>&1; then
-        print_error "jq не найден. Обязателен для парсинга DDEV JSON-вывода."
-        print_info "Установка: Ubuntu/Debian: sudo apt install jq | macOS: brew install jq"
+        print_error "jq not found. Required for parsing DDEV JSON-output."
+        print_info "Install: Ubuntu/Debian: sudo apt install jq | macOS: brew install jq"
         return 1
     fi
 
@@ -1265,11 +1265,11 @@ cmd_tunnel() {
     if [[ -z "$provider" ]]; then
         provider=$(tunnel_select_provider)
         if [[ $? -ne 0 ]] || [[ -z "$provider" ]]; then
-            print_error "Провайдер туннеля не найден."
+            print_error "Provider tunnel not found."
             return 1
         fi
     fi
-    print_info "Провайдер: $provider"
+    print_info "Provider: $provider"
     tunnel_provider_check "$provider" || return 1
 
     local project_name
@@ -1283,12 +1283,12 @@ cmd_tunnel() {
         if [[ -n "$project_name" ]]; then
             auto_detected=true
             project_path=$(tunnel_detect_project_path_from_cwd)
-            print_success "Автоопределение: проект '$project_name' (DDEV API)"
+            print_success "Autodetection: project '$project_name' (DDEV API)"
         fi
     fi
 
     if [[ -z "$project_name" ]]; then
-        project_name=$(projects_select_interactive "Выберите проект для туннеля")
+        project_name=$(projects_select_interactive "Select project for tunnel")
     fi
     [[ -z "$project_name" ]] && return 1
     validate_project_name "$project_name" || return 1
@@ -1296,50 +1296,50 @@ cmd_tunnel() {
     if [[ -z "$project_path" ]]; then
         project_path=$(projects_get_path "$project_name")
     fi
-    validate_directory "$project_path" "Директория проекта" || return 1
+    validate_directory "$project_path" "Director project" || return 1
 
-    print_info "Корень проекта: $project_path"
+    print_info "Root project: $project_path"
 
     local cms_type
     cms_type=$(get_arg "cms_type" "")
     if [[ -z "$cms_type" ]]; then
         cms_type=$(detect_cms_type "$project_path")
-        print_info "Автоопределение CMS: $(get_cms_name "$cms_type")"
+        print_info "Autodetection CMS: $(get_cms_name "$cms_type")"
         if [[ "$cms_type" != "wordpress" ]]; then
-            print_warning "Тип: $(get_cms_name "$cms_type"). URL в БД заменён НЕ будет."
-            if ! confirm "Продолжить без замены URL?"; then
-                cms_type=$(select_cms_type "Выберите тип проекта") || return 1
+            print_warning "Type: $(get_cms_name "$cms_type"). URL in database replac NOT will."
+            if ! confirm "Continu without replaces URL?"; then
+                cms_type=$(select_cms_type "Select type project") || return 1
             fi
         fi
     fi
-    print_success "Тип проекта: $(get_cms_name "$cms_type")"
+    print_success "Type project: $(get_cms_name "$cms_type")"
 
     if [[ "$cms_type" == "wordpress" ]]; then
         dpx_wp_config_stale_check "${project_path}/wp-config.php" || return 1
     fi
 
     if ! ddev_is_project_running "$project_name"; then
-        print_warning "Проект '$project_name' не запущен."
-        if has_arg "yes" || confirm "Запустить?"; then
+        print_warning "Project '$project_name' not run."
+        if has_arg "yes" || confirm "Start?"; then
             safe_start_ddev_project "$project_name" "$project_path" || return 1
         else
-            print_error "Проект должен быть запущен."
+            print_error "Project must was run."
             return 1
         fi
     fi
-    print_success "Проект запущен."
+    print_success "Project run."
 
     local project_url
     project_url=$(tunnel_get_target_url "$project_name")
-    print_info "Локальный URL: $project_url"
+    print_info "Local URL: $project_url"
 
     local http_port
     http_port=$(tunnel_get_http_port "$project_name")
-    print_info "Хост-порт (DDEV → Docker): $http_port"
+    print_info "Host port (DDEV → Docker): $http_port"
 
     local local_domain
     local_domain=$(tunnel_get_local_domain "$project_name")
-    print_info "Локальный домен: $local_domain"
+    print_info "Local domain: $local_domain"
 
     local local_tld
     local_tld="${local_domain##*.}"
@@ -1354,23 +1354,23 @@ cmd_tunnel() {
     log_file=$(create_temp_file)
     _DPX_TUNNEL_LOG_FILE="$log_file"
 
-    print_header "Проверьте параметры"
+    print_header "Verify parameters"
     cat >&2 << PARAMS
-Проект:            ${COLOR_GREEN}${project_name} ($(get_cms_name "$cms_type"))${COLOR_RESET}
-Корень проекта:    ${COLOR_GREEN}${project_path}${COLOR_RESET}
-Локальный URL:     ${COLOR_YELLOW}${local_url}${COLOR_RESET}
-Хост-порт:         ${COLOR_GREEN}${http_port}${COLOR_RESET}
-Host-заголовок:    ${COLOR_GREEN}${cloudflared_host_header}${COLOR_RESET}
-Провайдер:         ${COLOR_GREEN}${provider}${COLOR_RESET}
-Локальный TLD:     ${COLOR_GREEN}.${local_tld}${COLOR_RESET}
-Замена URL:        ${COLOR_GREEN}$([ "$cms_type" = "wordpress" ] && echo "Да (wp search-replace + smart wp-config)" || echo "Нет (только проброс порта)")${COLOR_RESET}
+Project:            ${COLOR_GREEN}${project_name} ($(get_cms_name "$cms_type"))${COLOR_RESET}
+Root project:    ${COLOR_GREEN}${project_path}${COLOR_RESET}
+Local URL:     ${COLOR_YELLOW}${local_url}${COLOR_RESET}
+Host port:         ${COLOR_GREEN}${http_port}${COLOR_RESET}
+Host-header:    ${COLOR_GREEN}${cloudflared_host_header}${COLOR_RESET}
+Provider:         ${COLOR_GREEN}${provider}${COLOR_RESET}
+Local TLD:     ${COLOR_GREEN}.${local_tld}${COLOR_RESET}
+Replace URL:        ${COLOR_GREEN}$([ "$cms_type" = "wordpress" ] && echo "Yes (wp search-replace + smart wp-config)" || echo "No (only forwarding port)")${COLOR_RESET}
 PARAMS
 
     print_separator
-    print_info "Ctrl+C → полный откат: mv -f из снапшота + wp search-replace назад"
+    print_info "Ctrl+C → full rollback: mv -f from snapshot + wp search-replace back"
 
     if ! has_arg "yes"; then
-        confirm "Начать проброс туннеля?" || return 1
+        confirm "Start forwarding tunnel?" || return 1
     fi
 
     _DPX_TUNNEL_PROJECT_PATH="$project_path"
@@ -1384,45 +1384,45 @@ PARAMS
 
     trap 'tunnel_cleanup' INT TERM EXIT
 
-    # --- Шаг 1: Запуск туннеля ---
-    print_step "1" "Запуск туннеля ($provider)"
+    # --- Step 1: Start tunnel ---
+    print_step "1" "Start tunnel ($provider)"
     tunnel_provider_start "$provider" "$cloudflared_target_url" "$log_file" "$cloudflared_host_header" || {
-        print_error "Не удалось запустить туннеля."
+        print_error "Not remove start tunnel."
         return 1
     }
     local tunnel_url="$_DPX_TUNNEL_URL"
 
-    # --- Шаг 2: Database Sync ---
+    # --- Step 2: Database Sync ---
     if [[ "$cms_type" == "wordpress" ]]; then
-        print_step "2" "Замена URL в базе данных"
+        print_step "2" "Replace URL in base data"
         tunnel_wp_db_replace "$project_path" "$tunnel_url" || {
-            print_error "Ошибка замены URL. Откат..."
+            print_error "Error replaces URL. Rollback..."
             return 1
         }
     fi
 
-    # --- Шаг 3: Патч конфигурации (DPX_SMART_TUNNEL & Nginx) ---
+    # --- Step 3: Patch configurations (DPX_SMART_TUNNEL & Nginx) ---
     if [[ "$cms_type" == "wordpress" ]]; then
-        print_step "3" "Патч конфигурации (DPX_SMART_TUNNEL & Nginx Hot-Patch)"
+        print_step "3" "Patch configurations (DPX_SMART_TUNNEL & Nginx Hot-Patch)"
         if ! tunnel_patch_wp_config "${project_path}/wp-config.php" "$tunnel_url"; then
-            print_error "Патч wp-config.php провален. Откат..."
+            print_error "Patch wp-config.php failed. Rollback..."
             return 1
         fi
 
         tunnel_patch_nginx "$project_path"
     fi
 
-    # --- Готово ---
+    # --- Ready ---
     cat >&2 << READY
 
-${COLOR_GREEN}🎉 Туннель активен! 🎉${COLOR_RESET}
+${COLOR_GREEN}🎉 Tunnel active! 🎉${COLOR_RESET}
 
 ${COLOR_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLOR_RESET}
-${COLOR_BOLD}  Публичный URL: ${tunnel_url}${COLOR_RESET}
+${COLOR_BOLD}  Public URL: ${tunnel_url}${COLOR_RESET}
 ${COLOR_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLOR_RESET}
 
-Отправьте этот URL заказчику.
-Нажмите Ctrl+C для завершения туннеля и отката.
+Send this URL client.
+Press Ctrl+C for completion tunnel and rollback.
 READY
 
     local uptime=0
@@ -1430,10 +1430,10 @@ READY
         sleep 5
         ((uptime += 5))
         if (( uptime % 60 == 0 )); then
-            print_info "Туннель: $((uptime / 60)) мин. | URL: $tunnel_url"
+            print_info "Tunnel: $((uptime / 60)) min. | URL: $tunnel_url"
         fi
     done
 
-    print_warning "Туннель завершился неожиданно. Откат..."
+    print_warning "Tunnel complete unexpected. Rollback..."
     return 1
 }

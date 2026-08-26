@@ -4,37 +4,37 @@
 # =================================================================
 
 # =================================================================
-# ПРОВЕРКА ВЕРСИИ BASH
+# CHECK VERSIONS BASH
 # =================================================================
 
 if (( BASH_VERSINFO[0] < 4 )); then
-    echo "ОШИБКА: Тесты требуют Bash 4.0+" >&2
+    echo "ERROR: Tests require Bash 4.0+" >&2
     exit 1
 fi
 
 # =================================================================
-# ИНИЦИАЛИЗАЦИЯ ТЕСТОВОЙ СРЕДЫ
+# INITIALIZATION TEST ENVIRONMENTS
 # =================================================================
 
-# Определяем DPX_ROOT (предполагаем, что тест в tests/)
+# Determin DPX_ROOT (assumes, that test in tests/)
 TESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 DPX_ROOT="$(cd "$TESTS_DIR/.." && pwd)"
 export DPX_ROOT
 
-# Цвета
+# Color
 if command -v tput >/dev/null 2>&1; then
     GREEN=$(tput setaf 2); RED=$(tput setaf 1); YELLOW=$(tput setaf 3); CYAN=$(tput setaf 6); BOLD=$(tput bold); RESET=$(tput sgr0)
 else
     GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 fi
 
-# Счетчики
+# Counters
 TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
 
 # =================================================================
-# ФУНКЦИИ ТЕСТОВОГО ФРЕЙМВОРКА
+# FUNCTIONS TEST FRAMEWORK
 # =================================================================
 
 test_start() {
@@ -56,7 +56,7 @@ test_fail() {
 }
 
 # =================================================================
-# ЗАГРУЗКА МОДУЛЕЙ
+# DOWNLOAD MODULE
 # =================================================================
 
 echo ""
@@ -65,27 +65,27 @@ echo "${BOLD}     Unit Tests: core.sh${RESET}"
 echo "${BOLD}========================================${RESET}"
 echo ""
 
-# Загружаем paths.sh (определяет DPX_OS_TYPE, DPX_SED_INPLACE_EXT)
+# Load paths.sh (detects DPX_OS_TYPE, DPX_SED_INPLACE_EXT)
 source "${DPX_ROOT}/lib/paths.sh"
 
-# Загружаем io.sh (функции вывода)
+# Load io.sh (functions output)
 source "${DPX_ROOT}/lib/io.sh"
 
-# Загружаем utils.sh (ensure_directory, create_temp_file)
+# Load utils.sh (ensure_directory, create_temp_file)
 source "${DPX_ROOT}/lib/utils.sh"
 
-# Загружаем args.sh (parse_args, has_arg, get_arg)
+# Load args.sh (parse_args, has_arg, get_arg)
 source "${DPX_ROOT}/lib/args.sh"
 
 # =================================================================
-# ТЕСТЫ: ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ
+# TESTS: VARIABLE ENVIRONMENT
 # =================================================================
 
 echo "${CYAN}=== Environment Variables ===${RESET}"
 
-# [FIX] Исправлена проверка существования переменной
-# ${VAR:-default} возвращает default если переменная пустая ИЛИ не существует
-# ${VAR+x} возвращает "x" только если переменная СУЩЕСТВУЕТ (даже пустая)
+# [FIX] Fix check existence variable
+# ${VAR:-default} returns default ifs variable empty ORS not exist
+# ${VAR+x} returns "x" only ifs variable EXIST (even empty)
 test_start "DPX_ROOT is set"
 if [[ -n "${DPX_ROOT+x}" ]]; then
     test_pass
@@ -114,12 +114,12 @@ else
     test_fail "DPX_OS_TYPE should be 'linux' or 'macos', got: ${DPX_OS_TYPE}"
 fi
 
-# [FIX] Критическое исправление: тест-пустышка
-# Было: ${DPX_SED_INPLACE_EXT:-+set} - ВСЕГДА true!
-# Стало: ${DPX_SED_INPLACE_EXT+x} - проверяет существование переменной
+# [FIX] Critical fix: dummy test
+# Was: ${DPX_SED_INPLACE_EXT:-+set} - ALWAYS true!
+# Became: ${DPX_SED_INPLACE_EXT+x} - checks existence variable
 test_start "DPX_SED_INPLACE_EXT is declared"
-# ${VAR+x} возвращает "x" если переменная объявлена (даже пустая)
-# Для Bash 4.2+ можно использовать [[ -v DPX_SED_INPLACE_EXT ]]
+# ${VAR+x} returns "x" ifs variable declared (even empty)
+# For Bash 4.2+ can use [[ -v DPX_SED_INPLACE_EXT ]]
 if [[ -n "${DPX_SED_INPLACE_EXT+x}" ]]; then
     test_pass
 else
@@ -136,7 +136,7 @@ else
 fi
 
 # =================================================================
-# ТЕСТЫ: ФУНКЦИИ ФАЙЛОВОЙ СИСТЕМЫ
+# TESTS: FUNCTIONS FILE SYSTEMS
 # =================================================================
 
 echo ""
@@ -151,7 +151,7 @@ if [[ -d "$test_dir" ]]; then
 else
     test_fail "Directory not created"
 fi
-# [FIX] Гарантированная очистка - вынесена из if/else
+# [FIX] Guaranteed cleanup - extracted from if/else
 rm -rf "$test_dir" 2>/dev/null || true
 
 test_start "ensure_directory handles existing directory"
@@ -186,7 +186,7 @@ if [[ -f "$test_file" ]]; then
 else
     test_fail "Temp file not created"
 fi
-# [FIX] Гарантированная очистка
+# [FIX] Guaranteed cleanup
 rm -f "$test_file" 2>/dev/null || true
 
 test_start "create_temp_file returns writable file"
@@ -201,18 +201,18 @@ fi
 rm -f "$test_file" 2>/dev/null || true
 
 # =================================================================
-# ТЕСТЫ: ПАРСИНГ АРГУМЕНТОВ
+# TESTS: PARSING ARGUMENTS
 # =================================================================
 
 echo ""
 echo "${CYAN}=== Argument Parsing ===${RESET}"
 
-# [FIX] КРИТИЧЕСКИ ВАЖНО: очистка DPX_ARGS перед каждым тестом!
-# В Bash 4.0-4.2 простое присваивание DPX_ARGS=() может не очистить массив
-# Используем unset + declare для гарантии
+# [FIX] CRITICALS IMPORTANT: cleanup DPX_ARGS before each test!
+# In Bash 4.0-4.2 simple assignment DPX_ARGS=() may not clean array
+# Use unset + declare for guarantees
 
 test_start "parse_args handles --help"
-unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Очистка среды перед тестом
+unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Cleanup environments before test
 parse_args --help
 if [[ "${DPX_ARGS[help]}" == "1" ]]; then
     test_pass
@@ -221,7 +221,7 @@ else
 fi
 
 test_start "parse_args handles --yes"
-unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Очистка среды перед тестом
+unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Cleanup environments before test
 parse_args --yes
 if [[ "${DPX_ARGS[yes]}" == "1" ]]; then
     test_pass
@@ -230,7 +230,7 @@ else
 fi
 
 test_start "parse_args handles -y (short form)"
-unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Очистка перед тестом
+unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Cleanup before test
 parse_args -y
 if [[ "${DPX_ARGS[yes]}" == "1" ]]; then
     test_pass
@@ -239,7 +239,7 @@ else
 fi
 
 test_start "parse_args handles --project-name value"
-unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Очистка среды перед тестом
+unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Cleanup environments before test
 parse_args --project-name mysite
 if [[ "${DPX_ARGS[project_name]}" == "mysite" ]]; then
     test_pass
@@ -248,7 +248,7 @@ else
 fi
 
 test_start "parse_args handles multiple arguments"
-unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Очистка среды перед тестом
+unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Cleanup environments before test
 parse_args --project-name mysite --php-version 8.1 --yes
 if [[ "${DPX_ARGS[project_name]}" == "mysite" && \
       "${DPX_ARGS[php_version]}" == "8.1" && \
@@ -259,7 +259,7 @@ else
 fi
 
 test_start "parse_args handles --key=value format"
-unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Очистка среды перед тестом
+unset DPX_ARGS; declare -gA DPX_ARGS  # [FIX] Cleanup environments before test
 parse_args --project-name=tralala
 if [[ "${DPX_ARGS[project_name]}" == "tralala" ]]; then
     test_pass
@@ -268,7 +268,7 @@ else
 fi
 
 # =================================================================
-# ТЕСТЫ: has_arg и get_arg
+# TESTS: has_arg and get_arg
 # =================================================================
 
 echo ""
@@ -292,13 +292,13 @@ else
     test_fail "has_arg should return false for 'help'"
 fi
 
-# [FIX] КРИТИЧЕСКИЙ ТЕСТ: has_arg должен работать не только с флагами!
-# Старая реализация проверяла == "1", что ломало строковые значения
+# [FIX] CRITICAL TEST: has_arg must work not only with flags!
+# Old implementation checked == "1", that broke string value
 test_start "has_arg returns true for string value (not just '1')"
 unset DPX_ARGS; declare -gA DPX_ARGS
 parse_args --php-version 8.1
-# DPX_ARGS["php_version"] будет "8.1", а не "1"
-# Старый has_arg возвращал false! Новый должен вернуть true
+# DPX_ARGS["php_version"] will "8.1", and not "1"
+# Old has_arg returned false! New must back true
 if has_arg "php_version"; then
     test_pass
 else
@@ -335,7 +335,7 @@ else
 fi
 
 # =================================================================
-# ИТОГОВЫЙ ОТЧЕТ
+# FINAL REPORT
 # =================================================================
 
 echo ""

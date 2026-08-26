@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Command: list - вывод списка DDEV проектов
+# DPX Command: list - output list DDEV projects
 # =================================================================
 
 source "${DPX_ROOT}/lib/core.sh"
@@ -8,27 +8,27 @@ source "${DPX_ROOT}/lib/ddev.sh"
 source "${DPX_ROOT}/lib/meta.sh"
 
 # =================================================================
-# СПРАВКА
+# HELP
 # =================================================================
 
 show_list_help() {
     cat << EOF
- ${COLOR_BOLD}list${COLOR_RESET} - Список DDEV проектов с версиями PHP
+ ${COLOR_BOLD}list${COLOR_RESET} - List DDEV projects with versions PHP
 
- ${COLOR_BOLD}Использование:${COLOR_RESET}
-    ${TOOL_NAME} list [опции]
+ ${COLOR_BOLD}Usage:${COLOR_RESET}
+    ${TOOL_NAME} list [options]
 
- ${COLOR_BOLD}Описание:${COLOR_RESET}
-    Показывает список всех DDEV проектов с версиями PHP
-    и максимальной протестированной версией.
+ ${COLOR_BOLD}Description:${COLOR_RESET}
+    Shows list all DDEV projects with versions PHP
+    and maximum tested version.
 
- ${COLOR_BOLD}Опции:${COLOR_RESET}
-    --sort-by FIELD    Сортировать по полю (name, php, php_max, status)
-    --format FORMAT    Формат вывода (table, json, simple)
-    --group            Группировать по версии PHP
-    -h, --help         Показать эту справку
+ ${COLOR_BOLD}Options:${COLOR_RESET}
+    --sort-by FIELD    Sorted by floor (name, php, php_max, status)
+    --format FORMAT    Format output (table, json, simple)
+    --group            Grouping by versions PHP
+    -h, --help         Show this help
 
- ${COLOR_BOLD}Примеры:${COLOR_RESET}
+ ${COLOR_BOLD}Examples:${COLOR_RESET}
     ${TOOL_NAME} list
     ${TOOL_NAME} list --sort-by php_max --group
     ${TOOL_NAME} list --format json
@@ -36,7 +36,7 @@ EOF
 }
 
 # =================================================================
-# ОСНОВНАЯ ФУНКЦИЯ
+# MAIN FUNCTION
 # =================================================================
 
 cmd_list() {
@@ -55,11 +55,11 @@ cmd_list() {
     local ddev_projects_path="${PROJECTS_ROOT:-$(get_config "ddev_projects_base_path")}"
 
     if [[ ! -d "$ddev_projects_path" ]]; then
-        print_error "Директория проектов не найдена: $ddev_projects_path"
+        print_error "Director projects not found: $ddev_projects_path"
         return 1
     fi
 
-    print_header "Список DDEV проектов"
+    print_header "List DDEV projects"
 
     local running_projects
     running_projects=$(ddev list --active-only 2>/dev/null)
@@ -96,7 +96,7 @@ cmd_list() {
     done
 
     if [[ $count -eq 0 ]]; then
-        print_warning "DDEV проекты не найдены в директории: $ddev_projects_path"
+        print_warning "DDEV projects not founds in directors: $ddev_projects_path"
         return 0
     fi
 
@@ -123,7 +123,7 @@ cmd_list() {
             ;;
 
         table|*)
-            printf "\n%-25s | %-8s | %-8s | %s\n" "Проект" "PHP" "PHP Max" "Статус"
+            printf "\n%-25s | %-8s | %-8s | %s\n" "Project" "PHP" "PHP Max" "Status"
             printf '%-25s | %-8s | %-8s | %s\n' '-------------------------' '--------' '--------' '--------'
 
             local sort_field=1
@@ -186,8 +186,8 @@ cmd_list() {
             fi
 
             echo ""
-            print_info "Всего проектов: $count"
-            print_info "Хранилище метаданных: $(dpx_meta_file)"
+            print_info "Always projects: $count"
+            print_info "Storage metadata: $(dpx_meta_file)"
             ;;
     esac
 

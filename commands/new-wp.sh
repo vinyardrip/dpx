@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Command: new-wp - создание нового WordPress проекта
+# DPX Command: new-wp - creat new WordPress project
 #
-# [v1.7.0] ОБРАТНАЯ СОВМЕСТИМОСТЬ: тонкая обертка над
+# [v1.7.0] REVERSE COMPATIBILITY: subtle wrapper over
 #   dpx new --cms=wordpress
-# Вся логика каркаса живет в commands/new.sh (_new_scaffold_wordpress).
+# All logic scaffold lives in command/new.sh (_new_scaffold_wordpress).
 # =================================================================
 
 source "${DPX_ROOT}/lib/core.sh"
 source "${DPX_ROOT}/lib/cms.sh"
-# Универсальный движок: определяет cmd_new и show_new_help
+# Universal engine: detects cmd_new and show_new_help
 source "${DPX_ROOT}/commands/new.sh"
 
 show_new_wp_help() {
     show_new_help
     cat << EOF
 
- ${COLOR_BOLD}Примечание:${COLOR_RESET} команда 'new-wp' сохранена для совместимости и
- эквивалентна '${TOOL_NAME} new --cms=wordpress'. Специфичные опции WP
- (--locale, --admin-user/pass/email, --no-theme) передаются сквозь.
+ ${COLOR_BOLD}Note:${COLOR_RESET} command 'new-wp' saved for compatibilities and
+ equivalent '${TOOL_NAME} new --cms=wordpress'. Specific options WP
+ (--locale, --admin-user/pass/email, --no-theme) pass through.
 EOF
 }
 
 cmd_new_wp() {
-    # Делегируем в универсальный движок, добавив тип только если
-    # пользователь не указал свой (--cms/--type в любой форме).
+    # Delegate in universal engine, adding type only ifs
+    # user not specified with (--cms/--type in any form).
     local arg has_cms=false
     for arg in "$@"; do
         case "$arg" in

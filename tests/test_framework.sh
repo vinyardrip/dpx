@@ -1,41 +1,41 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Test Framework - легковесный фреймворк для unit-тестов
+# DPX Test Framework - lightweight framework for unit-tests
 # =================================================================
 
 # =================================================================
-# ПРОВЕРКА ВЕРСИИ BASH
+# CHECK VERSIONS BASH
 # =================================================================
 
 if (( BASH_VERSINFO[0] < 4 )); then
-    echo "ОШИБКА: Test Framework требует Bash 4.0+" >&2
+    echo "ERROR: Test Framework requires Bash 4.0+" >&2
     exit 1
 fi
 
 # =================================================================
-# ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+# GLOBAL VARIABLE
 # =================================================================
 
-# Счетчики
+# Counters
 TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
 TESTS_SKIPPED=0
 
-# [FIX] Флаг состояния текущего теста (защита от False Positives)
-# Предотвращает двойной счёт когда test_pass вызывается после test_fail
+# [FIX] Flag state current test (protect from False Positives)
+# Prevents double count when test_pass invokes after test_fail
 CURRENT_TEST_FAILED=0
 
-# Временная директория
+# Temporary director
 TEST_TEMP_DIR=""
 
-# Цвета (совместимость с терминалом и fallback)
+# Color (compatibility with terminal and fallback)
 if command -v tput >/dev/null 2>&1 && [[ -t 1 ]]; then
     TEST_GREEN=$(tput setaf 2)
     TEST_RED=$(tput setaf 1)
     TEST_YELLOW=$(tput setaf 3)
-    # TEST_CYAN входит в публичную палитру фреймворка (используется
-    # внешними suite-скриптами), сам фреймворк его не печатает.
+    # TEST_CYAN enters in public palette framework (uses
+    # externals suite-scripts), itself framework its not prints.
     # shellcheck disable=SC2034
     TEST_CYAN=$(tput setaf 6)
     TEST_BOLD=$(tput bold)
@@ -51,34 +51,34 @@ else
 fi
 
 # =================================================================
-# ОСНОВНЫЕ ФУНКЦИИ ТЕСТИРОВАНИЯ
+# MAIN FUNCTIONS TESTING
 # =================================================================
 
-# Начало теста (сбрасывает флаг состояния)
-# [FIX] "|| true" на инкрементах: пост-инкремент с нуля возвращает
-# статус 1 и ломал цепочки вида "assert && test_pass || test_fail"
+# Start test (resets flag state)
+# [FIX] "|| true" on increments: post-increment with zero returns
+# status 1 and broke chains kind "assert && test_pass || test_fail"
 test_start() {
     local name="$1"
-    CURRENT_TEST_FAILED=0  # [FIX] Сброс флага для каждого нового теста
+    CURRENT_TEST_FAILED=0  # [FIX] Flush flag for each new test
     ((TESTS_RUN++)) || true
     printf "  Testing: %-50s " "$name"
 }
 
-# Успешное завершение теста
+# Success completion test
 test_pass() {
-    # [FIX] Засчитываем успех ТОЛЬКО если не было вызовов test_fail
-    # Это делает фреймворк "пуленепробиваемым" - test_pass после test_fail игнорируется
+    # [FIX] Counted success ONLY ifs not was calls test_fail
+    # This makes framework "bulletproof" - test_pass after test_fail ignores
     if [[ $CURRENT_TEST_FAILED -eq 0 ]]; then
         printf '%s\n' "${TEST_GREEN}✓ PASS${TEST_RESET}"
         ((TESTS_PASSED++)) || true
     fi
 }
 
-# Неудачное завершение теста
+# Failed completion test
 test_fail() {
     local reason="${1:-}"
 
-    # [FIX] Если тест уже был провален ранее, не плюсуем счетчик дважды
+    # [FIX] Ifs test already was failed earlier, not plus counter twices
     if [[ $CURRENT_TEST_FAILED -eq 0 ]]; then
         printf '%s\n' "${TEST_RED}✗ FAIL${TEST_RESET}"
         ((TESTS_FAILED++)) || true
@@ -90,7 +90,7 @@ test_fail() {
     fi
 }
 
-# Пропуск теста
+# Skip test
 test_skip() {
     local reason="${1:-No reason provided}"
     printf '%s\n' "${TEST_YELLOW}⊘ SKIP${TEST_RESET}"
@@ -101,10 +101,10 @@ test_skip() {
 }
 
 # =================================================================
-# ASSERT ФУНКЦИИ (Assertion Library)
+# ASSERT FUNCTIONS (Assertion Library)
 # =================================================================
 
-# Проверка равенства строк
+# Check equality line
 assert_equals() {
     local expected="$1"
     local actual="$2"
@@ -118,7 +118,7 @@ assert_equals() {
     fi
 }
 
-# Проверка неравенства строк
+# Check inequality line
 assert_not_equals() {
     local expected="$1"
     local actual="$2"
@@ -132,7 +132,7 @@ assert_not_equals() {
     fi
 }
 
-# Проверка, что строка содержит подстроку
+# Check, that line contains substring
 assert_contains() {
     local haystack="$1"
     local needle="$2"
@@ -146,7 +146,7 @@ assert_contains() {
     fi
 }
 
-# Проверка, что строка НЕ содержит подстроку
+# Check, that line NOT contains substring
 assert_not_contains() {
     local haystack="$1"
     local needle="$2"
@@ -160,7 +160,7 @@ assert_not_contains() {
     fi
 }
 
-# Проверка, что строка пустая
+# Check, that line empty
 assert_empty() {
     local value="$1"
     local message="${2:-Value should be empty}"
@@ -173,7 +173,7 @@ assert_empty() {
     fi
 }
 
-# Проверка, что строка НЕ пустая
+# Check, that line NOT empty
 assert_not_empty() {
     local value="$1"
     local message="${2:-Value should not be empty}"
@@ -186,14 +186,14 @@ assert_not_empty() {
     fi
 }
 
-# Проверка истинности (true/1)
-# [FIX] Исправлена ошибка типизации - используем строковое сравнение вместо -eq
-# Оператор -eq предназначен только для чисел и может вызвать ошибку при строковых значениях
+# Check truthiness (true/1)
+# [FIX] Fix error typings - use string comparison instead -eq
+# Operator -eq intended only for numbers and may called error durings string value
 assert_true() {
     local condition="$1"
     local message="${2:-Condition should be true}"
 
-    # [FIX] Безопасное строковое сравнение вместо числового -eq
+    # [FIX] Safe string comparison instead numeric -eq
     if [[ "$condition" == "true" || "$condition" == "1" ]]; then
         return 0
     else
@@ -202,13 +202,13 @@ assert_true() {
     fi
 }
 
-# Проверка ложности (false/0/empty)
-# [FIX] Исправлена ошибка типизации - используем строковое сравнение вместо -eq
+# Check falsiness (false/0/empty)
+# [FIX] Fix error typings - use string comparison instead -eq
 assert_false() {
     local condition="$1"
     local message="${2:-Condition should be false}"
 
-    # [FIX] Безопасное строковое сравнение вместо числового -eq
+    # [FIX] Safe string comparison instead numeric -eq
     if [[ "$condition" == "false" || "$condition" == "0" || -z "$condition" ]]; then
         return 0
     else
@@ -217,7 +217,7 @@ assert_false() {
     fi
 }
 
-# Проверка существования файла
+# Check existence file
 assert_file_exists() {
     local file="$1"
     local message="${2:-File should exist}"
@@ -230,7 +230,7 @@ assert_file_exists() {
     fi
 }
 
-# Проверка отсутствия файла
+# Check missing file
 assert_file_not_exists() {
     local file="$1"
     local message="${2:-File should not exist}"
@@ -243,7 +243,7 @@ assert_file_not_exists() {
     fi
 }
 
-# Проверка существования директории
+# Check existence directors
 assert_dir_exists() {
     local dir="$1"
     local message="${2:-Directory should exist}"
@@ -256,7 +256,7 @@ assert_dir_exists() {
     fi
 }
 
-# Проверка, что команда успешна (exit code 0)
+# Check, that command success (exit code 0)
 assert_success() {
     local exit_code=$1
     local message="${2:-Command should succeed}"
@@ -269,7 +269,7 @@ assert_success() {
     fi
 }
 
-# Проверка, что команда падает (exit code != 0)
+# Check, that command falls (exit code != 0)
 assert_failure() {
     local exit_code=$1
     local message="${2:-Command should fail}"
@@ -283,22 +283,22 @@ assert_failure() {
 }
 
 # =================================================================
-# УПРАВЛЕНИЕ ВРЕМЕННОЙ ДИРЕКТОРИЕЙ
+# MANAGEMENT TEMPORARY DIRECTOR
 # =================================================================
 
-# Создание временной директории
-# [FIX] Добавлен trap для гарантированной очистки при любом завершении
+# Creat temporary directors
+# [FIX] Add trap for guaranteed cleanups durings any completions
 setup_temp_dir() {
     TEST_TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/dpx_test_XXXXXX")
 
-    # [FIX] Гарантированная очистка при любом завершении скрипта
-    # Сработает даже при exit 1 или Ctrl+C
+    # [FIX] Guaranteed cleanup durings any completions script
+    # Will fire even durings exit 1 ors Ctrl+C
     trap 'cleanup_temp_dir' EXIT
 
     echo "Test directory: $TEST_TEMP_DIR"
 }
 
-# Очистка временной директории
+# Cleanup temporary directors
 cleanup_temp_dir() {
     if [[ -n "$TEST_TEMP_DIR" && -d "$TEST_TEMP_DIR" ]]; then
         rm -rf "$TEST_TEMP_DIR" 2>/dev/null || true
@@ -307,15 +307,15 @@ cleanup_temp_dir() {
 }
 
 # =================================================================
-# ГЕНЕРАТОРЫ MOCK-ОБЪЕКТОВ
+# GENERATORS MOCK-OBJECTS
 # =================================================================
 
-# Создание фейкового проекта WordPress
+# Creat fake project WordPress
 create_fake_wordpress_project() {
     local project_dir="$1"
     local project_name="${2:-testproject}"
-    # site_url доступен вызывающим suite-скриптам через возврат
-    # вместе с путем (контракт генераторов mock-объектов).
+    # site_url accessible calling suite-scripts via return
+    # instead with path (contract generators mock-objects).
     # shellcheck disable=SC2034
     local site_url="${3:-https://${project_name}.ddev.site}"
 
@@ -343,14 +343,14 @@ php_version: "8.1"
 webserver_type: nginx-fpm
 YAML
 
-    # Фейковая тема
+    # Fake then
     mkdir -p "$project_dir/wp-content/themes/test-theme"
     echo "/* Theme */" > "$project_dir/wp-content/themes/test-theme/style.css"
 
     echo "$project_dir"
 }
 
-# Создание фейкового проекта Joomla
+# Creat fake project Joomla
 create_fake_joomla_project() {
     local project_dir="$1"
     local project_name="${2:-joomlatest}"
@@ -384,7 +384,7 @@ YAML
     echo "$project_dir"
 }
 
-# Создание фейкового DDEV проекта (generic)
+# Creat fake DDEV project (generic)
 create_fake_ddev_project() {
     local project_dir="$1"
     local project_name="${2:-genericproject}"
@@ -401,14 +401,14 @@ php_version: "$php_version"
 webserver_type: nginx-fpm
 YAML
 
-    # Файловая структура
+    # File structure
     mkdir -p "$project_dir/public"
     echo "<?php echo 'Hello';" > "$project_dir/public/index.php"
 
     echo "$project_dir"
 }
 
-# Создание фейкового SQL-дампа
+# Creat fake SQL-dump
 create_fake_sql_dump() {
     local output_file="$1"
     local db_name="${2:-testdb}"
@@ -430,7 +430,7 @@ SQLEOF
     echo "$output_file"
 }
 
-# Создание фейкового конфига DPX
+# Creat fake config DPX
 create_fake_dpx_config() {
     local config_dir="$1"
 
@@ -450,7 +450,7 @@ BASH
 }
 
 # =================================================================
-# ИТОГОВАЯ ОТЧЁТНОСТЬ
+# FINAL REPORTING
 # =================================================================
 
 print_test_summary() {
@@ -465,7 +465,7 @@ print_test_summary() {
     printf "${TEST_YELLOW}Skipped:  %d${TEST_RESET}\n" "$TESTS_SKIPPED"
     echo ""
 
-    # Проверка целостности статистики
+    # Check integrities statistics
     local calculated_total=$((TESTS_PASSED + TESTS_FAILED + TESTS_SKIPPED))
     if [[ $calculated_total -ne $TESTS_RUN ]]; then
         echo "${TEST_RED}WARNING: Statistics mismatch!${TEST_RESET}"
@@ -482,7 +482,7 @@ print_test_summary() {
 }
 
 # =================================================================
-# ИНИЦИАЛИЗАЦИЯ ЗАГОЛОВКА
+# INITIALIZATION HEADER
 # =================================================================
 
 print_test_header() {

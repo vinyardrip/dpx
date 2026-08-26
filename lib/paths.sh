@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Paths Module - определение путей, кроссплатформенное разрешение
+# DPX Paths Module - defin path, cross-platform permission
 # =================================================================
 
-# Защита от повторного подключения
+# Re-entrancy guard
 [[ -n "${_DPX_PATHS_LOADED:-}" ]] && return 0
 readonly _DPX_PATHS_LOADED=1
 
 # =================================================================
-# ОПРЕДЕЛЕНИЕ ОС (BSD/GNU совместимость)
+# DEFIN OS (BSD/GNU compatibility)
 # =================================================================
 
 DPX_OS_TYPE="linux"
@@ -31,10 +31,10 @@ dpx_detect_os() {
 dpx_detect_os
 
 # =================================================================
-# КРОССПЛАТФОРМЕННОЕ РАЗРЕШЕНИЕ ПУТЕЙ
+# CROSS-PLATFORM PERMISSION PATH
 # =================================================================
 
-# Надёжное разрешение симлинков (GNU/BSD совместимое)
+# Reliable permission symlinks (GNU/BSD compatible)
 dpx_resolve_symlink() {
     local source="$1"
     local dir
@@ -48,12 +48,12 @@ dpx_resolve_symlink() {
         ((iteration++))
     done
 
-    # Защита от циклических симлинков
+    # Protect from cyclic symlinks
     [[ $iteration -ge $max_iterations ]] && return 1
 
-    # Возвращаем АБСОЛЮТНУЮ директорию, если путь существует
+    # Return ABSOLUTE director, ifs path exist
     if [[ -e "$source" ]]; then
-        # Переходим в папку и печатаем ее полный путь (не относительный!)
+        # Transition in folder and print its full path (not relative!)
         cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
         return 0
     fi
@@ -61,30 +61,30 @@ dpx_resolve_symlink() {
     return 1
 }
 
-# Определение корневой директории проекта
+# Defin root directors project
 dpx_get_root() {
     local source="${BASH_SOURCE[0]:-$0}"
     local dir
 
-    # Пытаемся разрешить симлинки
+    # Trying resolve symlinks
     if dir="$(dpx_resolve_symlink "$source")" && [[ -n "$dir" ]]; then
-        : # успешно
+        : # success
     else
-        # Fallback: простое определение без разрешения симлинков
+        # Fallback: simple defin without permission symlinks
         dir="$(cd -P "$(dirname "$source")" 2>/dev/null && pwd)" || {
             echo "FATAL: Cannot determine script root" >&2
             return 1
         }
     fi
 
-    # Поднимаемся из lib/commands/tests на уровень выше
+    # Bring up from lib/command/tests on level above
     case "$(basename "$dir")" in
-        lib|commands|tests)
+        lib|command|tests)
             dir="$(dirname "$dir")"
             ;;
     esac
 
-    # Валидация
+    # Validation
     if [[ -z "$dir" ]] || [[ ! -d "$dir" ]]; then
         echo "FATAL: Invalid root directory: '$dir'" >&2
         return 1
@@ -94,7 +94,7 @@ dpx_get_root() {
 }
 
 # =================================================================
-# ИНИЦИАЛИЗАЦИЯ DPX_ROOT
+# INITIALIZATION DPX_ROOT
 # =================================================================
 
 if [[ -z "${DPX_ROOT:-}" ]]; then
@@ -103,7 +103,7 @@ fi
 readonly DPX_ROOT
 
 # =================================================================
-# ЭКСПОРТ
+# EXPORT
 # =================================================================
 
 export DPX_ROOT DPX_OS_TYPE DPX_SED_INPLACE_EXT

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Core - загрузчик модулей (Loader)
+# DPX Core - loader module (Loader)
 # =================================================================
 
-# Защита от повторного подключения
+# Re-entrancy guard
 [[ -n "${_DPX_CORE_LOADED:-}" ]] && return 0
 readonly _DPX_CORE_LOADED=1
 
 # =================================================================
-# КОНСТАНТЫ (только уникальные для core.sh)
+# CONSTANTS (only unique for core.sh)
 # =================================================================
 
 readonly TOOL_NAME="${TOOL_NAME:-dpx}"
 
-# Единый источник версии (Single Source of Truth) — читаем из .version
+# Single source versions (Single Source of Truth) — read from .version
 if [[ -f "${DPX_ROOT}/.version" ]]; then
     readonly DPX_VERSION="$(head -1 "${DPX_ROOT}/.version" | tr -d '[:space:]')"
 else
@@ -21,35 +21,35 @@ else
 fi
 
 # =================================================================
-# ЗАГРУЗКА БАЗОВЫХ МОДУЛЕЙ (порядок важен!)
+# DOWNLOAD BASIC MODULE (order important!)
 # =================================================================
 
-# paths.sh - определяет DPX_ROOT, DPX_OS_TYPE, DPX_SED_INPLACE_EXT
+# paths.sh - detects DPX_ROOT, DPX_OS_TYPE, DPX_SED_INPLACE_EXT
 source "${DPX_ROOT}/lib/paths.sh"
 
-# io.sh - функции вывода (print_*, COLOR_*)
+# io.sh - functions output (print_*, COLOR_*)
 source "${DPX_ROOT}/lib/io.sh"
 
-# utils.sh - общие утилиты
+# utils.sh - general utilities
 source "${DPX_ROOT}/lib/utils.sh"
 
-# config.sh - загрузка конфигурации
+# config.sh - download configurations
 source "${DPX_ROOT}/lib/config.sh"
 
-# args.sh - парсинг аргументов
+# args.sh - parsing arguments
 source "${DPX_ROOT}/lib/args.sh"
 
-# checks.sh - проверки зависимостей, версий, константы MIN_*
+# checks.sh - checks dependency, version, constants MIN_*
 source "${DPX_ROOT}/lib/checks.sh"
 
-# sudo.sh - безопасная работа с привилегиями и файлами (Safe Sudo Protocol)
+# sudo.sh - safe work with privilegeds and files (Safe Sudo Protocol)
 source "${DPX_ROOT}/lib/sudo.sh"
 
-# meta.sh - управление метаданными проектов
+# meta.sh - management metadatas projects
 source "${DPX_ROOT}/lib/meta.sh"
 
 # =================================================================
-# КРОССПЛАТФОРМЕННОЕ ОПРЕДЕЛЕНИЕ ДОМАШНЕЙ ДИРЕКТОРИИ
+# CROSS-PLATFORM DEFIN HOME DIRECTORS
 # =================================================================
 
 dpx_get_real_home() {
@@ -74,27 +74,27 @@ dpx_get_real_home() {
     echo "${home:-$HOME}"
 }
 
-# Определяем REAL_HOME ДО загрузки конфигурации
+# Determin REAL_HOME UNTIL downloads configurations
 REAL_HOME=$(dpx_get_real_home)
 readonly REAL_HOME
 
 # =================================================================
-# ИНИЦИАЛИЗАЦИЯ КОНФИГУРАЦИИ И ПУТЕЙ
+# INITIALIZATION CONFIGURATIONS Ands PATH
 # =================================================================
 
-# Загружаем конфигурацию
+# Load configuration
 load_config
 
 # =================================================================
-# РАСКРЫТИЕ ПУТЕЙ В КОНФИГУРАЦИИ
+# EXPANDED PATH In CONFIGURATIONS
 # =================================================================
 
-# 1. Вычисляем и раскрываем главный WORKSPACE_ROOT
+# 1. Compute and expand main WORKSPACE_ROOT
 DPX_WORKSPACE="${DEFAULT_CONFIG[workspace_root]}"
 DPX_WORKSPACE="${DPX_WORKSPACE//\$HOME/$REAL_HOME}"
 DPX_WORKSPACE="${DPX_WORKSPACE/#\~/$REAL_HOME}"
 
-# 2. Функция раскрытия путей с поддержкой $WORKSPACE_ROOT
+# 2. Function expanded path with support $WORKSPACE_ROOT
 expand_path() {
     local path="$1"
     path="${path//\$WORKSPACE_ROOT/$DPX_WORKSPACE}"
@@ -103,18 +103,18 @@ expand_path() {
     echo "$path"
 }
 
-# 3. Раскрываем пути во ВСЕХ значениях DEFAULT_CONFIG
+# 3. Expand paths in ALL value DEFAULT_CONFIG
 _dpx_expand_key=
 for _dpx_expand_key in "${!DEFAULT_CONFIG[@]}"; do
     DEFAULT_CONFIG["$_dpx_expand_key"]=$(expand_path "${DEFAULT_CONFIG[$_dpx_expand_key]}")
 done
 
-# Получаем корневую директорию проектов
+# Get root director projects
 PROJECTS_ROOT=$(get_config "ddev_projects_base_path")
 export PROJECTS_ROOT
 
 # =================================================================
-# ФУНКЦИИ ЯДРА
+# FUNCTIONS CORE
 # =================================================================
 
 core_rotate_backups() {
@@ -141,12 +141,12 @@ core_rotate_backups() {
     done <<< "$files_to_delete"
 
     if (( count > 0 )); then
-        print_info "Ротация: удалено $count старых файлов (оставлено $keep_count)."
+        print_info "Rotation: delet $count old files (left $keep_count)."
     fi
 }
 
 # =================================================================
-# ЭКСПОРТ
+# EXPORT
 # =================================================================
 
 export TOOL_NAME DPX_VERSION REAL_HOME DPX_WORKSPACE

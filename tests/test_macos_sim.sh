@@ -2,23 +2,23 @@
 # =================================================================
 # DPX Unit Tests: macOS/BSD Simulation Suite
 #
-# Симулирует выполнение DPX на macOS без физического железа:
-#   - OSTYPE=darwin* внутри изолированных процессов Bash;
-#   - shim'ы BSD-утилит в PATH: sed (-i ''), stat (-f %m),
-#     readlink (без -f, как на macOS < 12.3), tar (строгий порядок
-#     опций bsdtar), ddev (функциональный stub).
+# Simulates execut DPX on macOS without physical hardware:
+#   - OSTYPE=darwin* internals isolated process Bash;
+#   - shim's BSD-utility in PATH: sed (-i ''), stat (-f %m),
+#     readlink (without -f, as on macOS < 12.3), tar (strict order
+#     option bsdtar), ddev (functional stub).
 #
-# ВАЖНО: bash ПЕРЕЗАПИСЫВАЕТ $OSTYPE при старте, поэтому значение
-# выставляется ВНУТРИ каждого сценария после запуска интерпретатора,
-# а не через окружение родителя.
+# IMPORTANT: bash OVERWRITES $OSTYPE durings start, therefore value
+# sets INTERNALS each scenario after start interpreter,
+# and not via environment parent.
 # =================================================================
 
 # =================================================================
-# ИНИЦИАЛИЗАЦИЯ
+# INITIALIZATION
 # =================================================================
 
 if (( BASH_VERSINFO[0] < 4 )); then
-    echo "ОШИБКА: Тесты требуют Bash 4.0+" >&2
+    echo "ERROR: Tests require Bash 4.0+" >&2
     exit 1
 fi
 
@@ -26,12 +26,12 @@ TESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 DPX_ROOT="$(cd "$TESTS_DIR/.." && pwd)"
 export DPX_ROOT
 
-# Путь фреймворка вычисляется во время выполнения (портативность layout)
+# Path framework computes in time execut (portability layout)
 # shellcheck disable=SC1091
 source "$TESTS_DIR/test_framework.sh"
 
 print_test_header "Unit Tests: macOS/BSD Simulation" "1.0.0"
-setup_temp_dir >/dev/null   # TEST_TEMP_DIR + EXIT trap (гарантированный teardown)
+setup_temp_dir >/dev/null   # TEST_TEMP_DIR + EXIT trap (guaranteed teardown)
 
 SHIM_BIN="$TEST_TEMP_DIR/bin"
 FAKE_HOME="$TEST_TEMP_DIR/home"
@@ -41,13 +41,13 @@ mkdir -p "$SHIM_BIN" "$FAKE_HOME" "$SCEN_DIR"
 export DPX_SHIM_LOG="$TEST_TEMP_DIR/ddev.log"
 
 # =================================================================
-# ГЕНЕРАЦИЯ SHIM'ОВ BSD-УТИЛИТ
+# GENERATION SHIM'S BSD-UTILITY
 # =================================================================
 
-# --- BSD sed: знаменитые отличия от GNU -------------------------
-#   * `sed -i '' EXPR FILE` — расширение ВСЕГДА отдельный аргумент;
-#   * прикрепленная форма `-ibak` НЕ поддерживается;
-#   * GNU long-опции (--expression, --in-place) отсутствуют.
+# --- BSD sed: famous different from GNU -------------------------
+#   * `sed -i '' EXPR FILE` — extended ALWAYS separate argument;
+#   * attached form `-ibak` NOT supports;
+#   * GNU long-options (--expression, --in-place) absent.
 cat > "$SHIM_BIN/sed" << 'EOF'
 #!/usr/bin/env bash
 REAL_SED="${DPX_REAL_SED:-/usr/bin/sed}"
@@ -78,13 +78,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ $seen_i -eq 1 ]]; then
-    # '' -> без бэкапа (GNU: --in-place); '.bak' -> --in-place=.bak
+    # '' -> without backup (GNU: --in-place); '.bak' -> --in-place=.bak
     exec "$REAL_SED" "--in-place${inplace:+=$inplace}" "${args[@]}"
 fi
 exec "$REAL_SED" "${args[@]}"
 EOF
 
-# --- BSD stat: только -f форматы (%m mtime, %z size) -------------
+# --- BSD stat: only -f formats (%m mtime, %z size) -------------
 cat > "$SHIM_BIN/stat" << 'EOF'
 #!/usr/bin/env bash
 REAL_STAT="${DPX_REAL_STAT:-/usr/bin/stat}"
@@ -102,7 +102,7 @@ case "$fmt" in
 esac
 EOF
 
-# --- readlink: без -f (как на macOS < 12.3) ----------------------
+# --- readlink: without -f (as on macOS < 12.3) ----------------------
 cat > "$SHIM_BIN/readlink" << 'EOF'
 #!/usr/bin/env bash
 REAL_READLINK="${DPX_REAL_READLINK:-/usr/bin/readlink}"
@@ -113,7 +113,7 @@ fi
 exec "$REAL_READLINK" "$@"
 EOF
 
-# --- tar: строгий порядок bsdtar (--exclude ДО -f) ---------------
+# --- tar: strict order bsdtar (--exclude UNTIL -f) ---------------
 cat > "$SHIM_BIN/tar" << 'EOF'
 #!/usr/bin/env bash
 REAL_TAR="${DPX_REAL_TAR:-/usr/bin/tar}"
@@ -137,7 +137,7 @@ fi
 exec "$REAL_TAR" "$@"
 EOF
 
-# --- ddev stub: лог вызовов + эмуляция нужных подкоманд ----------
+# --- ddev stub: log calls + emulation need subcommand ----------
 cat > "$SHIM_BIN/ddev" << 'EOF'
 #!/usr/bin/env bash
 LOG="${DPX_SHIM_LOG:?DPX_SHIM_LOG not set}"
@@ -176,16 +176,16 @@ EOF
 chmod +x "$SHIM_BIN"/*
 
 # =================================================================
-# ЗАПУСК СЦЕНАРИЕВ В СИМУЛЯЦИИ DARWIN
+# START SCENARIOS In SIMULATIONS DARWIN
 #
-# Каждый сценарий — ОТДЕЛЬНЫЙ процесс bash: guard-переменные модулей
-# (_DPX_*_LOADED, readonly DPX_ROOT) не переживают границу процессов.
+# Each scenario — SEPARATE process bash: guard-variable module
+# (_DPX_*_LOADED, readonly DPX_ROOT) not survive boundary process.
 # =================================================================
 
 run_darwin() {
     local script="$1"; shift
     (
-        # Изоляция окружения НАМЕРЕННА: только внутри подпроцесса сценария
+        # Isolation environment INTENTIONAL: only internals subprocess scenario
         # shellcheck disable=SC2030
         export HOME="$FAKE_HOME"
         # shellcheck disable=SC2030
@@ -195,7 +195,7 @@ run_darwin() {
     )
 }
 
-# Вариант с "легаси-DDEV": флаг --name у restart/import-db не поддержан
+# Variant with "legacy-DDEV": flag --name at restart/import-db not supported
 run_darwin_legacy_ddev() {
     local script="$1"; shift
     (
@@ -210,13 +210,13 @@ run_darwin_legacy_ddev() {
 }
 
 # =================================================================
-# ХЕЛПЕРЫ АССЕРТОВ (один test_pass на один test_start)
+# HELPERS ASSERTS (one test_pass on one test_start)
 #
-# assert_* фреймворка уже вызывают test_fail при промахе; здесь мы
-# добавляем симметричный явный test_pass без "A && B || C" (SC2015).
+# assert_* framework already cause test_fail durings miss; here wes
+# add symmetric explicit test_pass without "A && B || C" (SC2015).
 # =================================================================
 
-check_marker() { # $1 = ожидаемый маркер, $2 = вывод сценария
+check_marker() { # $1 = expected marker, $2 = output scenario
     local marker="$1" haystack="$2"
     if grep -qF -- "$marker" <<<"$haystack"; then
         test_pass
@@ -226,7 +226,7 @@ check_marker() { # $1 = ожидаемый маркер, $2 = вывод сце�
 }
 
 # =================================================================
-# СЦЕНАРИЙ A: детекция ОС (paths.sh)
+# SCENARIO A: detection OS (paths.sh)
 # =================================================================
 
 cat > "$SCEN_DIR/a_detect.sh" << 'EOF'
@@ -236,7 +236,7 @@ echo "DETECT_OS=$DPX_OS_TYPE EXT=$DPX_SED_INPLACE_EXT"
 EOF
 
 # =================================================================
-# СЦЕНАРИЙ B: safe_sed_inplace (Joomla config) под BSD sed
+# SCENARIO B: safe_sed_inplace (Joomla config) under BSD sed
 # =================================================================
 
 cat > "$SCEN_DIR/b_sed.sh" << 'EOF'
@@ -250,8 +250,8 @@ source "$DPX_ROOT/lib/cms.sh"
 
 config_file="$fixture_dir/configuration.php"
 
-# Те же паттерны, что в configure_joomla_config (одинарные кавычки
-# внутри сценария => sed получает \$host как литерал, как в cms.sh)
+# Those same patterns, that in configure_joomla_config (single quotes
+# internals scenario => sed gets \$host as literal, as in cms.sh)
 safe_sed_inplace 's|public[[:space:]]*\$host[[:space:]]*=.*|public \$host = '"'"'db'"'"';|g' "$config_file"
 
 if grep -q "public \$host = 'db';" "$config_file"; then
@@ -268,7 +268,7 @@ fi
 EOF
 
 # =================================================================
-# СЦЕНАРИЙ C: разрешение путей без GNU readlink -f
+# SCENARIO C: permission path without GNU readlink -f
 # =================================================================
 
 cat > "$SCEN_DIR/c_symlink.sh" << 'EOF'
@@ -279,9 +279,9 @@ source "$DPX_ROOT/lib/paths.sh"
 
 mkdir -p "$base/real"
 touch "$base/real/target.txt"
-# Цепочка заканчивается на ФАЙЛЕ: контракт dpx_resolve_symlink
-# возвращает ДИРЕКТОРИЮ, содержащую итоговый путь (так его
-# использует dpx_get_root: paths.sh -> dir=lib -> root).
+# Chain finishes on FILE: contract dpx_resolve_symlink
+# returns DIRECTOR, containing final path (so its
+# uses dpx_get_root: paths.sh -> dir=lib -> root).
 ln -sfn "real/target.txt" "$base/lvl1"
 ln -sfn lvl1 "$base/lvl2"
 ln -sfn lvl2 "$base/lvl3"
@@ -293,7 +293,7 @@ else
     echo "SYMLINK_RESOLVE_FAIL got=$resolved"
 fi
 
-# Циклический симлинк -> защищенный отказ (max_iterations)
+# Cyclic symlink -> protected refusal (max_iterations)
 ln -sfn "$base/cyc" "$base/cyc"
 if dpx_resolve_symlink "$base/cyc" >/dev/null 2>&1; then
     echo "CYCLE_GUARD_FAIL"
@@ -301,7 +301,7 @@ else
     echo "CYCLE_GUARD_OK"
 fi
 
-# dpx_get_root должен вернуть корень репозитория (содержит dpx.sh)
+# dpx_get_root must back root repository (contains dpx.sh)
 root="$(dpx_get_root)"
 if [[ -d "$root" && -f "$root/dpx.sh" ]]; then
     echo "ROOT_RESOLVE_OK"
@@ -311,7 +311,7 @@ fi
 EOF
 
 # =================================================================
-# СЦЕНАРИЙ D: project_full_backup под полным BSD-окружением
+# SCENARIO D: project_full_backup under full BSD-environment
 # =================================================================
 
 cat > "$SCEN_DIR/d_backup.sh" << 'EOF'
@@ -324,7 +324,7 @@ source "$DPX_ROOT/lib/cms.sh"
 source "$DPX_ROOT/lib/database.sh"
 source "$DPX_ROOT/lib/backup.sh"
 
-# Прогрев ротации: 3 "старых" архива с убывающим mtime
+# Progress rotations: 3 "old" archive with decrementing mtime
 mkdir -p "$backup_dir"
 for n in 1 2 3; do
     old="${backup_dir}/FULL_bsdproj_2026-01-0${n}_00000${n}.tar.gz"
@@ -355,7 +355,7 @@ fi
 EOF
 
 # =================================================================
-# СЦЕНАРИЙ E: db_import_with_replace под BSD sed + ddev-stub
+# SCENARIO E: db_import_with_replace under BSD sed + ddev-stub
 # =================================================================
 
 cat > "$SCEN_DIR/e_import.sh" << 'EOF'
@@ -370,7 +370,7 @@ source "$DPX_ROOT/lib/database.sh"
 db_import_with_replace "$dump" "https://old-site.com" "https://new-site.lo" "$proj"
 echo "IMPORT_RC=$?"
 
-# Исходный дамп не должен быть изменен (замена только во временной копии)
+# Source dump not must was chang (replace only in temporary cops)
 if grep -q "old-site.com" "$dump"; then
     echo "ORIGINAL_INTACT_OK"
 else
@@ -379,7 +379,7 @@ fi
 EOF
 
 # =================================================================
-# ФИКСТУРЫ
+# FIXTURES
 # =================================================================
 
 JOOM_FIXTURE="$TEST_TEMP_DIR/joomla-fixture"
@@ -414,7 +414,7 @@ INSERT INTO config VALUES (1, 'live_site', 'https://old-site.com');
 SQLEOF
 
 # =================================================================
-# ТЕСТЫ: ДЕТЕКЦИЯ ОС
+# TESTS: DETECTION OS
 # =================================================================
 
 echo ""
@@ -429,7 +429,7 @@ out="$(SIM_OSTYPE=linux-gnu run_darwin "$SCEN_DIR/a_detect.sh" 2>&1)"
 check_marker "DETECT_OS=linux EXT=" "$out"
 
 # =================================================================
-# ТЕСТЫ: BSD SED
+# TESTS: BSD SED
 # =================================================================
 
 echo ""
@@ -457,7 +457,7 @@ test_start ".bak residue cleaned after in-place edit"
 check_marker "SED_BAK_CLEANED_OK" "$out"
 
 # =================================================================
-# ТЕСТЫ: РАЗРЕШЕНИЕ ПУТЕЙ БЕЗ GNU COREUTILS
+# TESTS: PERMISSION PATH WITHOUT GNU COREUTILS
 # =================================================================
 
 echo ""
@@ -482,7 +482,7 @@ test_start "dpx_get_root returns repository root"
 check_marker "ROOT_RESOLVE_OK" "$out"
 
 # =================================================================
-# ТЕСТЫ: BSD STAT
+# TESTS: BSD STAT
 # =================================================================
 
 echo ""
@@ -513,7 +513,7 @@ else
 fi
 
 # =================================================================
-# ТЕСТЫ: ПОРЯДОК ОПЦИЙ BSD TAR
+# TESTS: ORDER OPTION BSD TAR
 # =================================================================
 
 echo ""
@@ -538,7 +538,7 @@ else
 fi
 
 # =================================================================
-# ТЕСТЫ: PROJECT_FULL_BACKUP ПОД DARWIN
+# TESTS: PROJECT_FULL_BACKUP UNDER DARWIN
 # =================================================================
 
 echo ""
@@ -565,8 +565,8 @@ test_start "excludes honored (vendor/node_modules/.git absent)"
 check_marker "EXCLUDE_CLEAN_OK" "$out"
 
 test_start "rotation keeps last N=2 (3 seeded old archives removed)"
-# ls (не find): сортировка по mtime — суть проверки ротации; имена
-# архивов машинно-генерированные (FULL_<name>_<timestamp>), безопасны.
+# ls (not find): sorting by mtime — day checks rotations; named
+# archives machine-generated (FULL_<name>_<timestamp>), safes.
 # shellcheck disable=SC2012
 kept_count="$(ls -1 "$BACKUP_OUT"/FULL_bsdproj_*.tar.gz 2>/dev/null | wc -l)"
 kept_count="${kept_count// /}"
@@ -586,7 +586,7 @@ else
 fi
 
 # =================================================================
-# ТЕСТЫ: DB_IMPORT_WITH_REPLACE ПОД BSD
+# TESTS: DB_IMPORT_WITH_REPLACE UNDER BSD
 # =================================================================
 
 echo ""
@@ -617,7 +617,7 @@ else
 fi
 
 # =================================================================
-# ИТОГИ
+# SUMMARIES
 # =================================================================
 
 print_test_summary

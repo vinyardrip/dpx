@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Sudo Module - безопасная работа с привилегиями и файлами
-# Протокол Safe Sudo: бэкап → правка → проверка → rollback/cleanup
+# DPX Sudo Module - safe work with privilegeds and files
+# Protocol Safe Sudo: backup → edit → check → rollback/cleanup
 # =================================================================
 
-# Защита от повторного подключения
+# Re-entrancy guard
 [[ -n "${_DPX_SUDO_LOADED:-}" ]] && return 0
 readonly _DPX_SUDO_LOADED=1
 
 # =================================================================
-# КОНСТАНТЫ
+# CONSTANTS
 # =================================================================
 
 readonly DPX_SUDO_MAX_ATTEMPTS=3
 readonly DPX_SUDO_TIMEOUT=60
 
 # =================================================================
-# SAFE SUDO — цикл аутентификации с ограничением попыток
+# SAFE SUDO — loop authentications with limited attempts
 # =================================================================
 
 dpx_sudo() {
@@ -24,7 +24,7 @@ dpx_sudo() {
 
     while (( attempt <= DPX_SUDO_MAX_ATTEMPTS )); do
         if (( attempt > 1 )); then
-            print_warning "Попытка $attempt из $DPX_SUDO_MAX_ATTEMPTS..."
+            print_warning "Attempt $attempt from $DPX_SUDO_MAX_ATTEMPTS..."
         fi
 
         if command -v timeout >/dev/null 2>&1; then
@@ -39,18 +39,18 @@ dpx_sudo() {
 
         local rc=$?
         if (( rc == 124 )); then
-            print_error "Таймаут sudo (${DPX_SUDO_TIMEOUT}с). Попробуйте снова."
+            print_error "Timeout sudo (${DPX_SUDO_TIMEOUT}with). Try again."
         fi
 
         ((attempt++))
     done
 
-    print_error "Не удалось выполнить sudo после $DPX_SUDO_MAX_ATTEMPTS попыток."
+    print_error "Not remove execute sudo after $DPX_SUDO_MAX_ATTEMPTS attempts."
     return 1
 }
 
 # =================================================================
-# FILE SNAPSHOT — создание и управление бэкапами
+# FILE SNAPSHOT — creat and management backups
 # =================================================================
 
 dpx_snapshot() {
@@ -58,16 +58,16 @@ dpx_snapshot() {
     local backup_file="${file}.bak"
 
     if [[ ! -f "$file" ]]; then
-        print_error "Файл не найден для бэкапа: $file"
+        print_error "File not found for backup: $file"
         return 1
     fi
 
     if cp "$file" "$backup_file" 2>/dev/null; then
-        print_info "Бэкап: $backup_file"
+        print_info "Backup: $backup_file"
         echo "$backup_file"
         return 0
     else
-        print_error "Не удалось создать бэкап: $file"
+        print_error "Not remove creat backup: $file"
         return 1
     fi
 }
@@ -77,21 +77,21 @@ dpx_rollback() {
     local backup_file="${file}.bak"
 
     if [[ ! -f "$backup_file" ]]; then
-        print_error "Бэкап не найден: $backup_file"
+        print_error "Backup not found: $backup_file"
         return 1
     fi
 
     if cp "$backup_file" "$file" 2>/dev/null; then
-        print_success "Откат: $file (из $backup_file)"
+        print_success "Rollback: $file (from $backup_file)"
         rm -f "$backup_file"
         return 0
     else
         if dpx_sudo cp "$backup_file" "$file"; then
-            print_success "Откат (sudo): $file"
+            print_success "Rollback (sudo): $file"
             dpx_sudo rm -f "$backup_file" 2>/dev/null
             return 0
         else
-            print_error "Не удалось восстановить из бэкапа: $file"
+            print_error "Not remove restore from backup: $file"
             return 1
         fi
     fi
@@ -103,31 +103,31 @@ dpx_cleanup_snapshot() {
 
     if [[ -f "$backup_file" ]]; then
         rm -f "$backup_file" 2>/dev/null || dpx_sudo rm -f "$backup_file" 2>/dev/null
-        print_info "Бэкап удалён: $backup_file"
+        print_info "Backup delet: $backup_file"
     fi
 }
 
 # =================================================================
-# /ETC/HOSTS — безопасная правка с проверкой через ping
+# /ETC/HOSTS — safe edit with check via ping
 # =================================================================
 
 dpx_hosts_add() {
     local hostname="$1"
     local ip="${2:-127.0.0.1}"
 
-    validate_non_empty "$hostname" "hostname для /etc/hosts" || return 1
+    validate_non_empty "$hostname" "hostname for /etc/hosts" || return 1
 
     if grep -qE "^[^#]*\\b${hostname}\\b" /etc/hosts 2>/dev/null; then
-        print_info "Запись для $hostname уже есть в /etc/hosts."
+        print_info "Record for $hostname already consumes in /etc/hosts."
         return 0
     fi
 
-    print_info "Добавляем $hostname в /etc/hosts..."
+    print_info "Add $hostname in /etc/hosts..."
 
     dpx_snapshot /etc/hosts || return 1
 
     if ! dpx_sudo bash -c "echo '${ip} ${hostname}' >> /etc/hosts"; then
-        print_error "Не удалось добавить запись в /etc/hosts."
+        print_error "Not remove add record in /etc/hosts."
         dpx_rollback /etc/hosts || true
         return 1
     fi
@@ -138,11 +138,11 @@ dpx_hosts_add() {
     fi
 
     if $ping_cmd "$hostname" >/dev/null 2>&1; then
-        print_success "Запись $hostname добавлена и доступна."
+        print_success "Record $hostname add and available."
         dpx_cleanup_snapshot /etc/hosts
         return 0
     else
-        print_warning "Ping $hostname не прошёл. Проверяем DNS-резолв..."
+        print_warning "Ping $hostname not passed. Verify DNS-resolve..."
         local resolved=false
         if command -v getent >/dev/null 2>&1; then
             getent hosts "$hostname" >/dev/null 2>&1 && resolved=true
@@ -151,11 +151,11 @@ dpx_hosts_add() {
         fi
 
         if [[ "$resolved" == true ]]; then
-            print_success "Запись $hostname резолвится. Ping заблокирован файрволом — ок."
+            print_success "Record $hostname resolve. Ping blocked firewall — ok."
             dpx_cleanup_snapshot /etc/hosts
             return 0
         else
-            print_error "Запись $hostname не резолвится. Откат /etc/hosts..."
+            print_error "Record $hostname not resolve. Rollback /etc/hosts..."
             dpx_rollback /etc/hosts || true
             return 1
         fi
@@ -169,7 +169,7 @@ dpx_hosts_remove() {
         return 0
     fi
 
-    print_info "Удаление $hostname из /etc/hosts..."
+    print_info "Delet $hostname from /etc/hosts..."
 
     dpx_snapshot /etc/hosts || return 1
 
@@ -185,7 +185,7 @@ dpx_hosts_remove() {
         fi
     fi
 
-    print_success "Запись $hostname удалена из /etc/hosts."
+    print_success "Record $hostname delet from /etc/hosts."
     dpx_cleanup_snapshot /etc/hosts
     return 0
 }
@@ -193,21 +193,21 @@ dpx_hosts_remove() {
 # =================================================================
 # WP-CONFIG.PHP — Snapshot-Rollback Protocol (v1.4.5)
 #
-# Имя бэкапа: .wp-config.php.dpx_bak  (скрытый файл, С ТОЧКОЙ)
-# Путь: РЯДОМ с wp-config.php, в корне проекта
-# Откат: mv -f (атомарная замена на той же ФС)
+# Name backup: .wp-config.php.dpx_bak  (hidden file, With POINT)
+# Path: ROW with wp-config.php, in root project
+# Rollback: mv -f (atomic replace on that same FS)
 #
-# АРХИТЕКТУРНЫЕ ПРАВИЛА v1.4.5:
-#   1. Функции, возвращающие данные через echo, НЕ должны
-#      вызывать print_* в том же потоке. Все print_* → stderr.
-#   2. diff -q валидация после cp: если файл изменился между
-#      чтением и копированием (RSSSL и др.) — АБОРТ.
-#   3. Post-Rollback Verification: после mv -f проверяем,
-#      что DPX_SMART_TUNNEL исчез из файла.
+# ARCHITECTURAL RULE v1.4.5:
+#   1. Functions, returning data via echo, NOT shoulds
+#      invoke print_* in volume same stream. All print_* → stderr.
+#   2. diff -q validation after cp: ifs file changed between
+#      reading and copi (RSSSL and etc.) — ABORT.
+#   3. Post-Rollback Verification: after mv -f verify,
+#      that DPX_SMART_TUNNEL disappear from file.
 # =================================================================
 
-# Вычисляет путь к бэкапу для wp-config.php.
-# Формат: /path/to/project/.wp-config.php.dpx_bak
+# Computes path to backup for wp-config.php.
+# Format: /path/to/project/.wp-config.php.dpx_bak
 _dpx_wp_config_backup_path() {
     local config_file="$1"
     local config_dir
@@ -217,25 +217,25 @@ _dpx_wp_config_backup_path() {
     echo "${config_dir}/.${config_base}.dpx_bak"
 }
 
-# Проверяет наличие «зависшего» бэкапа от предыдущей сессии.
-# Если найден — восстанавливает оригинал через mv -f.
+# Checks presence «hung» backup from previous sessions.
+# Ifs found — restores original via mv -f.
 dpx_wp_config_stale_check() {
     local config_file="$1"
     local backup_file
     backup_file=$(_dpx_wp_config_backup_path "$config_file")
 
     if [[ -f "$backup_file" ]]; then
-        print_warning "Обнаружен бэкап от предыдущей сессии: $backup_file"
-        print_info "Восстанавливаем wp-config.php из зависшего бэкапа..."
+        print_warning "Detected backup from previous sessions: $backup_file"
+        print_info "Restor wp-config.php from hung backup..."
 
         if mv -f "$backup_file" "$config_file" 2>/dev/null; then
-            print_success "Оригинальный wp-config.php восстановлен из зависшего бэкапа."
+            print_success "Original wp-config.php restor from hung backup."
         else
             if dpx_sudo mv -f "$backup_file" "$config_file"; then
-                print_success "Оригинальный wp-config.php восстановлен из зависшего бэкапа (sudo)."
+                print_success "Original wp-config.php restor from hung backup (sudo)."
             else
-                print_error "Не удалось восстановить wp-config.php из зависшего бэкапа!"
-                print_error "Ручное восстановление: mv -f '$backup_file' '$config_file'"
+                print_error "Not remove restore wp-config.php from hung backup!"
+                print_error "Manual restor: mv -f '$backup_file' '$config_file'"
                 return 1
             fi
         fi
@@ -244,133 +244,133 @@ dpx_wp_config_stale_check() {
     return 0
 }
 
-# Создаёт снапшот wp-config.php → .wp-config.php.dpx_bak
-# КРИТИЧЕСКОЕ ПРАВИЛО: вызывать ПЕРВОЙ операцией, ДО любых модификаций.
+# Creates snapshot wp-config.php → .wp-config.php.dpx_bak
+# CRITICAL RULE: invoke FIRST operation, UNTIL any modification.
 #
-# ВАЛИДАЦИЯ (Zero-Trust v1.4.5):
-#   1. exit code cp (права, диск)
-#   2. [ -f "$backup_file" ] — физически существует
-#   3. [ -s "$backup_file" ] — не пустой
-#   4. diff -q — побайтовая идентичность (ловит RSSSL и др.)
+# VALIDATION (Zero-Trust v1.4.5):
+#   1. cp exit code (permissions, disk)
+#   2. [ -f "$backup_file" ] — physicals exist
+#   3. [ -s "$backup_file" ] — not empty
+#   4. diff -q — byte-for-byte identity (catches RSSSL and etc.)
 #
-# Возвращает путь к бэкапу через echo (stdout).
-# print_* пишут в stderr — НЕ загрязняют возвращаемое значение.
+# Returns path to backup via echo (stdout).
+# print_* write in stderr — NOT pollute return value.
 dpx_wp_config_snapshot() {
     local config_file="$1"
     local backup_file
     backup_file=$(_dpx_wp_config_backup_path "$config_file")
 
     if [[ ! -f "$config_file" ]]; then
-        print_error "wp-config.php не найден: $config_file"
+        print_error "wp-config.php not found: $config_file"
         return 1
     fi
 
-    # Если бэкап уже существует — это зависший артефакт.
-    # Zero-Trust: НЕ восстанавливаем (содержимое неизвестно), просто удаляем.
+    # Ifs backup already exist — this hung artifact.
+    # Zero-Trust: NOT restor (content unknown), simple remove.
     if [[ -f "$backup_file" ]]; then
-        print_warning "Обнаружен зависший снапшот: $backup_file"
-        print_info "Zero-Trust: удаление перед созданием нового..."
+        print_warning "Detected hung snapshot: $backup_file"
+        print_info "Zero-Trust: delet before creat new..."
         rm -f "$backup_file" 2>/dev/null || dpx_sudo rm -f "$backup_file" 2>/dev/null || {
-            print_error "Не удалось удалить зависший снапшот!"
+            print_error "Not remove remove hung snapshot!"
             return 1
         }
     fi
 
-    # cp с проверкой exit code
+    # cp with check exit code
     local cp_error
     cp_error=$(cp "$config_file" "$backup_file" 2>&1)
     local cp_rc=$?
 
     if [[ $cp_rc -ne 0 ]]; then
-        print_error "Сбой создания снапшота wp-config.php (exit code: $cp_rc)!"
-        print_error "Причина: $cp_error"
-        print_error "Патч ОТМЕНЁН — оригинальный файл не будет изменён."
+        print_error "Sb creat snapshot wp-config.php (exit code: $cp_rc)!"
+        print_error "Reason: $cp_error"
+        print_error "Patch CANCEL — original file not will chang."
         return 1
     fi
 
-    # Проверка: бэкап физически существует на диске
+    # Check: backup physicals exist on disk
     if [[ ! -f "$backup_file" ]]; then
-        print_error "Снапшот не создался! Файл отсутствует: $backup_file"
-        print_error "Патч ОТМЕНЁН — оригинальный файл не будет изменён."
+        print_error "Snapshot not created! File missing: $backup_file"
+        print_error "Patch CANCEL — original file not will chang."
         return 1
     fi
 
-    # Проверка: бэкап не пустой
+    # Check: backup not empty
     if [[ ! -s "$backup_file" ]]; then
-        print_error "Снапшот создан, но пустой! Файл: $backup_file"
+        print_error "Snapshot creat, but empty! File: $backup_file"
         rm -f "$backup_file" 2>/dev/null
-        print_error "Патч ОТМЕНЁН — оригинальный файл не будет изменён."
+        print_error "Patch CANCEL — original file not will chang."
         return 1
     fi
 
-    # Проверка: бэкап ПОБАЙТОВО идентичен оригиналу (diff -q)
-    # Ловит модификации от плагинов (RSSSL и др.) между чтением и cp.
+    # Check: backup BYTE-FOR-BYTE identical original (diff -q)
+    # Catches modifications from plugins (RSSSL and etc.) between reading and cp.
     if ! diff -q "$config_file" "$backup_file" >/dev/null 2>&1; then
-        print_error "Снапшот НЕ идентичен оригиналу! Файл изменён между cp и проверкой."
-        print_error "Возможно, плагин (RSSSL и др.) модифицировал wp-config.php."
+        print_error "Snapshot NOT identical original! File chang between cp and check."
+        print_error "Possible, plugin (RSSSL and etc.) modified wp-config.php."
         rm -f "$backup_file" 2>/dev/null
-        print_error "Патч ОТМЕНЁН — оригинальный файл не будет изменён."
+        print_error "Patch CANCEL — original file not will chang."
         return 1
     fi
 
-    print_info "Снапшот wp-config.php: $backup_file (diff -q OK)"
-    # echo — ЕДИНСТВЕННЫЙ вывод в stdout. Возвращаемое значение чисто.
+    print_info "Snapshot wp-config.php: $backup_file (diff -q OK)"
+    # echo — SINGLE output in stdout. Return value clean.
     echo "$backup_file"
     return 0
 }
 
-# Восстанавливает wp-config.php из .wp-config.php.dpx_bak через mv -f.
-# mv -f на той же ФС — атомарная операция.
-# После успешного mv бэкап перестаёт существовать (стал конфигом).
+# Restores wp-config.php from .wp-config.php.dpx_bak via mv -f.
+# mv -f on that same FS — atomic operation.
+# After success mv backup stops exist (became config).
 #
 # Post-Rollback Verification (v1.4.5):
-#   После mv -f проверяем, что DPX_SMART_TUNNEL исчез из файла.
-#   Если блок на месте — rollback не сработал, КРИТИЧЕСКАЯ ОШИБКА.
+#   After mv -f verify, that DPX_SMART_TUNNEL disappear from file.
+#   Ifs block on place — rollback not triggered, CRITICAL ERROR.
 dpx_wp_config_rollback() {
     local config_file="$1"
     local backup_file
     backup_file=$(_dpx_wp_config_backup_path "$config_file")
 
     if [[ ! -f "$backup_file" ]]; then
-        print_error "Бэкап wp-config.php не найден: $backup_file"
+        print_error "Backup wp-config.php not found: $backup_file"
         return 1
     fi
 
-    # mv -f: принудительная перезапись, даже если конфиг повреждён
+    # mv -f: forced rewrite, even ifs config corrupt
     if mv -f "$backup_file" "$config_file" 2>/dev/null; then
-        # Post-Rollback Verification: патч должен исчезнуть
+        # Post-Rollback Verification: patch must disappear
         if grep -q "DPX_SMART_TUNNEL" "$config_file" 2>/dev/null; then
-            print_error "КРИТИЧЕСКАЯ ОШИБКА: после mv -f блок DPX_SMART_TUNNEL всё ещё в файле!"
-            print_error "Снапшот мог содержать блоки от предыдущей сессии."
-            print_error "Проверьте вручную: $config_file"
+            print_error "CRITICAL ERROR: after mv -f block DPX_SMART_TUNNEL all yet in file!"
+            print_error "Snapshot could contain blocks from previous sessions."
+            print_error "Verify manual: $config_file"
             return 1
         fi
-        print_success "wp-config.php восстановлен из снапшота (mv -f). Post-verify OK."
+        print_success "wp-config.php restor from snapshot (mv -f). Post-verify OK."
         return 0
     else
         if dpx_sudo mv -f "$backup_file" "$config_file"; then
             # Post-Rollback Verification (sudo path)
             if grep -q "DPX_SMART_TUNNEL" "$config_file" 2>/dev/null; then
-                print_error "КРИТИЧЕСКАЯ ОШИБКА: после sudo mv -f блок DPX_SMART_TUNNEL всё ещё в файле!"
-                print_error "Проверьте вручную: $config_file"
+                print_error "CRITICAL ERROR: after sudo mv -f block DPX_SMART_TUNNEL all yet in file!"
+                print_error "Verify manual: $config_file"
                 return 1
             fi
-            print_success "wp-config.php восстановлен из снапшота (sudo mv -f). Post-verify OK."
+            print_success "wp-config.php restor from snapshot (sudo mv -f). Post-verify OK."
             return 0
         else
-            print_error "Не удалось восстановить wp-config.php из снапшота!"
-            print_error "Ручное восстановление: mv -f '$backup_file' '$config_file'"
+            print_error "Not remove restore wp-config.php from snapshot!"
+            print_error "Manual restor: mv -f '$backup_file' '$config_file'"
             return 1
         fi
     fi
 }
 
-# Синтаксическая проверка wp-config.php через php -l в DDEV-контейнере.
+# Syntax check wp-config.php via php -l in DDEV-container.
 dpx_wp_config_syntax_check() {
     local project_path="$1"
     local config_file="$2"
 
-    print_info "Синтаксическая проверка wp-config.php (php -l)..."
+    print_info "Syntax check wp-config.php (php -l)..."
 
     local php_l_result
     php_l_result=$(
@@ -379,16 +379,16 @@ dpx_wp_config_syntax_check() {
     )
 
     if echo "$php_l_result" | grep -q "No syntax errors detected" 2>/dev/null; then
-        print_success "php -l: синтаксис wp-config.php корректен."
+        print_success "php -l: syntax wp-config.php valid."
         return 0
     else
-        print_error "php -l: обнаружена синтаксическая ошибка в wp-config.php!"
+        print_error "php -l: detected syntax error in wp-config.php!"
         print_error "$php_l_result"
         return 1
     fi
 }
 
-# Удаляет .wp-config.php.dpx_bak. Страховочная очистка.
+# Removes .wp-config.php.dpx_bak. Insurance cleanup.
 dpx_wp_config_cleanup() {
     local config_file="$1"
     local backup_file
@@ -396,12 +396,12 @@ dpx_wp_config_cleanup() {
 
     if [[ -f "$backup_file" ]]; then
         rm -f "$backup_file" 2>/dev/null || dpx_sudo rm -f "$backup_file" 2>/dev/null
-        print_info "Снапшот удалён: $backup_file"
+        print_info "Snapshot delet: $backup_file"
     fi
 }
 
 # =================================================================
-# ЭКСПОРТ
+# EXPORT
 # =================================================================
 
 export DPX_SUDO_MAX_ATTEMPTS DPX_SUDO_TIMEOUT

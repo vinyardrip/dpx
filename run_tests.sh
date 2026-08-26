@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Test Runner - запуск всех тестов
+# DPX Test Runner - start all tests
 # =================================================================
 
 # =================================================================
-# ПРОВЕРКА ВЕРСИИ BASH (защита от macOS Bash 3.2)
+# CHECK VERSIONS BASH (protect from macOS Bash 3.2)
 # =================================================================
 
 if (( BASH_VERSINFO[0] < 4 )); then
-    echo "ОШИБКА: DPX Test Runner требует Bash 4.0+" >&2
-    echo "Текущая версия: ${BASH_VERSION:-неизвестно}" >&2
+    echo "ERROR: DPX Test Runner requires Bash 4.0+" >&2
+    echo "Current version: ${BASH_VERSION:-unknown}" >&2
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "macOS: установите brew install bash и обновите PATH" >&2
+        echo "macOS: install brew install bash and update PATH" >&2
     fi
     exit 1
 fi
 
 # =================================================================
-# ИНИЦИАЛИЗАЦИЯ
+# INITIALIZATION
 # =================================================================
 
-# Определяем директорию тестов (где лежит run_tests.sh)
+# Determin director tests (where lies run_tests.sh)
 TESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Цвета
+# Color
 if command -v tput >/dev/null 2>&1; then
     GREEN=$(tput setaf 2); RED=$(tput setaf 1); YELLOW=$(tput setaf 3); CYAN=$(tput setaf 6); BOLD=$(tput bold); RESET=$(tput sgr0)
 else
     GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 fi
 
-# Счетчики
+# Counters
 TOTAL_RUN=0
 TOTAL_PASSED=0
 TOTAL_FAILED=0
@@ -43,43 +43,43 @@ echo "${BOLD}========================================${RESET}"
 echo ""
 
 # =================================================================
-# АВТОПОИСК ТЕСТОВ
+# AUTODISCOVERY TESTS
 # =================================================================
 
-# Ищем все test_*.sh файлы
-# Если run_tests.sh в корне проекта - ищем в tests/
-# Если run_tests.sh в tests/ - ищем в текущей директории
+# Searching all test_*.sh files
+# Ifs run_tests.sh in root project - searching in tests/
+# Ifs run_tests.sh in tests/ - searching in current directors
 TEST_FILES=()
 
-# Вариант 1: тесты в подпапке tests/ (run_tests.sh в корне)
+# Variant 1: tests in subfolder tests/ (run_tests.sh in root)
 if [[ -d "$TESTS_DIR/tests" ]]; then
     for f in "$TESTS_DIR/tests"/test_*.sh; do
         [[ -e "$f" ]] && TEST_FILES+=("$f")
     done
 fi
 
-# Вариант 2: тесты рядом с run_tests.sh (оба в tests/)
+# Variant 2: tests row with run_tests.sh (both in tests/)
 if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
     for f in "$TESTS_DIR"/test_*.sh; do
         [[ -e "$f" ]] && TEST_FILES+=("$f")
     done
 fi
 
-# Проверка наличия тестов
+# Check presence tests
 if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
-    echo "${RED}Тесты не найдены в директории: $TESTS_DIR${RESET}"
-    echo "${YELLOW}Ищите файлы с именем test_*.sh${RESET}"
+    echo "${RED}Tests not founds in directors: $TESTS_DIR${RESET}"
+    echo "${YELLOW}Looks for files with named test_*.sh${RESET}"
     exit 1
 fi
 
 # =================================================================
-# СТАТИЧЕСКИЙ АНАЛИЗ (shellcheck gate)
+# STATIC ANALYSIS (shellcheck gate)
 #
-# Область: файлы, поддерживаемые данным suite (раннер + тесты +
-# тестируемые модули из последнего рефакторинга).
-# Легаси-модули (commands/*.sh, devilbox.sh и др.) не входят —
-# их чистка вынесена в отдельную задачу.
-# При отсутствии shellcheck — SKIP (gate не блокирует CI без линтера).
+# Area: files, supported data suite (runner + tests +
+# tested modules from last refactoring).
+# Legacy module (command/*.sh, devilbox.sh and etc.) not included —
+# their cleanup extracted in separate task.
+# Durings missings shellcheck — SKIP (gate not blocks CI without linter).
 # =================================================================
 
 SHELLCHECK_TARGETS=(
@@ -100,8 +100,8 @@ run_shellcheck_gate() {
     echo "${CYAN}>>> Static analysis: shellcheck${RESET}"
     echo "----------------------------------------"
 
-    # -x: следовать constant-source (lib/*); -f gcc: находки в формате
-    # 'file:line:col: severity: msg [SCxxxx]' — надежный парсинг счетчика
+    # -x: trace constant-source (lib/*); -f gcc: findings in format
+    # 'file:line:col: severity: msg [SCxxxx]' — reliable parsing counter
     sc_output="$(shellcheck -s bash -x -S style -f gcc "${SHELLCHECK_TARGETS[@]}")" || sc_rc=$?
 
     if [[ $sc_rc -ne 0 ]]; then
@@ -122,7 +122,7 @@ run_shellcheck_gate() {
 run_shellcheck_gate
 
 # =================================================================
-# ФУНКЦИЯ ЗАПУСКА ТЕСТА
+# FUNCTION START TEST
 # =================================================================
 
 run_test_file() {
@@ -133,8 +133,8 @@ run_test_file() {
     echo "${CYAN}>>> Running: ${test_name}${RESET}"
     echo "----------------------------------------"
     
-    # Запускаем тест через тот же интерпретатор Bash, что и раннер
-    # Важно для macOS: используем ${BASH}, а не системный /bin/bash (3.2)
+    # Start test via that same interpreter Bash, that and runner
+    # Important for macOS: use ${BASH}, and not system /bin/bash (3.2)
     local output
     local exit_code
     
@@ -143,8 +143,8 @@ run_test_file() {
     
     echo "$output"
     
-    # Парсим результаты из вывода
-    # Используем grep -oE вместо grep -oP для совместимости с macOS/BSD
+    # Pars results from output
+    # Use grep -oE instead grep -oP for compatibilities with macOS/BSD
     local run passed failed skipped
     
     run=$(echo "$output" | grep -oE 'Total:[[:space:]]+[0-9]+' | grep -oE '[0-9]+' | tail -1)
@@ -152,8 +152,8 @@ run_test_file() {
     failed=$(echo "$output" | grep -oE 'Failed:[[:space:]]+[0-9]+' | grep -oE '[0-9]+' | tail -1)
     skipped=$(echo "$output" | grep -oE 'Skipped:[[:space:]]+[0-9]+' | grep -oE '[0-9]+' | tail -1)
     
-    # Защита от пустых значений (используем ${var:-0})
-    # Предотвращает ошибку "operand expected" при сложении
+    # Protect from empty value (use ${var:-0})
+    # Prevents error "operand expected" durings complexes
     run=${run:-0}
     passed=${passed:-0}
     failed=${failed:-0}
@@ -170,7 +170,7 @@ run_test_file() {
 }
 
 # =================================================================
-# ЗАПУСК ТЕСТОВ
+# START TESTS
 # =================================================================
 
 for test_file in "${TEST_FILES[@]}"; do
@@ -178,7 +178,7 @@ for test_file in "${TEST_FILES[@]}"; do
 done
 
 # =================================================================
-# ИТОГОВЫЙ ОТЧЕТ
+# FINAL REPORT
 # =================================================================
 
 echo "${BOLD}========================================${RESET}"

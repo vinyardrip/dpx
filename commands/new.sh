@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Command: new - универсальное создание проектов
+# DPX Command: new - universal creat projects
 #
-# Типы: wordpress | joomla | opencart | laravel | php
+# Types: wordpress | joomla | opencart | laravel | php
 #
-# Архитектура:
-#   new_resolve_type / new_select_type - нормализация и выбор типа;
-#   _new_scaffold_*                    - каркас каждого типа;
-#   cmd_new                            - единая точка входа.
-#   dpx new-wp - тонкая обертка над cmd_new --cms=wordpress.
-# Версия: v1.7.0
+# Architecture:
+#   new_resolve_type / new_select_type - normalization and selection type;
+#   _new_scaffold_*                    - scaffold each type;
+#   cmd_new                            - single point input.
+#   dpx new-wp - subtle wrapper over cmd_new --cms=wordpress.
+# Version: v1.7.0
 # =================================================================
 
 source "${DPX_ROOT}/lib/core.sh"
@@ -19,56 +19,56 @@ source "${DPX_ROOT}/lib/projects.sh"
 source "${DPX_ROOT}/lib/devilbox.sh"
 
 # =================================================================
-# СПРАВКА
+# HELP
 # =================================================================
 
 show_new_help() {
     cat << EOF
- ${COLOR_BOLD}new${COLOR_RESET} - Универсальное создание проекта (WordPress/Joomla/OpenCart/Laravel/PHP)
+ ${COLOR_BOLD}new${COLOR_RESET} - Universal project scaffolding (WordPress/Joomla/OpenCart/ocStore/Laravel/PHP)
 
- ${COLOR_BOLD}Использование:${COLOR_RESET}
-    ${TOOL_NAME} new [project-name] [опции]
+ ${COLOR_BOLD}Usage:${COLOR_RESET}
+    ${TOOL_NAME} new [project-name] [options]
 
- ${COLOR_BOLD}Описание:${COLOR_RESET}
-    Единая точка создания проектов на DDEV. Без флагов запускает
-    интерактивный выбор типа проекта.
+ ${COLOR_BOLD}Description:${COLOR_RESET}
+    Single entry point for creating projects on DDEV. Without flags,
+    an interactive type selector is shown.
 
- ${COLOR_BOLD}Типы проектов:${COLOR_RESET}
-    1) WordPress        WP-CLI установка + стартовая тема (см. также: dpx new-wp)
-    2) Joomla           Последний стабильный релиз с downloads/GitHub
-    3) OpenCart         Официальный релиз с GitHub Releases
-    4) ocStore          Локализованный форк OpenCart (SEO Pro встроен)
-    5) Laravel          composer create-project + .env под DDEV (docroot: public)
-    6) Plain PHP        Чистый PHP-каркас (index.php)
+ ${COLOR_BOLD}Project types:${COLOR_RESET}
+    1) WordPress        WP-CLI install + starter theme (see also: dpx new-wp)
+    2) Joomla           Latest stable release from downloads/GitHub
+    3) OpenCart         Official release from GitHub Releases
+    4) ocStore          Localized OpenCart fork (SEO Pro built-in)
+    5) Laravel          composer create-project + .env wired for DDEV (docroot: public)
+    6) Plain PHP        Minimal PHP scaffold (index.php)
 
- ${COLOR_BOLD}Опции:${COLOR_RESET}
-    --project-name NAME    Имя нового проекта (или первый позиционный аргумент)
-    --cms TYPE             Тип: wordpress|joomla|opencart|ocstore|laravel|php
-                           (алиасы: --type TYPE, --cms=TYPE, wp/ocs/lara/html)
-    --php VERSION          Версия PHP (по умолчанию из конфига)
-    --db                   Создать базу данных сразу после старта контейнера
-    -y, --yes              Пропустить подтверждения
-    -h, --help             Показать эту справку
+ ${COLOR_BOLD}Options:${COLOR_RESET}
+    --project-name NAME    New project name (or first positional argument)
+    --cms TYPE             Type: wordpress|joomla|opencart|ocstore|laravel|php
+                           (alias: --type TYPE, --cms=TYPE, wp/ocs/lara/html)
+    --php VERSION          Version PHP (by default from config)
+    --db                   Creat base data immediately after start container
+    -y, --yes              Skipp confirmation
+    -h, --help             Show this help
 
- ${COLOR_BOLD}Примеры:${COLOR_RESET}
-    ${TOOL_NAME} new                                   # полностью интерактивно
+ ${COLOR_BOLD}Examples:${COLOR_RESET}
+    ${TOOL_NAME} new                                   # fully interactive
     ${TOOL_NAME} new myshop --cms=laravel --php=8.3 -y
     ${TOOL_NAME} new blog --type wordpress
-    ${TOOL_NAME} new russhop --type=ocstore            # ocStore с SEO Pro
-    ${TOOL_NAME} new-wp mysite                         # совместимость (= new --cms=wordpress)
+    ${TOOL_NAME} new russhop --type=ocstore            # ocStore with SEO Pro
+    ${TOOL_NAME} new-wp mysite                         # compatibility (= new --cms=wordpress)
 EOF
 }
 
 # =================================================================
-# РАЗРЕШЕНИЕ ТИПА ПРОЕКТА
+# PERMISSION TYPE PROJECT
 # =================================================================
 
-# Нормализация пользовательского ввода в канонический тип.
-# STDOUT: тип или пустая строка. Чистая функция (тестируемая).
+# Normalization user input in canonical type.
+# STDOUT: type ors empty line. Clean function (tested).
 new_resolve_type() {
     local input="${1:-}"
 
-    # Нормализация: пробелы по краям -> нижний регистр
+    # Normalization: whitespaces by edges -> lower case
     input="${input#"${input%%[![:space:]]*}"}"
     input="${input%"${input##*[![:space:]]}"}"
     input="${input,,}"
@@ -85,11 +85,11 @@ new_resolve_type() {
     esac
 }
 
-# Интерактивный выбор типа. Меню -> STDERR, значение -> STDOUT.
+# Interactive type selection. Menu -> STDERR, value -> STDOUT.
 new_select_type() {
     cat >&2 << MENU
 
---- Выберите тип проекта ---
+--- Select project type ---
   1) WordPress
   2) Joomla
   3) OpenCart (Official)
@@ -102,13 +102,13 @@ MENU
     local input resolved=""
     while [[ -z "$resolved" ]]; do
         input=""
-        if ! read -r -p "Выберите [1-6]: " input; then
-            print_error "Ввод прерван (EOF)."
+        if ! read -r -p "Select [1-6]: " input; then
+            print_error "Input aborted (EOF)."
             return 1
         fi
         resolved=$(new_resolve_type "$input")
         if [[ -z "$resolved" ]]; then
-            print_warning "Неизвестный вариант '$input'. Введите номер или название."
+            print_warning "Unknown variant '$input'. Enter number ors name."
         fi
     done
 
@@ -116,11 +116,11 @@ MENU
 }
 
 # =================================================================
-# ПРИМИТИВЫ КАРКАСА (чистые файловые операции — тестируемые)
+# PRIMITIVES SCAFFOLD (clean file operations — tested)
 # =================================================================
 
-# Нормализация docroot: если контент лежит в единственном подкаталоге
-# (layout вида upload/... у OpenCart), переносим содержимое на уровень выше.
+# Normalization docroot: ifs content lies in single subdirectory
+# (layout kind upload/... at OpenCart), move content on level above.
 _new_normalize_docroot() {
     local dir="$1"
     [[ -f "$dir/index.php" ]] && return 0
@@ -131,18 +131,18 @@ _new_normalize_docroot() {
 
     if [[ "$top_dirs" == "1" && "$top_files" == "0" ]]; then
         sub=$(find "$dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1)
-        # dotfiles + файлы: shopt dotglob локально для перемещения
+        # dotfiles + files: shopt dotglob local for moved
         (
             shopt -s dotglob nullglob
             mv -- "$sub"/* "$dir"/ 2>/dev/null
         )
         rmdir "$sub" 2>/dev/null || true
-        print_info "Docroot нормализован: содержимое '$(basename "$sub")' поднято в корень."
+        print_info "Docroot normalized: content '$(basename "$sub")' raised in root."
     fi
     return 0
 }
 
-# Портативный upsert KEY=value в .env-подобном файле (BSD/GNU sed).
+# Portable upsert KEY=value in .env-similar file (BSD/GNU sed).
 _new_env_set_kv() {
     local env_file="$1" key="$2" value="$3"
 
@@ -153,7 +153,7 @@ _new_env_set_kv() {
     fi
 }
 
-# Загрузка архива: curl с ретраями, fallback wget.
+# Download archive: curl with retries, fallback wget.
 _new_archive_fetch() {
     local url="$1" dest="$2"
 
@@ -166,13 +166,13 @@ _new_archive_fetch() {
     return 1
 }
 
-# Резолвер URL последнего релиза CMS-архива.
+# Resolver URL last release CMS-archive.
 #
-# Стратегии:
+# Strategies:
 #   1) env-override: DPX_JOOMLA_ARCHIVE_URL / DPX_OPENCART_ARCHIVE_URL;
-#   2) GitHub API releases/latest -> подходящий asset;
-#   3) codeload source-архив (с предупреждением).
-# STDOUT: URL либо пусто (caller решает).
+#   2) GitHub API releases/latest -> suitable asset;
+#   3) codeload source-archive (with warning).
+# STDOUT: URL lib empty (caller solves).
 _new_resolve_archive_url() {
     local cms_type="$1"
     local repo="" asset_pattern="" source_fallback="" env_var=""
@@ -199,7 +199,7 @@ _new_resolve_archive_url() {
         *) return 1 ;;
     esac
 
-    # 1) Явный override пользователя/окружения
+    # 1) Explicit override user/environment
     if [[ -n "${!env_var:-}" ]]; then
         printf '%s\n' "${!env_var}"
         return 0
@@ -209,7 +209,7 @@ _new_resolve_archive_url() {
     api_json=$(curl -sf --max-time 15 \
         "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null) || api_json=""
 
-    # 2) Asset из официального релиза
+    # 2) Asset from official release
     if [[ -n "$api_json" ]]; then
         local url=""
         url=$(printf '%s' "$api_json" \
@@ -221,10 +221,10 @@ _new_resolve_archive_url() {
         fi
     fi
 
-    # 3) Source-архив (может требовать composer build — предупреждаем)
+    # 3) Source-archive (may requirement composer build — warn)
     if [[ -n "$source_fallback" ]]; then
-        print_warning "Release-asset не найден; использую source-архив ${repo}."
-        print_warning "Если каркас не заработает, задайте ${env_var}=<URL готового пакета>."
+        print_warning "Release-asset not found; use source-archive ${repo}."
+        print_warning "Ifs scaffold not will work, specify ${env_var}=<URL ready package>."
         printf '%s\n' "$source_fallback"
         return 0
     fi
@@ -232,32 +232,32 @@ _new_resolve_archive_url() {
     return 1
 }
 
-# Скачивание и распаковка архива в workdir + нормализация docroot.
+# Download and unpacking archive in workdir + normalization docroot.
 _new_archive_download_unpack() {
     local url="$1" workdir="$2"
 
     local ext="${url##*.}"
     local archive="$workdir/pkg.${ext}"
 
-    print_step "auto" "Загрузка архива..."
+    print_step "auto" "Download archive..."
     if ! _new_archive_fetch "$url" "$archive"; then
-        print_error "Не удалось скачать: $url"
+        print_error "Not remove download: $url"
         return 1
     fi
 
-    # Санити: архив не может быть крошечным
+    # Sanities: archive not may was tiny
     local size
     size=$(wc -c < "$archive" 2>/dev/null | tr -d ' ')
     if [[ -z "$size" ]] || (( size < 10240 )); then
-        print_error "Скачанный файл подозрительно мал (${size:-0} байт). Отмена."
+        print_error "Downloaded file suspicious small (${size:-0} bytes). Cancel."
         return 1
     fi
 
-    print_step "auto" "Распаковка..."
+    print_step "auto" "Unpacking..."
     case "$ext" in
         zip)
             if ! command -v unzip >/dev/null 2>&1; then
-                print_error "unzip не найден (нужен для zip-архивов)."
+                print_error "unzip not found (needed for zip-archives)."
                 return 1
             fi
             unzip -q -o "$archive" -d "$workdir" || return 1
@@ -266,7 +266,7 @@ _new_archive_download_unpack() {
             tar -xzf "$archive" -C "$workdir" || return 1
             ;;
         *)
-            print_error "Неподдерживаемый формат архива: .$ext"
+            print_error "Unsupported format archive: .$ext"
             return 1
             ;;
     esac
@@ -275,7 +275,7 @@ _new_archive_download_unpack() {
     _new_normalize_docroot "$workdir"
 }
 
-# Создание БД (флаг --db): имя из конфига CMS или имя проекта.
+# Creat database (flag --db): name from config CMS ors name project.
 _new_provision_db() {
     local project_name="$1" project_path="$2" cms_type="$3"
 
@@ -284,19 +284,19 @@ _new_provision_db() {
     db_name="${db_name//[^a-zA-Z0-9_]/_}"
     [[ -z "$db_name" ]] && db_name="${project_name//-/_}"
 
-    print_step "auto" "Создание базы данных '${db_name}'..."
-    if ddev mysql -e "CREATE DATABASE IF NOT EXISTS \`${db_name}\`;" >/dev/null 2>&1; then
-        print_success "БД '${db_name}' готова."
+    print_step "auto" "Creat bases data '${db_name}'..."
+    if ddev mysql -e "CREATE database IF NOT EXISTS \`${db_name}\`;" >/dev/null 2>&1; then
+        print_success "database '${db_name}' ready."
     else
-        print_warning "Не удалось создать БД (контейнер БД мог ещё инициализироваться)."
+        print_warning "Not remove creat database (container database could yet initialize)."
     fi
 }
 
 # =================================================================
-# КАРКАСЫ ПО ТИПАМ
+# SCAFFOLDS BY TYPES
 # =================================================================
 
-# WordPress: логика перенесена из legacy new-wp.sh без изменений поведения.
+# WordPress: logic moved verbatim from the legacy new-wp.sh.
 _new_scaffold_wordpress() {
     local project_name="$1" project_path="$2" php_version="$3" use_theme="${4:-yes}"
 
@@ -308,23 +308,23 @@ _new_scaffold_wordpress() {
     admin_pass=$(get_arg "admin_pass" "$(get_config 'admin_pass')")
     admin_email=$(get_arg "admin_email" "$(get_config 'admin_email')")
 
-    print_step "2" "Конфигурация и запуск DDEV"
+    print_step "2" "Configuration and start DDEV"
     if ! ddev config --project-type wordpress --docroot "" \
             --project-tld "$(get_config 'project_tld')" \
             --php-version "$php_version" 2>&1; then
-        print_error "Ошибка конфигурации DDEV"
+        print_error "Error configurations DDEV"
         return 1
     fi
 
     if ! safe_start_ddev_project "$project_name" "$project_path"; then
-        print_error "Ошибка запуска DDEV"
+        print_error "Error start DDEV"
         return 1
     fi
 
-    print_step "3" "Установка WordPress через WP-CLI"
+    print_step "3" "Install WordPress via WP-CLI"
     if ! ddev_wp_install "$project_path" "$site_url" \
-            "Новый сайт ${project_name}" "$admin_user" "$admin_pass" "$admin_email" "$locale"; then
-        print_error "Ошибка установки WordPress"
+            "New site ${project_name}" "$admin_user" "$admin_pass" "$admin_email" "$locale"; then
+        print_error "Error installs WordPress"
         return 1
     fi
 
@@ -332,7 +332,7 @@ _new_scaffold_wordpress() {
     starter_theme_path=$(get_config "starter_theme_path")
 
     if [[ "$use_theme" == "yes" ]] && [[ -d "$starter_theme_path" ]]; then
-        print_step "4" "Копирование и активация стартовой темы '${project_name}'"
+        print_step "4" "Copi and activation started thens '${project_name}'"
 
         local theme_dir="wp-content/themes/${project_name}"
         cp -r "${starter_theme_path}/." "$theme_dir"
@@ -345,79 +345,79 @@ Author: Auto-generated by ${TOOL_NAME}
 Version: 1.0
 */
 EOF
-            print_success "Файл style.css создан автоматически."
+            print_success "File style.css creat automatics."
         fi
 
         ddev wp theme activate "$project_name" 2>&1 || {
-            print_warning "Не удалось активировать тему."
+            print_warning "Not remove activated then."
         }
         ddev_wp_theme_delete "twentytwentytwo twentytwentythree twentytwentyfour" "$project_path"
     elif [[ "$use_theme" == "yes" ]]; then
-        print_warning "Стартовая тема не найдена (${starter_theme_path}). Шаг пропущен."
+        print_warning "Started then not found (${starter_theme_path}). Step skipped."
     fi
 
-    print_step "5" "Очистка стандартных плагинов"
+    print_step "5" "Cleanup standard plugins"
     ddev_wp_plugin_delete "akismet hello" "$project_path"
 
-    print_celebration "WordPress проект '${project_name}' создан!"
-    print_highlight "Админ-панель: ${site_url}/wp-admin/ (логин: ${admin_user})"
+    print_celebration "WordPress project '${project_name}' creat!"
+    print_highlight "Admin panel: ${site_url}/wp-admin/ (login: ${admin_user})"
     return 0
 }
 
-# Joomla / OpenCart: скачивание релиза + DDEV project_type=php.
+# Joomla / OpenCart: download release + DDEV project_type=php.
 _new_scaffold_archive_cms() {
     local cms_type="$1" project_name="$2" project_path="$3" php_version="$4"
 
     local archive_url
     archive_url=$(_new_resolve_archive_url "$cms_type") || archive_url=""
     if [[ -z "$archive_url" ]]; then
-        print_error "Не удалось определить URL релиза ${cms_type}."
-        print_info  "Задайте DPX_${cms_type^^}_ARCHIVE_URL=<URL архива> и повторите."
+        print_error "Not remove determin URL release ${cms_type}."
+        print_info  "Specify DPX_${cms_type^^}_ARCHIVE_URL=<URL archive> and retry."
         return 1
     fi
-    print_info "Релиз: $archive_url"
+    print_info "Release: $archive_url"
 
     local tmpdir
-    tmpdir=$(create_temp_dir) || { print_error "Нет временной директории."; return 1; }
+    tmpdir=$(create_temp_dir) || { print_error "No temporary directors."; return 1; }
     trap 'rm -rf "$tmpdir" 2>/dev/null' RETURN
 
     if ! _new_archive_download_unpack "$archive_url" "$tmpdir"; then
-        print_error "Ошибка загрузки/распаковки ${cms_type}."
+        print_error "Error downloads/unpackings ${cms_type}."
         return 1
     fi
 
-    # Перенос распакованного контента в директорию проекта
+    # Move unpacked content in director project
     (
         shopt -s dotglob nullglob
         mv -- "$tmpdir"/* "$project_path"/ 2>/dev/null
     )
 
-    print_step "auto" "Конфигурация DDEV (project_type: php)"
+    print_step "auto" "Configuration DDEV (project_type: php)"
     if ! ddev_configure_project "$project_name" "php" "$php_version" \
             "$(get_config 'default_db_type')" "$(get_config 'default_db_version')" \
             "" "$(get_config 'project_tld')"; then
-        print_error "Ошибка конфигурации DDEV"
+        print_error "Error configurations DDEV"
         return 1
     fi
 
     if ! safe_start_ddev_project "$project_name" "$project_path"; then
-        print_error "Ошибка запуска DDEV"
+        print_error "Error start DDEV"
         return 1
     fi
 
     case "$cms_type" in
-        joomla)   print_info "Далее откройте сайт в браузере и завершите установку (/installation)." ;;
-        opencart) print_info "Далее откройте сайт в браузере и завершите установку (/install)." ;;
-        ocstore)  print_info "Далее откройте сайт в браузере, завершите установку (/install) и включите SEO Pro." ;;
+        joomla)   print_info "Gave open site in browser and complete install (/installation)." ;;
+        opencart) print_info "Gave open site in browser and complete install (/install)." ;;
+        ocstore)  print_info "Gave open site in browser, complete install (/install) and enable SEO Pro." ;;
     esac
     return 0
 }
 
-# Laravel: project_type=laravel, docroot=public, composer + .env под DDEV.
+# Laravel: project_type=laravel, docroot=public, composer + .env under DDEV.
 _new_laravel_env_rewrite() {
     local env_file="$1" app_url="$2"
 
-    [[ -f "$env_file" ]] || { print_error ".env не найден после create-project."; return 1; }
+    [[ -f "$env_file" ]] || { print_error ".env not found after create-project."; return 1; }
 
     _new_env_set_kv "$env_file" "DB_HOST" "db"
     _new_env_set_kv "$env_file" "DB_DATABASE" "db"
@@ -426,32 +426,32 @@ _new_laravel_env_rewrite() {
     _new_env_set_kv "$env_file" "APP_URL" "$app_url"
     _new_env_set_kv "$env_file" "APP_ENV" "local"
 
-    print_success ".env сконфигурирован под DDEV (db/db/db)."
+    print_success ".env configured under DDEV (db/db/db)."
     return 0
 }
 
 _new_scaffold_laravel() {
     local project_name="$1" project_path="$2" php_version="$3"
 
-    print_step "2" "Конфигурация DDEV (project_type: laravel, docroot: public)"
+    print_step "2" "Configuration DDEV (project_type: laravel, docroot: public)"
     if ! ddev_configure_project "$project_name" "laravel" "$php_version" \
             "$(get_config 'default_db_type')" "$(get_config 'default_db_version')" \
             "public" "$(get_config 'project_tld')"; then
-        print_error "Ошибка конфигурации DDEV"
+        print_error "Error configurations DDEV"
         return 1
     fi
 
     if ! safe_start_ddev_project "$project_name" "$project_path"; then
-        print_error "Ошибка запуска DDEV"
+        print_error "Error start DDEV"
         return 1
     fi
 
-    # composer create-project требует пустой каталог: ставим во временную
-    # подпапку и поднимаем содержимое (включая dotfiles: .env, .gitignore).
-    print_step "3" "composer create-project laravel/laravel (это займет время)..."
+    # composer create-project requires empty directory: puts in temporary
+    # subfolder and brings up content (include dotfiles: .env, .gitignore).
+    print_step "3" "composer create-project laravel/laravel (this take time)..."
     if ! ddev composer create-project --no-interaction --prefer-dist \
             laravel/laravel _app_tmp; then
-        print_error "composer create-project провален."
+        print_error "composer create-project failed."
         rm -rf "_app_tmp"
         return 1
     fi
@@ -468,13 +468,13 @@ _new_scaffold_laravel() {
         return 1
     fi
 
-    print_celebration "Laravel проект '${project_name}' создан!"
-    print_highlight "Миграции:  ddev artisan migrate"
+    print_celebration "Laravel project '${project_name}' creat!"
+    print_highlight "Migrations:  ddev artisan migrate"
     print_highlight "URL:       ${site_url}"
     return 0
 }
 
-# Plain PHP: минимальный каркас + опциональная БД (--db).
+# Plain PHP: minimum scaffold + optional database (--db).
 _new_scaffold_php() {
     local project_name="$1" project_path="$2" php_version="$3"
 
@@ -483,16 +483,16 @@ _new_scaffold_php() {
 phpinfo();
 EOF
 
-    print_step "2" "Конфигурация DDEV (project_type: php)"
+    print_step "2" "Configuration DDEV (project_type: php)"
     if ! ddev_configure_project "$project_name" "php" "$php_version" \
             "$(get_config 'default_db_type')" "$(get_config 'default_db_version')" \
             "" "$(get_config 'project_tld')"; then
-        print_error "Ошибка конфигурации DDEV"
+        print_error "Error configurations DDEV"
         return 1
     fi
 
     if ! safe_start_ddev_project "$project_name" "$project_path"; then
-        print_error "Ошибка запуска DDEV"
+        print_error "Error start DDEV"
         return 1
     fi
 
@@ -500,12 +500,12 @@ EOF
         _new_provision_db "$project_name" "$project_path" "php"
     fi
 
-    print_celebration "PHP проект '${project_name}' создан!"
+    print_celebration "PHP project '${project_name}' creat!"
     return 0
 }
 
 # =================================================================
-# ОСНОВНАЯ ФУНКЦИЯ
+# MAIN FUNCTION
 # =================================================================
 
 cmd_new() {
@@ -516,25 +516,25 @@ cmd_new() {
         return 0
     fi
 
-    print_header "Создание нового проекта"
+    print_header "Creat new project"
 
-    # --- Имя проекта: позиционный аргумент или интерактив ---
+    # --- Name project: positional argument ors interactive ---
     local project_name
     project_name=$(get_positional_arg 1 "")
     [[ -z "$project_name" ]] && project_name=$(get_arg "project_name" "")
 
     if [[ -z "$project_name" ]]; then
-        prompt_input "1. Имя нового проекта (например, my-cool-site)" "" project_name
+        prompt_input "1. Name new project (e.g., my-cool-site)" "" project_name
     fi
     validate_project_name "$project_name" || return 1
 
     local project_path="${PROJECTS_ROOT}/${project_name}"
     if [[ -d "$project_path" ]]; then
-        print_error "Директория уже существует: $project_path"
+        print_error "Director already exist: $project_path"
         return 1
     fi
 
-    # --- Тип проекта: --cms/--type (=value и раздельные формы), иначе меню ---
+    # --- Type project: --cms/--type (=value and separate forms), otherwise menu ---
     local cms_type
     cms_type=$(new_resolve_type "$(get_arg "cms" "")")
     if [[ -z "$cms_type" ]]; then
@@ -543,12 +543,12 @@ cmd_new() {
     if [[ -z "$cms_type" ]]; then
         cms_type=$(new_select_type) || return 1
     fi
-    print_success "Тип проекта: $(get_cms_name "$cms_type")"
+    print_success "Type project: $(get_cms_name "$cms_type")"
 
     local php_version
     php_version=$(get_arg "php_version" "$(get_config 'default_php_version')")
     if ! has_arg "project_name" && [[ $# -eq 0 ]]; then
-        prompt_input "Версия PHP" "$php_version" php_version
+        prompt_input "Version PHP" "$php_version" php_version
     fi
 
     local use_theme="yes"
@@ -557,24 +557,24 @@ cmd_new() {
     local site_url
     site_url="https://${project_name}.$(get_config 'project_tld')"
 
-    print_header "Проверьте параметры"
-    echo "Имя проекта:      ${COLOR_GREEN}${project_name}${COLOR_RESET}"
-    echo "Тип:              ${COLOR_GREEN}$(get_cms_name "$cms_type")${COLOR_RESET}"
-    echo "URL сайта:        ${COLOR_GREEN}${site_url}${COLOR_RESET}"
-    echo "Версия PHP:       ${COLOR_GREEN}${php_version}${COLOR_RESET}"
-    echo "База данных (--db): ${COLOR_GREEN}$(has_arg 'db' && echo 'да' || echo 'нет')${COLOR_RESET}"
-    echo "Путь:             ${COLOR_GREEN}${project_path}${COLOR_RESET}"
+    print_header "Verify parameters"
+    echo "Name project:      ${COLOR_GREEN}${project_name}${COLOR_RESET}"
+    echo "Type:              ${COLOR_GREEN}$(get_cms_name "$cms_type")${COLOR_RESET}"
+    echo "URL site:        ${COLOR_GREEN}${site_url}${COLOR_RESET}"
+    echo "Version PHP:       ${COLOR_GREEN}${php_version}${COLOR_RESET}"
+    echo "Base data (--db): ${COLOR_GREEN}$(has_arg 'db' && echo 'yes' || echo 'no')${COLOR_RESET}"
+    echo "Path:             ${COLOR_GREEN}${project_path}${COLOR_RESET}"
     print_separator
 
     if ! has_arg "yes"; then
-        confirm "Создать проект?" || return 1
+        confirm "Creat project?" || return 1
     fi
 
     devilbox_stop
 
-    mkdir -p "$project_path" || { print_error "Не удалось создать директорию."; return 1; }
+    mkdir -p "$project_path" || { print_error "Not remove creat director."; return 1; }
 
-    # --- Каркас по типу; при ошибке убираем созданную пустую директорию ---
+    # --- Scaffold by type; durings error removes created empty director ---
     local scaffold_rc=0
     case "$cms_type" in
         wordpress)
@@ -590,13 +590,13 @@ cmd_new() {
             ( cd "$project_path" && _new_scaffold_php "$project_name" "$project_path" "$php_version" ) || scaffold_rc=1
             ;;
         *)
-            print_error "Внутренняя ошибка: неизвестный тип '$cms_type'."
+            print_error "Internal error: unknown type '$cms_type'."
             scaffold_rc=1
             ;;
     esac
 
     if [[ $scaffold_rc -ne 0 ]]; then
-        print_error "Создание проекта провалилось. Чистим директорию..."
+        print_error "Creat project fail. Clean director..."
         rm -rf "$project_path"
         return 1
     fi
@@ -606,9 +606,9 @@ cmd_new() {
     fi
 
     print_separator
-    print_highlight "Путь:        ${project_path}"
+    print_highlight "Path:        ${project_path}"
     print_highlight "URL:         ${site_url}"
-    print_highlight "Следующий шаг: dpx tunnel --project-name ${project_name}"
+    print_highlight "Next step: dpx tunnel --project-name ${project_name}"
     print_separator
 
     ddev_launch "$project_name"

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Checks Module - проверки зависимостей и окружения
+# DPX Checks Module - checks dependency and environment
 # =================================================================
 
-# Защита от повторного подключения
+# Re-entrancy guard
 [[ -n "${_DPX_CHECKS_LOADED:-}" ]] && return 0
 readonly _DPX_CHECKS_LOADED=1
 
 # =================================================================
-# КОНСТАНТЫ МИНИМАЛЬНЫХ ВЕРСИЙ
+# CONSTANTS MINIMUM VERSION
 # =================================================================
 
 readonly MIN_BASH_VERSION="4.0"
@@ -17,10 +17,10 @@ readonly MIN_DOCKER_VERSION="20.10"
 readonly MIN_JQ_VERSION="1.5"
 
 # =================================================================
-# СРАВНЕНИЕ ВЕРСИЙ (semver)
+# COMPARISON VERSION (semver)
 # =================================================================
 
-# Возвращает: 0 = равны, 1 = $1 > $2, 2 = $1 < $2
+# Returns: 0 = equals, 1 = $1 > $2, 2 = $1 < $2
 version_compare() {
     [[ "$1" == "$2" ]] && return 0
 
@@ -30,7 +30,7 @@ version_compare() {
     read -ra ver1 <<< "$1"
     read -ra ver2 <<< "$2"
 
-    # Выравниваем длину массивов
+    # Alignment length arraies
     for ((i=${#ver1[@]}; i<${#ver2[@]}; i++)); do ver1[i]=0; done
     for ((i=${#ver2[@]}; i<${#ver1[@]}; i++)); do ver2[i]=0; done
 
@@ -42,7 +42,7 @@ version_compare() {
     return 0
 }
 
-# Возвращает 0 (success), если $1 >= $2 (кроссплатформенная через awk)
+# Returns 0 (success), ifs $1 >= $2 (cross-platform via awk)
 version_ge() {
     awk -v v1="$1" -v v2="$2" 'BEGIN {
         split(v1, a, "."); split(v2, b, ".");
@@ -54,23 +54,23 @@ version_ge() {
     }'
 }
 
-# Извлечение версии из строки
-# Поддерживает форматы: "v1.23.4", "ddev v1.23.4", "1.23.4", "1.23"
-# Умеет читать и аргумент $1, и STDIN (для пайплайнов)
+# Extract versions from lines
+# Supports formats: "v1.23.4", "ddev v1.23.4", "1.23.4", "1.23"
+# Can read and argument $1, and STDIN (for pipelines)
 extract_version() {
     local input="${1:-$(cat)}"
     echo "$input" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1
 }
 
 # =================================================================
-# ПРОВЕРКИ
+# CHECKS
 # =================================================================
 
 check_bash_version() {
     if (( BASH_VERSINFO[0] < 4 )); then
-        print_error "Требуется Bash >= ${MIN_BASH_VERSION}, текущая: ${BASH_VERSION:-unknown}"
+        print_error "Requires Bash >= ${MIN_BASH_VERSION}, current: ${BASH_VERSION:-unknown}"
         if [[ "$OSTYPE" == "darwin"* ]]; then
-            print_info "macOS: установите brew install bash и обновите PATH"
+            print_info "macOS: install brew install bash and update PATH"
         fi
         return 1
     fi
@@ -82,7 +82,7 @@ check_dependency() {
     local package="${2:-$1}"
 
     if ! command -v "$cmd" >/dev/null 2>&1; then
-        print_error "Команда '$cmd' не найдена. Установите $package."
+        print_error "Command '$cmd' not found. Install $package."
         return 1
     fi
     return 0
@@ -98,14 +98,14 @@ check_ddev() {
     ddev_version=$(extract_version "$ddev_version")
 
     if [[ -z "$ddev_version" ]]; then
-        print_warning "Не удалось определить версию DDEV"
+        print_warning "Not remove determin version DDEV"
         return 0
     fi
 
     if version_ge "$ddev_version" "$MIN_DDEV_VERSION"; then
-        print_info "DDEV версия: $ddev_version ✓"
+        print_info "DDEV version: $ddev_version ✓"
     else
-        print_error "DDEV устарел: $ddev_version. Требуется >= ${MIN_DDEV_VERSION}"
+        print_error "DDEV outdated: $ddev_version. Requires >= ${MIN_DDEV_VERSION}"
         return 1
     fi
 
@@ -121,10 +121,10 @@ check_docker() {
     docker_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
 
     if [[ -z "$docker_version" ]]; then
-        print_error "Docker daemon не запущен или недоступен!"
+        print_error "Docker daemon not run ors unavailable!"
         case "$DPX_OS_TYPE" in
-            macos) print_error "Запустите Docker Desktop для macOS" ;;
-            linux) print_error "Попробуйте: sudo systemctl start docker" ;;
+            macos) print_error "Start Docker Desktop for macOS" ;;
+            linux) print_error "Try: sudo systemctl start docker" ;;
         esac
         return 1
     fi
@@ -132,9 +132,9 @@ check_docker() {
     docker_version=$(extract_version "$docker_version")
 
     if version_ge "$docker_version" "$MIN_DOCKER_VERSION"; then
-        print_info "Docker версия: ${docker_version} ✓ (daemon running)"
+        print_info "Docker version: ${docker_version} ✓ (daemon running)"
     else
-        print_error "Docker устарел: $docker_version. Требуется >= ${MIN_DOCKER_VERSION}"
+        print_error "Docker outdated: $docker_version. Requires >= ${MIN_DOCKER_VERSION}"
         return 1
     fi
 
@@ -143,8 +143,8 @@ check_docker() {
 
 check_jq() {
     if ! check_dependency "jq" "jq (https://stedolan.github.io/jq/)"; then
-        print_error "jq обязателен для парсинга JSON-вывода DDEV (ddev describe --format=json)."
-        print_info "Установка:"
+        print_error "jq required for parsing JSON-output DDEV (ddev describe --format=json)."
+        print_info "Install:"
         print_info "  Ubuntu/Debian: sudo apt install jq"
         print_info "  macOS:         brew install jq"
         return 1
@@ -155,9 +155,9 @@ check_jq() {
 
     if [[ -n "$jq_version" ]]; then
         if version_ge "$jq_version" "$MIN_JQ_VERSION"; then
-            print_info "jq версия: $jq_version ✓"
+            print_info "jq version: $jq_version ✓"
         else
-            print_error "jq устарел: $jq_version. Требуется >= ${MIN_JQ_VERSION}"
+            print_error "jq outdated: $jq_version. Requires >= ${MIN_JQ_VERSION}"
             return 1
         fi
     fi
@@ -166,7 +166,7 @@ check_jq() {
 }
 
 # =================================================================
-# КОМПЛЕКСНАЯ ПРОВЕРКА
+# COMPLEX CHECK
 # =================================================================
 
 check_dependencies() {
@@ -181,19 +181,19 @@ check_dependencies() {
     check_bash_version || return 1
     print_info "Bash >= ${MIN_BASH_VERSION} ✓"
 
-    # Базовые утилиты (jq для JSON, tar для SRDB/Devilbox)
-    # Примечание: docker-compose проверяется отдельно (v1 бинарник vs v2 плагин)
+    # Basic utilities (jq for JSON, tar for SRDB/Devilbox)
+    # Note: docker-compose checks separate (v1 binary vs v2 plugin)
     for cmd in sed grep awk curl tar jq; do
         check_dependency "$cmd" || has_errors=1
     done
 
-    # docker compose: v2 (плагин docker compose) или v1 (бинарник docker-compose)
+    # docker compose: v2 (plugin docker compose) ors v1 (binary docker-compose)
     if docker compose version >/dev/null 2>&1; then
         print_info "docker compose (v2) ✓"
     elif command -v docker-compose >/dev/null 2>&1; then
         print_info "docker-compose (v1) ✓"
     else
-        print_error "docker compose не найден (ни v2 плагин, ни v1 бинарник)."
+        print_error "docker compose not found (neithers v2 plugin, neithers v1 binary)."
         has_errors=1
     fi
 
@@ -219,7 +219,7 @@ check_dependencies() {
 }
 
 # =================================================================
-# ЭКСПОРТ
+# EXPORT
 # =================================================================
 
 export MIN_BASH_VERSION MIN_DDEV_VERSION MIN_DOCKER_VERSION MIN_JQ_VERSION

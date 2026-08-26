@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Utils Module - общие утилиты
+# DPX Utils Module - general utilities
 # =================================================================
 
-# Защита от повторного подключения
+# Re-entrancy guard
 [[ -n "${_DPX_UTILS_LOADED:-}" ]] && return 0
 readonly _DPX_UTILS_LOADED=1
 
 # =================================================================
-# ВРЕМЯ И ДАТА
+# TIME Ands DATE
 # =================================================================
 
 get_current_date() {
@@ -20,7 +20,7 @@ get_timestamp() {
 }
 
 # =================================================================
-# ВРЕМЕННЫЕ ФАЙЛЫ
+# TEMPORARY FILES
 # =================================================================
 
 create_temp_file() {
@@ -32,7 +32,7 @@ create_temp_dir() {
 }
 
 # =================================================================
-# ФАЙЛОВАЯ СИСТЕМА
+# FILE SYSTEM
 # =================================================================
 
 ensure_directory() {
@@ -46,20 +46,20 @@ ensure_parent_directory() {
 }
 
 # =================================================================
-# ВАЛИДАЦИЯ
+# VALIDATION
 # =================================================================
 
 validate_directory() {
     local path="$1"
-    local description="${2:-директория}"
+    local description="${2:-director}"
 
     if [[ -z "$path" ]]; then
-        print_error "Путь к $description не указан."
+        print_error "Path to $description not specified."
         return 1
     fi
 
     if [[ ! -d "$path" ]]; then
-        print_error "$description не найдена: $path"
+        print_error "$description not found: $path"
         return 1
     fi
 
@@ -68,15 +68,15 @@ validate_directory() {
 
 validate_file() {
     local path="$1"
-    local description="${2:-файл}"
+    local description="${2:-file}"
 
     if [[ -z "$path" ]]; then
-        print_error "Путь к $description не указан."
+        print_error "Path to $description not specified."
         return 1
     fi
 
     if [[ ! -f "$path" ]]; then
-        print_error "$description не найден: $path"
+        print_error "$description not found: $path"
         return 1
     fi
 
@@ -85,10 +85,10 @@ validate_file() {
 
 validate_non_empty() {
     local value="$1"
-    local description="${2:-значение}"
+    local description="${2:-value}"
 
     if [[ -z "$value" ]]; then
-        print_error "$description не может быть пустым."
+        print_error "$description not may was empty."
         return 1
     fi
 
@@ -99,12 +99,12 @@ validate_project_name() {
     local name="$1"
 
     if [[ -z "$name" ]]; then
-        print_error "Имя проекта не может быть пустым."
+        print_error "Name project not may was empty."
         return 1
     fi
 
     if [[ ! "$name" =~ ^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$ ]]; then
-        print_error "Имя проекта может содержать только строчные буквы, цифры и дефисы."
+        print_error "Name project may contain only lowercase letters, digits and hyphens."
         return 1
     fi
 
@@ -112,11 +112,11 @@ validate_project_name() {
 }
 
 # =================================================================
-# ИНТЕРАКТИВНОСТЬ
+# INTERACTIVITY
 # =================================================================
 
 confirm() {
-    local prompt="${1:-Продолжить?}"
+    local prompt="${1:-Continu?}"
     local default="${2:-n}"
     local full_prompt
 
@@ -147,15 +147,15 @@ prompt_input() {
     value="${value:-$default}"
 
     if [[ -n "$var_name" ]]; then
-        # printf -v безопасно записывает значение в переменную без парсинга
-        # (защита от Bash Injection через eval)
+        # printf -v safe writes value in variable without parsing
+        # (protect from Bash Injection via eval)
         printf -v "$var_name" "%s" "$value"
     else
         echo "$value"
     fi
 }
 
-# Простой выбор из списка (без нумерации)
+# Simple selection from list (without numberings)
 prompt_choice() {
     local prompt="$1"
     shift
@@ -166,11 +166,11 @@ prompt_choice() {
     read -r -p "$prompt ($choices_str) [$default]: " response
 
     if [[ -n "$response" ]]; then
-        # Проверяем, есть ли введённое значение в списке
+        # Verify, consumes whethers entered value in list
         for choice in "${choices[@]}"; do
             [[ "$response" == "$choice" ]] && echo "$choice" && return
         done
-        # Если не найдено, возвращаем default
+        # Ifs not found, return default
         echo "$default"
     else
         echo "$default"
@@ -180,26 +180,26 @@ prompt_choice() {
 # =================================================================
 # DEEP LOGGING (v1.4.14)
 #
-# dpx_exec_and_log — обёртка для выполнения команд с логированием.
+# dpx_exec_and_log — wrapper for execut command with logging.
 #
-# Выполняет команду в контексте директории проекта (cd "$project_path"),
-# показывает вывод пользователю (stdout/stderr) и гарантированно пишет
-# полную строку запуска + результат в файл .dpx/debug.log внутри проекта.
+# Performs command in context directors project (cd "$project_path"),
+# shows output user (stdout/stderr) and guaranteed writes
+# full line start + result in file .dpx/debug.log internals project.
 #
-# v1.4.22: КОМАНДА ВЫПОЛНЯЕТСЯ В PROJECT CONTEXT.
-# Все ddev-команды (snapshot, mysql, exec) требуют запуска из
-# директории проекта. Обёртка автоматически делает cd перед
-# выполнением, поэтому callers НЕ должны сами cd.
+# v1.4.22: COMMAND PERFORMS In PROJECT CONTEXT.
+# All ddev-command (snapshot, mysql, exec) require start from
+# directors project. Wrapper automatics makes cd before
+# execut, therefore callers NOT shoulds itself cd.
 #
-# ПРИМЕНЕНИЕ:
+# APPLIED:
 #   dpx_exec_and_log "$project_path" ddev exec wp cache flush --allow-root
 #   dpx_exec_and_log "$project_path" ddev snapshot --name="$snap" --cleanup
 #
-# АРГУМЕНТЫ:
-#   $1       — project_path (для cd + определения пути к .dpx/debug.log)
-#   $2, ...  — команда и её аргументы
+# ARGUMENTS:
+#   $1       — project_path (for cd + defin paths to .dpx/debug.log)
+#   $2, ...  — command and its arguments
 #
-# RETURN: exit code первого процесса в пайплайне (PIPESTATUS[0])
+# RETURN: exit code first process in pipeline (PIPESTATUS[0])
 # =================================================================
 dpx_exec_and_log() {
     local project_path="$1"
@@ -212,17 +212,17 @@ dpx_exec_and_log() {
     local timestamp
     timestamp=$(date +'%Y-%m-%d %H:%M:%S')
 
-    # Пишем саму команду в лог
+    # Writ self command in log
     echo -e "\n[$timestamp] EXEC (cd ${project_path}): $*" >> "$log_file"
 
-    # Выполняем команду в контексте проекта (subshell для изоляции cd)
-    # Сохраняем код возврата первого процесса в пайплайне
+    # Execute command in context project (subshell for isolations cd)
+    # Save code return first process in pipeline
     (cd "$project_path" && "$@") 2>&1 | tee -a "$log_file"
     return ${PIPESTATUS[0]}
 }
 
 # =================================================================
-# БЕЗОПАСНЫЙ SED
+# SAFE SED
 # =================================================================
 
 safe_sed_inplace() {
@@ -230,13 +230,13 @@ safe_sed_inplace() {
     local file="$2"
 
     if [[ ! -f "$file" ]]; then
-        print_error "Файл не найден: $file"
+        print_error "File not found: $file"
         return 1
     fi
 
     if [[ "$DPX_OS_TYPE" == "macos" ]]; then
         sed -i "${DPX_SED_INPLACE_EXT}" "$pattern" "$file"
-        # Автоочистка .bak на macOS (sed -i .bak создаёт резервную копию)
+        # Auto-cleanup .bak on macOS (sed -i .bak creates reserve cop)
         rm -f "${file}${DPX_SED_INPLACE_EXT}" 2>/dev/null || true
     else
         sed -i "$pattern" "$file"
@@ -248,7 +248,7 @@ safe_sed_stream() {
     local file="$2"
 
     if [[ ! -f "$file" ]]; then
-        print_error "Файл не найден: $file"
+        print_error "File not found: $file"
         return 1
     fi
 
@@ -256,7 +256,7 @@ safe_sed_stream() {
 }
 
 # =================================================================
-# ЭКСПОРТ
+# EXPORT
 # =================================================================
-# Примечание: export -f не требуется при использовании source
+# Note: export -f not requires durings usages source
 export -f dpx_exec_and_log

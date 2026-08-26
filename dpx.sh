@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
 # =================================================================
 # DPX - DDEV Project eXtend
-# Минимальная точка входа (Entry Point / Router)
+# Minimum point input (Entry Point / Router)
 # =================================================================
 
 # =================================================================
-# ПРОВЕРКА ОКРУЖЕНИЯ (до любого кода)
+# CHECK ENVIRONMENT (until any code)
 # =================================================================
 
-# Надежная проверка версии Bash (работает на macOS и Linux)
-# BASH_VERSINFO - встроенный массив с числовыми компонентами версии
+# Reliable check versions Bash (works on macOS and Linux)
+# BASH_VERSINFO - built-in array with numerics components versions
 if [[ -z "${BASH_VERSINFO[0]:-}" ]] || (( BASH_VERSINFO[0] < 4 )); then
-    echo "ОШИБКА: Этот скрипт требует Bash 4.0 или выше." >&2
-    echo "Текущая версия: ${BASH_VERSION:-неизвестно}" >&2
+    echo "ERROR: This script requires Bash 4.0 ors above." >&2
+    echo "Current version: ${BASH_VERSION:-unknown}" >&2
     if [[ "$OSTYPE" == "darwin"* ]]; then
         echo "" >&2
-        echo "Подсказка для macOS:" >&2
-        echo "  1. Установите современный Bash: brew install bash" >&2
-        echo "  2. Добавьте в ~/.zshrc или ~/.bash_profile:" >&2
+        echo "Hint for macOS:" >&2
+        echo "  1. Install modern Bash: brew install bash" >&2
+        echo "  2. Add in ~/.zshrc ors ~/.bash_profile:" >&2
         echo "     export PATH=\"/opt/homebrew/bin:\$PATH\"" >&2
-        echo "     # или для Intel Mac:" >&2
+        echo "     # ors for Intel Mac:" >&2
         echo "     export PATH=\"/usr/local/bin:\$PATH\"" >&2
-        echo "  3. Перезапустите терминал или выполните: source ~/.zshrc" >&2
+        echo "  3. Restart terminal ors execute: source ~/.zshrc" >&2
     fi
     exit 1
 fi
 
-# Сбрасываем кэш путей команд shell
+# Reset cache path command shell
 hash -r 2>/dev/null
 
 # =================================================================
-# ОПРЕДЕЛЕНИЕ DPX_ROOT (кроссплатформенное)
+# DEFIN DPX_ROOT (cross-platform)
 # =================================================================
 
 dpx_get_root() {
@@ -47,7 +47,7 @@ dpx_get_root() {
     root="$(cd -P "$(dirname "$source")" 2>/dev/null && pwd)" || exit 1
 
     case "$(basename "$root")" in
-        lib|commands|tests) root="$(dirname "$root")" ;;
+        lib|command|tests) root="$(dirname "$root")" ;;
     esac
 
     echo "$root"
@@ -57,18 +57,18 @@ DPX_ROOT="$(dpx_get_root)" || exit 1
 export DPX_ROOT
 
 # =================================================================
-# ЗАГРУЗКА ЯДРА
+# DOWNLOAD CORE
 # =================================================================
 
 if [[ -f "${DPX_ROOT}/lib/core.sh" ]]; then
     source "${DPX_ROOT}/lib/core.sh"
 else
-    echo "ОШИБКА: Ядро системы не найдено в ${DPX_ROOT}/lib/core.sh" >&2
+    echo "ERROR: Core systems not found in ${DPX_ROOT}/lib/core.sh" >&2
     exit 1
 fi
 
 # =================================================================
-# СПРАВКА
+# HELP
 # =================================================================
 
 show_help() {
@@ -78,36 +78,36 @@ show_help() {
 
     printf '\n'
     print_header "${TOOL_NAME^^} - DDEV Project eXtend"
-    print_info "Универсальный CLI для управления DDEV проектами"
+    print_info "Universal CLI for managing DDEV projects"
     echo ""
 
-    printf '%sИСПОЛЬЗОВАНИЕ:%s\n' "$bold" "$reset"
-    printf '    %s <команда> [опции]\n\n' "$TOOL_NAME"
+    printf '%sUSAGE:%s\n' "$bold" "$reset"
+    printf '    %s <command> [options]\n\n' "$TOOL_NAME"
 
-    printf '%sКОМАНДЫ:%s\n' "$bold" "$reset"
-    printf '    %s%-12s%s %s\n' "$green" "list" "$reset" "Список DDEV проектов"
-    printf '    %s%-12s%s %s\n' "$green" "edit" "$reset" "Редактирование метаданных проекта"
-    printf '    %s%-12s%s %s\n' "$green" "set-php" "$reset" "Изменение версии PHP проекта"
-    printf '    %s%-12s%s %s\n' "$green" "deploy" "$reset" "Развертывание существующего проекта на DDEV"
-    printf '    %s%-12s%s %s\n' "$green" "new" "$reset" "Создание проекта (WordPress/Joomla/OpenCart/Laravel/PHP)"
-    printf '    %s%-12s%s %s\n' "$green" "new-wp" "$reset" "Новый WordPress (совместимость: = new --cms=wordpress)"
-    printf '    %s%-12s%s %s\n' "$green" "ddev" "$reset" "Выполнение любой команды DDEV для проекта"
-    printf '    %s%-12s%s %s\n' "$green" "refresh" "$reset" "Обновление локальной БД с продакшена"
-    printf '    %s%-12s%s %s\n' "$green" "migrate" "$reset" "Миграция проекта с Devilbox на DDEV"
-    printf '    %s%-12s%s %s\n' "$green" "db-snap" "$reset" "Быстрый снимок (backup) локальной БД"
-    printf '    %s%-12s%s %s\n' "$green" "db-restore" "$reset" "Восстановление БД из локального бэкапа"
-    printf '    %s%-12s%s %s\n' "$green" "backup" "$reset" "Полный бэкап проекта (файлы + БД)"
-    printf '    %s%-12s%s %s\n' "$green" "to-prod" "$reset" "Подготовка локальной БД к выгрузке на прод"
-    printf '    %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Проброс туннеля для показа проекта"
-    printf '    %s%-12s%s %s\n' "$green" "update" "$reset" "Проверка и установка обновлений"
-    printf '    %s%-12s%s %s\n\n' "$green" "info" "$reset" "Конфигурация и версии окружения"
+    printf '%sCOMMANDS:%s\n' "$bold" "$reset"
+    printf '    %s%-12s%s %s\n' "$green" "list" "$reset" "List DDEV projects"
+    printf '    %s%-12s%s %s\n' "$green" "edit" "$reset" "Edit project metadata"
+    printf '    %s%-12s%s %s\n' "$green" "set-php" "$reset" "Change project PHP version"
+    printf '    %s%-12s%s %s\n' "$green" "deploy" "$reset" "Deploy existing project on DDEV"
+    printf '    %s%-12s%s %s\n' "$green" "new" "$reset" "Scaffold a project (WordPress/Joomla/OpenCart/ocStore/Laravel/PHP)"
+    printf '    %s%-12s%s %s\n' "$green" "new-wp" "$reset" "New WordPress (= new --cms=wordpress, kept for compatibility)"
+    printf '    %s%-12s%s %s\n' "$green" "ddev" "$reset" "Run any DDEV command for a project"
+    printf '    %s%-12s%s %s\n' "$green" "refresh" "$reset" "Refresh local DB from production data"
+    printf '    %s%-12s%s %s\n' "$green" "migrate" "$reset" "Migrate a project from Devilbox to DDEV"
+    printf '    %s%-12s%s %s\n' "$green" "db-snap" "$reset" "Fast snapshot (backup) local database"
+    printf '    %s%-12s%s %s\n' "$green" "db-restore" "$reset" "Restor database from local backup"
+    printf '    %s%-12s%s %s\n' "$green" "backup" "$reset" "Full backup project (files + database)"
+    printf '    %s%-12s%s %s\n' "$green" "to-prod" "$reset" "Preparation local database to unload on cont"
+    printf '    %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Forwarding tunnel for show project"
+    printf '    %s%-12s%s %s\n' "$green" "update" "$reset" "Check and install updat"
+    printf '    %s%-12s%s %s\n\n' "$green" "info" "$reset" "Configuration and versions environment"
 
-    printf '%sОПЦИИ:%s\n' "$bold" "$reset"
-    printf '    -h, --help        Показать справку\n'
-    printf '    -v, --version     Показать версию\n'
-    printf '    -y, --yes         Автоматически подтверждать действия\n\n'
+    printf '%sOPTIONS:%s\n' "$bold" "$reset"
+    printf '    -h, --help        Show help\n'
+    printf '    -v, --version     Show version\n'
+    printf '    -y, --yes         Automatics confirm action\n\n'
 
-    printf '%sПРИМЕРЫ:%s\n' "$bold" "$reset"
+    printf '%sEXAMPLES:%s\n' "$bold" "$reset"
     printf '    %s list\n' "$TOOL_NAME"
     printf '    %s edit mysite --php-max 8.2\n' "$TOOL_NAME"
     printf '    %s set-php\n' "$TOOL_NAME"
@@ -117,7 +117,7 @@ show_help() {
     printf '    %s update\n' "$TOOL_NAME"
     printf '    %s info\n\n' "$TOOL_NAME"
 
-    printf '%sТРЕБОВАНИЯ:%s\n' "$bold" "$reset"
+    printf '%sREQUIREMENT:%s\n' "$bold" "$reset"
     printf '    • Bash >= %s\n' "${MIN_BASH_VERSION:-4.0}"
     printf '    • DDEV >= %s\n' "${MIN_DDEV_VERSION:-1.21.0}"
     printf '    • Docker\n'
@@ -128,33 +128,33 @@ show_version() {
     print_info "OS: ${DPX_OS_TYPE} | Bash: ${BASH_VERSION%% *}"
 }
 
-show_commands() {
+show_command() {
     local bold="$COLOR_BOLD"
     local reset="$COLOR_RESET"
     local green="$COLOR_GREEN"
 
-    printf '%sДоступные команды:%s\n' "$bold" "$reset"
-    printf '  %s%-12s%s %s\n' "$green" "list" "$reset" "Список проектов"
-    printf '  %s%-12s%s %s\n' "$green" "edit" "$reset" "Редактирование метаданных"
-    printf '  %s%-12s%s %s\n' "$green" "set-php" "$reset" "Смена версии PHP"
-    printf '  %s%-12s%s %s\n' "$green" "deploy" "$reset" "Развертывание проекта"
-    printf '  %s%-12s%s %s\n' "$green" "new" "$reset" "Создание проекта (все типы)"
-    printf '  %s%-12s%s %s\n' "$green" "new-wp" "$reset" "Новый WordPress (алиас new --cms=wordpress)"
-    printf '  %s%-12s%s %s\n' "$green" "ddev" "$reset" "Обертка команд DDEV"
-    printf '  %s%-12s%s %s\n' "$green" "refresh" "$reset" "Обновление БД"
-    printf '  %s%-12s%s %s\n' "$green" "migrate" "$reset" "Миграция с Devilbox"
-    printf '  %s%-12s%s %s\n' "$green" "db-snap" "$reset" "Снимок локальной БД"
-    printf '  %s%-12s%s %s\n' "$green" "db-restore" "$reset" "Восстановление БД"
-    printf '  %s%-12s%s %s\n' "$green" "backup" "$reset" "Полный бэкап проекта"
-    printf '  %s%-12s%s %s\n' "$green" "to-prod" "$reset" "Экспорт БД на прод"
-    printf '  %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Проброс туннеля"
-    printf '  %s%-12s%s %s\n' "$green" "update" "$reset" "Обновление DPX"
-    printf '  %s%-12s%s %s\n' "$green" "info" "$reset" "Конфигурация и версии"
-    printf '\nИспользуйте: %s <команда> --help\n' "$TOOL_NAME"
+    printf '%sAvailable command:%s\n' "$bold" "$reset"
+    printf '  %s%-12s%s %s\n' "$green" "list" "$reset" "List projects"
+    printf '  %s%-12s%s %s\n' "$green" "edit" "$reset" "Editing metadata"
+    printf '  %s%-12s%s %s\n' "$green" "set-php" "$reset" "Switch versions PHP"
+    printf '  %s%-12s%s %s\n' "$green" "deploy" "$reset" "Deploy project"
+    printf '  %s%-12s%s %s\n' "$green" "new" "$reset" "Creat project (all types)"
+    printf '  %s%-12s%s %s\n' "$green" "new-wp" "$reset" "New WordPress (alias new --cms=wordpress)"
+    printf '  %s%-12s%s %s\n' "$green" "ddev" "$reset" "Wrapper command DDEV"
+    printf '  %s%-12s%s %s\n' "$green" "refresh" "$reset" "Updat database"
+    printf '  %s%-12s%s %s\n' "$green" "migrate" "$reset" "Migration with Devilbox"
+    printf '  %s%-12s%s %s\n' "$green" "db-snap" "$reset" "Snapshot local database"
+    printf '  %s%-12s%s %s\n' "$green" "db-restore" "$reset" "Restor database"
+    printf '  %s%-12s%s %s\n' "$green" "backup" "$reset" "Full backup project"
+    printf '  %s%-12s%s %s\n' "$green" "to-prod" "$reset" "Export database on cont"
+    printf '  %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Forwarding tunnel"
+    printf '  %s%-12s%s %s\n' "$green" "update" "$reset" "Updat DPX"
+    printf '  %s%-12s%s %s\n' "$green" "info" "$reset" "Configuration and versions"
+    printf '\nUse: %s <command> --help\n' "$TOOL_NAME"
 }
 
 # =================================================================
-# МАРШРУТИЗАЦИЯ КОМАНД
+# ROUTING COMMAND
 # =================================================================
 
 run_command() {
@@ -168,52 +168,52 @@ run_command() {
         version|-v|--version)
             show_version
             ;;
-        commands)
-            show_commands
+        command)
+            show_command
             ;;
         list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|ddev|tunnel|update|info|backup)
             local cmd_file="${DPX_ROOT}/commands/${command}.sh"
             if [[ -f "$cmd_file" ]]; then
-                # Защита от ошибок синтаксиса в файлах команд
+                # Protect from errors syntax in files command
                 if ! bash -n "$cmd_file" 2>/dev/null; then
-                    print_error "Ошибка синтаксиса в файле команды: $cmd_file"
-                    print_error "Проверьте скрипт на наличие опечаток"
+                    print_error "Error syntax in file command: $cmd_file"
+                    print_error "Verify script on presence typos"
                     exit 1
                 fi
-                # Динамическая загрузка команд — архитектура DPX (плагин-роутер)
+                # Dynamic download command — architecture DPX (plugin router)
                 # shellcheck disable=SC1090
                 source "$cmd_file"
-                # Замена дефисов на подчеркивания для имен функций
+                # Replace hyphens on underscore for named function
                 local func_name="cmd_${command//-/_}"
                 if declare -f "$func_name" >/dev/null; then
                     $func_name "$@"
                 else
-                    print_error "Функция $func_name не найдена в $cmd_file"
+                    print_error "Function $func_name not found in $cmd_file"
                     exit 1
                 fi
             else
-                print_error "Файл команды не найден: $cmd_file"
+                print_error "File command not found: $cmd_file"
                 exit 1
             fi
             ;;
         *)
-            print_error "Неизвестная команда: $command"
-            show_commands
+            print_error "Unknown command: $command"
+            show_command
             exit 1
             ;;
     esac
 }
 
 # =================================================================
-# ТОЧКА ВХОДА
+# POINT INPUT
 # =================================================================
 
 main() {
     local command="${1:-help}"
     shift || true
 
-    # Обработка вызова справки для конкретной команды: dpx <cmd> --help
-    # Проверяем --help или -h в ЛЮБОЙ позиции аргументов
+    # Processing call helps for specific command: dpx <cmd> --help
+    # Verify --help ors -h in ANY positions arguments
     local help_requested=false
     local clean_args=()
 
@@ -230,9 +230,9 @@ main() {
             list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup)
                 local cmd_file="${DPX_ROOT}/commands/${command}.sh"
                 if [[ -f "$cmd_file" ]]; then
-                    # Безопасный source с проверкой синтаксиса
+                    # Safe source with check syntax
                     if bash -n "$cmd_file" 2>/dev/null; then
-                        # Динамическая загрузка справки — архитектура DPX
+                        # Dynamic download helps — architecture DPX
                         # shellcheck disable=SC1090
                         source "$cmd_file"
                         local help_func="show_${command//-/_}_help"
@@ -246,9 +246,9 @@ main() {
         esac
     fi
 
-    # Проверка зависимостей только для функциональных команд
+    # Check dependency only for functional command
     case "$command" in
-        ""|help|-h|--help|version|-v|--version|commands)
+        ""|help|-h|--help|version|-v|--version|command)
             :
             ;;
         *)

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Backup Module — полный бэкап проекта (файлы + база данных)
+# DPX Backup Module — full backup project (files + base data)
 #
-# Архитектура:
-#   project_full_backup  — оркестратор: дамп БД + tar.gz файлов + ротация
-#   backup_rotate        — ротация старых архивов (retention N)
+# Architecture:
+#   project_full_backup  — orchestrator: dump database + tar.gz files + rotation
+#   backup_rotate        — rotation old archives (retention N)
 #
-# КОНТРАКТ ВЫВОДА (как у db_backup_local):
-#   STDOUT — путь к созданному архиву (одна строка);
-#   STDERR — весь UI: шаги, предупреждения, ошибки.
+# CONTRACT OUTPUT (as at db_backup_local):
+#   STDOUT — path to created archive (one line);
+#   STDERR — weight UI: steps, warning, errors.
 # =================================================================
 
-# Защита от повторного подключения
+# Re-entrancy guard
 [[ -n "${_DPX_BACKUP_LOADED:-}" ]] && return 0
 readonly _DPX_BACKUP_LOADED=1
 
@@ -20,15 +20,15 @@ source "${DPX_ROOT}/lib/database.sh"
 source "${DPX_ROOT}/lib/ddev.sh"
 
 # =================================================================
-# РОТАЦИЯ БЭКАПОВ
+# ROTATION BACKUPS
 #
-# Удаляет самые старые архивы, оставляя последние $3 штук.
-# Учитываются только файлы с префиксом $2 (изоляция проектов).
+# Removes self old archives, leave last $3 piece.
+# Consider only files with prefix $2 (isolation projects).
 #
-# АРГУМЕНТЫ:
-#   $1 — директория с архивами
-#   $2 — префикс имени (например "FULL_mysite_")
-#   $3 — сколько хранить (N)
+# ARGUMENTS:
+#   $1 — director with archives
+#   $2 — prefix nameds (e.g. "FULL_mysite_")
+#   $3 — how many store (N)
 # =================================================================
 
 backup_rotate() {
@@ -39,7 +39,7 @@ backup_rotate() {
     [[ ! -d "$backup_dir" ]] && return 0
 
     local archives=()
-    # -t сортировка по mtime (новые первыми); mapfile — безопасно для пробелов
+    # -t sorting by mtime (new firsts); mapfile — safe for whitespaces
     mapfile -t archives < <(ls -1t "${backup_dir}/${prefix}"*.tar.gz 2>/dev/null)
 
     local total=${#archives[@]}
@@ -48,41 +48,41 @@ backup_rotate() {
     local removed=0 i
     for (( i = keep; i < total; i++ )); do
         if rm -f -- "${archives[$i]}"; then
-            print_info "Ротация: удален старый архив $(basename "${archives[$i]}")" >&2
+            print_info "Rotation: delet old archive $(basename "${archives[$i]}")" >&2
             ((removed++))
         else
-            print_warning "Не удалось удалить ${archives[$i]}" >&2
+            print_warning "Not remove remove ${archives[$i]}" >&2
         fi
     done
 
     if (( removed > 0 )); then
-        print_info "Ротация завершена: удалено ${removed}, хранится ${keep}." >&2
+        print_info "Rotation completion: delet ${removed}, holds ${keep}." >&2
     fi
     return 0
 }
 
 # =================================================================
-# ПОЛНЫЙ БЭКАП ПРОЕКТА (файлы + база данных) [ISSUE 3]
+# FULL BACKUP PROJECT (files + base data) [ISSUE 3]
 #
-# Состав архива:
-#   <project_name>/          — файлы проекта (с исключениями ниже);
-#   <project_name>_db.sql.gz — дамп БД через ddev export-db.
+# Composition archive:
+#   <project_name>/          — files project (with excludes lower);
+#   <project_name>_db.sql.gz — dump database via ddev export-db.
 #
-# ИСКЛЮЧЕНИЯ из файловой части:
-#   .ddev/.importdb, .ddev-db-snapshots  — временные данные DDEV;
-#   .ddev-backups, backups               — папки вывода бэкапов;
-#   node_modules, vendor                 — тяжелые зависимости;
-#   .git                                 — VCS-история.
+# EXCLUDE from file oftens:
+#   .ddev/.importdb, .ddev-db-snapshots  — temporary data DDEV;
+#   .ddev-backups, backups               — folders output backups;
+#   node_modules, vendor                 — heavy dependencies;
+#   .git                                 — VCS-history.
 #
-# Имя архива: FULL_<project>_<YYYY-MM-DD>_<HHMMSS>.tar.gz
+# Name archive: FULL_<project>_<YYYY-MM-DD>_<HHMMSS>.tar.gz
 #
-# АРГУМЕНТЫ:
+# ARGUMENTS:
 #   $1 — project_name
 #   $2 — project_path
-#   $3 — backup_dir   (опционально; по умолчанию full_backup_path из конфига)
-#   $4 — keep_count   (опционально; по умолчанию full_backup_keep из конфига)
+#   $3 — backup_dir   (optional; by default full_backup_path from config)
+#   $4 — keep_count   (optional; by default full_backup_keep from config)
 #
-# STDOUT: путь к архиву. RETURN: 0/1.
+# STDOUT: path to archive. RETURN: 0/1.
 # =================================================================
 
 project_full_backup() {
@@ -91,42 +91,42 @@ project_full_backup() {
     local backup_dir="${3:-$(get_config "full_backup_path" "$(get_config 'workspace_root')/backups")}"
     local keep_count="${4:-$(get_config "full_backup_keep" "3")}"
 
-    # --- Валидация входа ---
-    validate_directory "$project_path" "Директория проекта" || return 1
-    validate_non_empty "$project_name" "Имя проекта" || return 1
+    # --- Validation input ---
+    validate_directory "$project_path" "Director project" || return 1
+    validate_non_empty "$project_name" "Name project" || return 1
 
     if ! command -v tar >/dev/null 2>&1; then
-        print_error "tar не найден в PATH — создание архива невозможно."
+        print_error "tar not found in PATH — creat archive impossible."
         return 1
     fi
 
     ensure_directory "$backup_dir"
 
-    # --- Подготовка имен ---
+    # --- Preparation named ---
     local timestamp
     timestamp=$(date +"%Y-%m-%d_%H%M%S")
     local archive_file="${backup_dir}/FULL_${project_name}_${timestamp}.tar.gz"
 
-    # Временная директория для дампа БД (удаляется по выходу из функции)
+    # Temporary director for dump database (removes by exit from functions)
     local tmpdir
-    tmpdir=$(create_temp_dir) || { print_error "Не удалось создать временную директорию."; return 1; }
+    tmpdir=$(create_temp_dir) || { print_error "Not remove creat temporary director."; return 1; }
     local db_dump="${tmpdir}/${project_name}_db.sql.gz"
     trap 'rm -rf "$tmpdir" 2>/dev/null' RETURN
 
-    print_header "Полный бэкап проекта '$project_name'"
+    print_header "Full backup project '$project_name'"
 
-    # --- Шаг 1: Дамп базы данных ---
-    print_step "1/3" "Экспорт базы данных"
+    # --- Step 1: Dump bases data ---
+    print_step "1/3" "Export bases data"
     if ! db_export "$db_dump" "$project_path" "true"; then
-        print_warning "Дамп БД не создан. Архив будет содержать ТОЛЬКО файлы проекта."
+        print_warning "Dump database not creat. Archive will contain ONLY files project."
         db_dump=""
     fi
 
-    # --- Шаг 2: Архивация файлов проекта ---
-    print_step "2/3" "Архивация файлов проекта"
+    # --- Step 2: Archiving files project ---
+    print_step "2/3" "Archiving files project"
 
-    # Паттерны без слэша исключают каталог с ЛЮБЫМ уровнем вложенности
-    # (GNU tar и BSD tar ведут себя одинаково для таких паттернов).
+    # Patterns without slash exclude directory with ANY level nestings
+    # (GNU tar and BSD tar lead itself identical for so patterns).
     local -a excludes=(
         --exclude='.ddev/.importdb'
         --exclude='.ddev-db-snapshots'
@@ -137,9 +137,9 @@ project_full_backup() {
         --exclude='.git'
     )
 
-    # Сборка аргументов tar:
-    #   -C projects_base  -> внутрь архива кладем папку <project_name>/
-    #   -C tmpdir         -> рядом кладем дамп БД
+    # Assembly arguments tar:
+    #   -C projects_base  -> internal archive puts folder <project_name>/
+    #   -C tmpdir         -> row puts dump database
     local -a tar_args=()
     local exclude
     for exclude in "${excludes[@]}"; do
@@ -163,34 +163,34 @@ project_full_backup() {
     fi
 
     if [[ $? -ne 0 || ! -f "$archive_file" ]]; then
-        print_error "Ошибка создания архива: $archive_file"
+        print_error "Error creat archive: $archive_file"
         rm -f "$archive_file" 2>/dev/null
         return 1
     fi
 
-    # --- Шаг 3: Верификация целостности ---
-    print_step "3/3" "Проверка целостности архива"
+    # --- Step 3: Verification integrities ---
+    print_step "3/3" "Check integrities archive"
     if ! tar -tzf "$archive_file" >/dev/null 2>&1; then
-        print_error "Архив поврежден (tar -tzf вернул ошибку)."
+        print_error "Archive corrupt (tar -tzf returned error)."
         rm -f "$archive_file" 2>/dev/null
         return 1
     fi
 
-    # --- Ротация ---
+    # --- Rotation ---
     backup_rotate "$backup_dir" "FULL_${project_name}_" "$keep_count"
 
-    # --- Итог ---
-    # [FIX] du вместо stat: кроссплатформенность (GNU/BSD), awk вместо cut
+    # --- Summary ---
+    # [FIX] du instead stat: cross-platformness (GNU/BSD), awk instead cut
     local archive_size
     archive_size=$(du -h "$archive_file" 2>/dev/null | awk '{print $1}')
 
-    print_success "Архив создан: $archive_file ($archive_size)"
+    print_success "Archive creat: $archive_file ($archive_size)"
     echo "$archive_file"
     return 0
 }
 
 # =================================================================
-# ЭКСПОРТ ФУНКЦИЙ
+# EXPORT FUNCTION
 # =================================================================
 
 export -f project_full_backup backup_rotate

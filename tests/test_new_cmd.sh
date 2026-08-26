@@ -2,13 +2,13 @@
 # =================================================================
 # DPX Unit Tests: universal `dpx new` command
 #
-# Покрывает: разрешение типов, интерактивное меню, обертку new-wp,
-# маршрутизацию dpx.sh, нормализацию docroot, .env-rewriter (включая
-# BSD-симуляцию), резолвер архивных URL и защитные проверки cmd_new.
+# Covers: permission types, interactive menu, wrapper new-wp,
+# routing dpx.sh, normalization docroot, .env-rewriter (include
+# BSD-simulation), resolver archive URL and protective checks cmd_new.
 # =================================================================
 
 if (( BASH_VERSINFO[0] < 4 )); then
-    echo "ОШИБКА: Тесты требуют Bash 4.0+" >&2
+    echo "ERROR: Tests require Bash 4.0+" >&2
     exit 1
 fi
 
@@ -23,7 +23,7 @@ print_test_header "Unit Tests: dpx new (universal scaffolding)" "1.0.0"
 setup_temp_dir >/dev/null
 
 source "$DPX_ROOT/lib/core.sh"
-# Разворачиваем проекты в изолированную директорию теста
+# Expanding projects in isolated director test
 DEFAULT_CONFIG["ddev_projects_base_path"]="$TEST_TEMP_DIR/ws"
 PROJECTS_ROOT="$TEST_TEMP_DIR/ws"
 mkdir -p "$PROJECTS_ROOT"
@@ -52,7 +52,7 @@ check_marker() { # $1 marker, $2 haystack
 }
 
 # =================================================================
-# СЕКЦИЯ A: new_resolve_type
+# SECTION A: new_resolve_type
 # =================================================================
 
 echo ""
@@ -91,7 +91,7 @@ test_start "empty input -> empty (triggers interactive menu upstream)"
 check_value "" "$(new_resolve_type "")"
 
 # =================================================================
-# СЕКЦИЯ B: new_select_type (интерактивное меню)
+# SECTION B: new_select_type (interactive menu)
 # =================================================================
 
 echo ""
@@ -101,8 +101,8 @@ test_start "menu renders to stderr, value to stdout"
 out="$(printf '3\n' | new_select_type 2>/dev/null)"
 check_value "opencart" "$out"
 
-# Примечание: read -p показывает промпт только на TTY; в пайп-режиме
-# проверяем сами пункты меню.
+# Note: read -p shows prompt only on TTY; in pipe mode
+# verify itself items menu.
 err="$(printf '4\n' | new_select_type 2>&1 >/dev/null)"
 test_start "menu visible on stderr (numbered list, ocStore included)"
 if grep -qF "1) WordPress" <<<"$err" \
@@ -124,17 +124,17 @@ printf '' | new_select_type >/dev/null 2>&1 || rc=$?
 if [[ "$rc" -eq 1 ]]; then test_pass; else test_fail "rc=$rc"; fi
 
 # =================================================================
-# СЕКЦИЯ C: new-wp wrapper passthrough
+# SECTION C: new-wp wrapper passthrough
 # =================================================================
 
 echo ""
 echo "${TEST_CYAN}=== new-wp backward-compat wrapper ===${TEST_RESET}"
 
-# Обертка определяет cmd_new_wp (движок уже загружен выше)
+# Wrapper detects cmd_new_wp (engine already loaded above)
 # shellcheck disable=SC1091
 source "$DPX_ROOT/commands/new-wp.sh"
 
-# Мок универсального движка ДО вызова cmd_new_wp
+# Mock universal engine UNTIL call cmd_new_wp
 CMD_NEW_ARGS=""
 cmd_new() { CMD_NEW_ARGS="$*"; }
 
@@ -160,8 +160,8 @@ fi
 
 test_start "show_new_wp_help delegates to universal help"
 out="$(show_new_wp_help 2>&1)"
-if grep -qF "Универсальное создание проекта" <<<"$out" \
-   && grep -qF "совместимости" <<<"$out"; then
+if grep -qF "Universal project scaffolding" <<<"$out" \
+   && grep -qF "compatibility" <<<"$out"; then
     test_pass
 else
     test_fail "help delegation broken"
@@ -175,13 +175,13 @@ else
     test_fail "args: $CMD_NEW_ARGS"
 fi
 
-# [FIX] Снимаем мок: возвращаем РЕАЛЬНЫЙ движок для последующих секций
+# [FIX] Snapshot mock: return REAL engine for subsequent section
 unset -f cmd_new
 # shellcheck disable=SC1091
 source "$DPX_ROOT/commands/new.sh"
 
 # =================================================================
-# СЕКЦИЯ D: router wiring (dpx.sh)
+# SECTION D: router wiring (dpx.sh)
 # =================================================================
 
 echo ""
@@ -203,7 +203,7 @@ else
     test_fail "help-router list missing 'new'"
 fi
 
-test_start "commands/new.sh present and defines cmd_new"
+test_start "command/new.sh present and defines cmd_new"
 if [[ -f "$DPX_ROOT/commands/new.sh" ]] && grep -qF "cmd_new()" "$DPX_ROOT/commands/new.sh"; then
     test_pass
 else
@@ -211,7 +211,7 @@ else
 fi
 
 # =================================================================
-# СЕКЦИЯ E: _new_normalize_docroot
+# SECTION E: _new_normalize_docroot
 # =================================================================
 
 echo ""
@@ -232,7 +232,7 @@ _new_normalize_docroot "$d"
 if [[ -f "$d/index.php" && -d "$d/system" && ! -d "$d/upload" ]]; then
     test_pass
 else
-    # shellcheck disable=SC2012  # диагностический вывод содержимого tmp-каталога
+    # shellcheck disable=SC2012  # diagnostic output content tmp-directory
     test_fail "flatten failed: $(ls -A "$d" 2>/dev/null | tr '\n' ' ')"
 fi
 
@@ -246,7 +246,7 @@ else
 fi
 
 # =================================================================
-# СЕКЦИЯ F: _new_env_set_kv / Laravel .env rewriting
+# SECTION F: _new_env_set_kv / Laravel .env rewriting
 # =================================================================
 
 echo ""
@@ -328,7 +328,7 @@ exec "$REAL_SED" "${args[@]}"
 EOF
 chmod +x "$SHIM_BIN_ENV/sed"
 env_f="$TEST_TEMP_DIR/env_bsd"; make_env_fixture "$env_f"
-# Изоляция окружения в подпроцессе сценария намеренная
+# Isolation environment in subprocess scenario intentional
 out="$(
     (
         # shellcheck disable=SC2030
@@ -340,7 +340,7 @@ last_line="$(tail -1 <<<"$out")"
 check_value "4" "$last_line"
 
 # =================================================================
-# СЕКЦИЯ G: резолвер архивных URL (mocked GitHub API)
+# SECTION G: resolver archive URL (mocked GitHub API)
 # =================================================================
 
 echo ""
@@ -419,7 +419,7 @@ else
 fi
 
 # =================================================================
-# СЕКЦИЯ H: защитные проверки cmd_new (offline)
+# SECTION H: protective checks cmd_new (offline)
 # =================================================================
 
 echo ""
@@ -441,7 +441,7 @@ rc_bad=$?
 if [[ "$rc_bad" -ne 0 ]]; then test_pass; else test_fail "invalid name accepted"; fi
 
 # =================================================================
-# ИТОГИ
+# SUMMARIES
 # =================================================================
 
 print_test_summary

@@ -1,140 +1,140 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Library: ddev - Инструментарий управления DDEV
+# DPX Library: ddev - Toolkit management DDEV
 # =================================================================
 
-# Защита от повторного подключения
+# Re-entrancy guard
 [[ -n "${_DPX_DDEV_LOADED:-}" ]] && return 0
 readonly _DPX_DDEV_LOADED=1
 
 # =================================================================
-# ПРОВЕРКА СТАТУСА ПРОЕКТОВ
+# CHECK STATUS PROJECTS
 # =================================================================
 
-# Проверка, запущен ли конкретный проект
-# [FIX] DDEV 1.25+ выводит таблицы с рамками (│), что ломает awk '{print $1}'
-# Используем grep с регулярным выражением для поиска имени проекта
+# Check, run whethers specific project
+# [FIX] DDEV 1.25+ prints tables with frames (│), that breaks awk '{print $1}'
+# Use grep with regular expression for search nameds project
 ddev_is_project_running() {
     local name="$1"
-    # Ищем имя проекта, игнорируя рамки таблиц DDEV 1.25+ (│) и звездочки (*)
+    # Searching name project, ignore frames table DDEV 1.25+ (│) and asterisks (*)
     ddev list --active-only 2>/dev/null | grep -qE "(^|[^a-zA-Z0-9_-])${name}([^a-zA-Z0-9_-]|$)"
 }
 
-# Проверка существования проекта в DDEV
+# Check existence project in DDEV
 ddev_project_exists() {
     local project_name="$1"
     ddev describe "$project_name" >/dev/null 2>&1
 }
 
 # =================================================================
-# УПРАВЛЕНИЕ ПРОЕКТАМИ
+# MANAGEMENT PROJECTS
 # =================================================================
 
-# Безопасный запуск проекта (с проверкой пути)
-# Важно: cd в subshell, чтобы не "утечь" в другую директорию
+# Safe start project (with check paths)
+# Important: cd in subshell, so that not "leak" in other director
 safe_start_ddev_project() {
     local name="$1"
     local path="$2"
 
-    print_info "Запускаем проект $name..."
+    print_info "Start project $name..."
     (
         cd "$path" >/dev/null 2>&1 || exit 1
         ddev start
     ) || return 1
 }
 
-# Запуск проекта DDEV
+# Start project DDEV
 ddev_start_project() {
     local project_name="$1"
     local project_path="$2"
 
-    print_info "Запуск DDEV проекта: $project_name"
+    print_info "Start DDEV project: $project_name"
     (
         [[ -n "$project_path" ]] && cd "$project_path" || exit 1
         ddev start
     ) || return 1
 }
 
-# Остановка проекта DDEV
+# Stop project DDEV
 ddev_stop_project() {
     local project_name="$1"
 
-    print_info "Остановка DDEV проекта: $project_name"
+    print_info "Stop DDEV project: $project_name"
     ddev stop "$project_name" 2>&1
 }
 
-# Удаление проекта DDEV
+# Delet project DDEV
 ddev_delete_project() {
     local project_name="$1"
 
-    print_warning "Удаление DDEV проекта: $project_name"
+    print_warning "Delet DDEV project: $project_name"
     ddev delete "$project_name" -y 2>&1
 }
 
-# Открытие проекта в браузере
+# Open project in browser
 ddev_launch() {
     local project_name="$1"
-    print_info "Открытие в браузере..."
+    print_info "Open in browser..."
     ddev launch "$project_name" 2>/dev/null &
 }
 
 # =================================================================
-# SOFT RESTART (Issue: MySQL locks & buffer errors на горячих импортах)
+# SOFT RESTART (Issue: MySQL locks & buffer errors on hot imports)
 #
-# Неблокирующий рестарт контейнеров проекта перед тяжелой операцией
-# с БД: сбрасывает соединения и состояние InnoDB/max_allowed_packet
-# без интерактивных подтверждений.
+# Non-blocking restart containers project before heavy operation
+# with database: resets connection and state InnoDB/max_allowed_packet
+# without interactive confirmation.
 #
-# Совместимость DDEV:
-#   - Сначала пробуем форму из DPX-workflow: ddev restart --name=...
-#   - Старые/новые версии DDEV без флага --name -> фолбэк
-#     "ddev restart <project>" (позиционный аргумент работает во всех
-#     версиях и не требует cd).
+# Compatibility DDEV:
+#   - First probe form from DPX-workflow: ddev restart --name=...
+#   - Old/new versions DDEV without flag --name -> fallback
+#     "ddev restart <project>" (positional argument works in all
+#     version and not requires cd).
 # =================================================================
 
 ddev_soft_restart() {
     local project_name="$1"
 
     if [[ -z "$project_name" ]]; then
-        print_error "ddev_soft_restart: имя проекта не указано."
+        print_error "ddev_soft_restart: name project not specified."
         return 1
     fi
 
-    # Форма по спецификации DPX (может не поддерживаться версией DDEV)
+    # Form by specifications DPX (may not support version DDEV)
     if ddev restart "--name=${project_name}" >/dev/null 2>&1; then
         return 0
     fi
 
-    # Универсальный фолбэк: позиционное имя проекта
+    # Universal fallback: positional name project
     ddev restart "$project_name" >/dev/null 2>&1
 }
 
-# Импорт дампа в БД проекта.
+# Import dump in database project.
 #
-# Единая обертка над ddev import-db:
-#   1) Форма из DPX-workflow: ddev import-db --name=... --src=...
-#   2) Фолбэк (гарантированно совместимый): cd в проект +
-#      ddev import-db --file=... (паттерн всего кода DPX).
+# Single wrapper over ddev import-db:
+#   1) Form from DPX-workflow: ddev import-db --name=... --src=...
+#   2) Fallback (guaranteed compatible): cd in project +
+#      ddev import-db --file=... (pattern always code DPX).
 #
-# АРГУМЕНТЫ:
-#   $1 — project_name (для форм с --name)
-#   $2 — project_path (для фолбэка cd)
-#   $3 — путь к дампу (.sql / .sql.gz)
+# ARGUMENTS:
+#   $1 — project_name (for form with --name)
+#   $2 — project_path (for fallback cd)
+#   $3 — path to dump (.sql / .sql.gz)
 ddev_import_db() {
     local project_name="$1"
     local project_path="$2"
     local db_file="$3"
 
-    validate_file "$db_file" "Дамп базы данных" || return 1
+    validate_file "$db_file" "Dump bases data" || return 1
 
-    # Спецификация DPX: --name + --src
+    # Specification DPX: --name + --src
     if ddev import-db \
         "--name=${project_name}" \
         "--src=${db_file}" >/dev/null 2>&1; then
         return 0
     fi
 
-    # Фолбэк: классический путь через cd (изоляция в subshell)
+    # Fallback: classic path via cd (isolation in subshell)
     (
         cd "$project_path" 2>/dev/null || exit 1
         ddev import-db "--file=${db_file}"
@@ -142,10 +142,10 @@ ddev_import_db() {
 }
 
 # =================================================================
-# КОНФИГУРАЦИЯ
+# CONFIGURATION
 # =================================================================
 
-# Получить текущую версию PHP из конфига проекта
+# Get current version PHP from config project
 ddev_get_php_version() {
     local project_path="$1"
     local config_file="${project_path}/.ddev/config.yaml"
@@ -157,7 +157,7 @@ ddev_get_php_version() {
     fi
 }
 
-# Настройка DDEV проекта
+# Setup DDEV project
 ddev_configure_project() {
     local project_name="$1"
     local project_type="$2"
@@ -167,7 +167,7 @@ ddev_configure_project() {
     local docroot="${6:-}"
     local project_tld="${7:-lo}"
 
-    print_step "auto" "Конфигурация DDEV..."
+    print_step "auto" "Configuration DDEV..."
 
     ddev config --project-name "$project_name" \
         --project-type "$project_type" \
@@ -179,10 +179,10 @@ ddev_configure_project() {
 }
 
 # =================================================================
-# WP-CLI КОМАНДЫ
+# WP-CLI COMMANDS
 # =================================================================
 
-# WP-CLI установка WordPress
+# WP-CLI install WordPress
 ddev_wp_install() {
     local project_path="$1"
     local site_url="$2"
@@ -192,39 +192,39 @@ ddev_wp_install() {
     local admin_email="$6"
     local locale="${7:-ru_RU}"
 
-    print_step "3" "Установка WordPress через WP-CLI"
+    print_step "3" "Install WordPress via WP-CLI"
 
-    # Весь код в subshell для изоляции cd
+    # Weight code in subshell for isolations cd
     (
         [[ -n "$project_path" ]] && cd "$project_path" || exit 1
 
-        # Скачивание WordPress
-        print_info "Загрузка WordPress ($locale)..."
+        # Download WordPress
+        print_info "Download WordPress ($locale)..."
         ddev wp core download --locale="$locale" 2>&1 || {
-            print_error "Ошибка загрузки WordPress"
+            print_error "Error downloads WordPress"
             exit 1
         }
 
-        # Создание wp-config.php
-        print_info "Создание wp-config.php..."
+        # Creat wp-config.php
+        print_info "Creat wp-config.php..."
         ddev wp config create --dbname=db --dbuser=db --dbpass=db --dbhost=db 2>&1 || {
-            print_error "Ошибка создания wp-config.php"
+            print_error "Error creat wp-config.php"
             exit 1
         }
 
-        # Установка WordPress
-        print_info "Установка WordPress..."
+        # Install WordPress
+        print_info "Install WordPress..."
         ddev wp core install \
             --url="$site_url" \
             --title="$site_title" \
             --admin_user="$admin_user" \
             --admin_password="$admin_pass" \
             --admin_email="$admin_email" 2>&1 || {
-            print_error "Ошибка установки WordPress"
+            print_error "Error installs WordPress"
             exit 1
         }
 
-        print_success "WordPress успешно установлен."
+        print_success "WordPress success installed."
     ) || return 1
 }
 
@@ -234,14 +234,14 @@ ddev_wp_search_replace() {
     local new_url="$2"
     local project_path="$3"
 
-    print_info "Замена URL: $old_url -> $new_url"
+    print_info "Replace URL: $old_url -> $new_url"
     (
         [[ -n "$project_path" ]] && cd "$project_path" || exit 1
         ddev exec wp search-replace "$old_url" "$new_url" --all-tables --allow-root 2>&1
     ) || return 1
 }
 
-# WP-CLI удаление тем
+# WP-CLI delet then
 ddev_wp_theme_delete() {
     local themes="$1"
     local project_path="$2"
@@ -254,7 +254,7 @@ ddev_wp_theme_delete() {
     )
 }
 
-# WP-CLI удаление плагинов
+# WP-CLI delet plugins
 ddev_wp_plugin_delete() {
     local plugins="$1"
     local project_path="$2"

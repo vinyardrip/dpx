@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Config Module - управление конфигурацией
+# DPX Config Module - management configuration
 # =================================================================
 
 [[ -n "${_DPX_CONFIG_LOADED:-}" ]] && return 0
 readonly _DPX_CONFIG_LOADED=1
 
 # =================================================================
-# КОНФИГУРАЦИЯ ПО УМОЛЧАНИЮ
+# CONFIGURATION BY DEFAULT
 # =================================================================
 
 declare -A DEFAULT_CONFIG=(
-    # --- БАЗОВЫЙ ПУТЬ КО ВСЕМУ (WORKSPACE) ---
+    # --- BASIC PATH TO EVERYONE (WORKSPACE) ---
     ["workspace_root"]="~/projects/work"
 
-    # --- ДИНАМИЧЕСКИЕ ПУТИ (используют $WORKSPACE_ROOT) ---
+    # --- DYNAMIC PATHS (use $WORKSPACE_ROOT) ---
     ["db_prod_path"]="\$WORKSPACE_ROOT/db_prod"
     ["db_local_path"]="\$WORKSPACE_ROOT/db_local"
     ["ddev_projects_base_path"]="\$WORKSPACE_ROOT/php"
@@ -22,11 +22,11 @@ declare -A DEFAULT_CONFIG=(
     ["devilbox_data_base_path"]="\$WORKSPACE_ROOT/devilbox/data"
     ["starter_theme_path"]="\$WORKSPACE_ROOT/_s-template"
 
-    # --- ПОЛНЫЕ БЭКАПЫ ПРОЕКТОВ (файлы + БД) ---
+    # --- FULL BACKUPS PROJECTS (files + database) ---
     ["full_backup_path"]="\$WORKSPACE_ROOT/backups"
     ["full_backup_keep"]="3"
 
-    # --- ОСТАЛЬНЫЕ НАСТРОЙКИ ---
+    # --- REMAINING SETUPS ---
     ["default_php_version"]="7.4"
     ["default_db_type"]="mysql"
     ["default_db_version"]="5.7"
@@ -38,12 +38,12 @@ declare -A DEFAULT_CONFIG=(
 )
 
 # =================================================================
-# ЗАГРУЗКА КОНФИГУРАЦИИ
+# DOWNLOAD CONFIGURATIONS
 # =================================================================
 
 load_config() {
-    # Загружаем каскадом (Merge) без elif!
-    # Каждый следующий перезаписывает только нужные ключи
+    # Load cascade (Merge) without elif!
+    # Each next overwrites only need keies
     local global_config="/etc/${TOOL_NAME}/${TOOL_NAME}.conf"
     local user_config="$HOME/.config/${TOOL_NAME}/${TOOL_NAME}.conf"
     local local_config="${DPX_ROOT}/config/${TOOL_NAME}.conf"
@@ -53,26 +53,26 @@ load_config() {
     [[ -f "$local_config" ]]  && _parse_config_file "$local_config"
 }
 
-# Парсинг конфигурационного файла
+# Parsing configuration file
 _parse_config_file() {
     local config_file="$1"
     local key value
 
     while IFS='=' read -r key value || [[ -n "$key" ]]; do
-        # Пропускаем комментарии
+        # Skip comments
         [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        # Пропускаем пустые строки
+        # Skip empty lines
         [[ -z "$key" ]] && continue
 
-        # Удаляем пробелы вокруг ключа
+        # Remove whitespaces around key
         key="${key#"${key%%[![:space:]]*}"}"
         key="${key%"${key##*[![:space:]]}"}"
 
-        # Очистка value от пробелов ДО кавычек (иначе кавычки не удалятся)
+        # Cleanup value from whitespaces UNTIL quotes (otherwise quotes not remove)
         value="${value#"${value%%[![:space:]]*}"}"
         value="${value%"${value##*[![:space:]]}"}"
 
-        # Удаляем кавычки из значения
+        # Remove quotes from value
         value="${value%\"}"
         value="${value#\"}"
         value="${value%\'}"
@@ -83,7 +83,7 @@ _parse_config_file() {
 }
 
 # =================================================================
-# АКСЕССОРЫ КОНФИГУРАЦИИ
+# ACCESSORS CONFIGURATIONS
 # =================================================================
 
 get_config() {
@@ -111,7 +111,7 @@ list_config() {
 }
 
 # =================================================================
-# СПЕЦИАЛИЗИРОВАННЫЕ ГЕТТЕРЫ
+# SPECIALIZED GETTERS
 # =================================================================
 
 get_db_prod_path() {

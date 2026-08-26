@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX IO Module - вывод, цвета, форматирование
+# DPX IO Module - output, color, formatting
 #
-# АРХИТЕКТУРНОЕ ПРАВИЛО (v1.4.3):
-#   ВСЕ функции print_* пишут в STDERR (>&2).
-#   STDOUT зарезервирован для данных (echo/printf в функциях,
-#   возвращающих значения через $(...)).
-#   Это предотвращает загрязнение переменных ANSI-кодами.
+# ARCHITECTURAL RULE (v1.4.3):
+#   ALL functions print_* write in STDERR (>&2).
+#   STDOUT reserved for data (echo/printf in function,
+#   returning value via $(...)).
+#   This prevents polluted variable ANSI-codes.
 # =================================================================
 
-# Защита от повторного подключения
+# Re-entrancy guard
 [[ -n "${_DPX_IO_LOADED:-}" ]] && return 0
 readonly _DPX_IO_LOADED=1
 
 # =================================================================
-# ИНИЦИАЛИЗАЦИЯ ЦВЕТОВ
+# INITIALIZATION COLORS
 # =================================================================
 
 _dpx_init_colors() {
@@ -54,7 +54,7 @@ _dpx_init_colors() {
 _dpx_init_colors
 
 # =================================================================
-# ФУНКЦИИ ВЫВОДА — все пишут в STDERR (>&2)
+# FUNCTIONS OUTPUT — all write in STDERR (>&2)
 # =================================================================
 
 print_header() {
@@ -66,11 +66,11 @@ print_success() {
 }
 
 print_warning() {
-    printf '%sВНИМАНИЕ: %s%s\n' "$COLOR_YELLOW" "$1" "$COLOR_RESET" >&2
+    printf '%sWARNING: %s%s\n' "$COLOR_YELLOW" "$1" "$COLOR_RESET" >&2
 }
 
 print_error() {
-    printf '%sОШИБКА: %s%s\n' "$COLOR_RED" "$1" "$COLOR_RESET" >&2
+    printf '%sERROR: %s%s\n' "$COLOR_RED" "$1" "$COLOR_RESET" >&2
 }
 
 print_info() {
@@ -82,7 +82,7 @@ print_highlight() {
 }
 
 print_step() {
-    printf '\n%sШаг %s: %s...%s\n' "$COLOR_BLUE" "$1" "$2" "$COLOR_RESET" >&2
+    printf '\n%sStep %s: %s...%s\n' "$COLOR_BLUE" "$1" "$2" "$COLOR_RESET" >&2
 }
 
 print_separator() {

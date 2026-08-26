@@ -1,40 +1,40 @@
 #!/usr/bin/env bash
 # =================================================================
-# DPX Command: info - вывод текущей конфигурации и версий окружения
+# DPX Command: info - output current configurations and version environment
 # =================================================================
 
 source "${DPX_ROOT}/lib/core.sh"
 
 # =================================================================
-# СПРАВКА
+# HELP
 # =================================================================
 
 show_info_help() {
     cat << EOF
- ${COLOR_BOLD}info${COLOR_RESET} - Конфигурация и версии окружения
+ ${COLOR_BOLD}info${COLOR_RESET} - Configuration and versions environment
 
- ${COLOR_BOLD}Использование:${COLOR_RESET}
+ ${COLOR_BOLD}Usage:${COLOR_RESET}
     ${TOOL_NAME} info
 
- ${COLOR_BOLD}Описание:${COLOR_RESET}
-    Выводит текущую конфигурацию DPX, версии установленных инструментов
-    и пути к рабочим директориям. Полезно для диагностики проблем.
+ ${COLOR_BOLD}Description:${COLOR_RESET}
+    Prints current configuration DPX, versions installed tools
+    and paths to working directories. Useful for diagnostics problem.
 
- ${COLOR_BOLD}Опции:${COLOR_RESET}
-    -h, --help      Показать эту справку
+ ${COLOR_BOLD}Options:${COLOR_RESET}
+    -h, --help      Show this help
 EOF
 }
 
 # =================================================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# HELPER FUNCTIONS
 # =================================================================
 
-# Извлечь версию из вывода команды
+# Extract version from output command
 _info_extract_version() {
     echo "$1" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1
 }
 
-# Показать статус зависимости с цветовой индикацией
+# Show status dependencies with color indication
 _info_dep_status() {
     local name="$1"
     local version="$2"
@@ -42,12 +42,12 @@ _info_dep_status() {
     local status
 
     if [[ -z "$version" ]]; then
-        status="${COLOR_RED}НЕ НАЙДЕН${COLOR_RESET}"
+        status="${COLOR_RED}NOT FOUND${COLOR_RESET}"
     elif [[ -n "$min_version" ]]; then
         if version_ge "$version" "$min_version"; then
             status="${COLOR_GREEN}OK${COLOR_RESET}"
         else
-            status="${COLOR_RED}УСТАРЕЛ${COLOR_RESET}"
+            status="${COLOR_RED}OUTDATED${COLOR_RESET}"
         fi
     else
         status="${COLOR_GREEN}OK${COLOR_RESET}"
@@ -57,7 +57,7 @@ _info_dep_status() {
 }
 
 # =================================================================
-# ОСНОВНАЯ ФУНКЦИЯ
+# MAIN FUNCTION
 # =================================================================
 
 cmd_info() {
@@ -68,19 +68,19 @@ cmd_info() {
         return 0
     fi
 
-    # --- Версия DPX ---
+    # --- Version DPX ---
     print_header "${TOOL_NAME^^} v${DPX_VERSION}"
 
-    # --- Системное окружение ---
-    print_header "Системное окружение"
-    printf "  %-18s %s\n" "ОС" "${DPX_OS_TYPE}"
+    # --- System environment ---
+    print_header "System environment"
+    printf "  %-18s %s\n" "OS" "${DPX_OS_TYPE}"
     printf "  %-18s %s\n" "Bash" "${BASH_VERSION%% *}"
     printf "  %-18s %s\n" "HOME" "${REAL_HOME}"
     printf "  %-18s %s\n" "DPX_ROOT" "${DPX_ROOT}"
     echo ""
 
-    # --- Зависимости ---
-    print_header "Зависимости"
+    # --- Dependencies ---
+    print_header "Dependencies"
 
     # Bash
     local bash_ver="${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}.${BASH_VERSINFO[2]:-0}"
@@ -123,18 +123,18 @@ cmd_info() {
 
     echo ""
 
-    # --- Конфигурация ---
-    print_header "Конфигурация"
+    # --- Configuration ---
+    print_header "Configuration"
 
     local config_file="${REAL_HOME}/.config/${TOOL_NAME}/${TOOL_NAME}.conf"
     if [[ -f "$config_file" ]]; then
-        printf "  %-18s %s\n" "Файл конфигурации" "$config_file"
+        printf "  %-18s %s\n" "File configurations" "$config_file"
     else
-        printf "  %-18s %s\n" "Файл конфигурации" "(не найден, используется default)"
+        printf "  %-18s %s\n" "File configurations" "(not found, uses default)"
         config_file="${DPX_ROOT}/config/${TOOL_NAME}.conf"
     fi
 
-    # Ключевые параметры конфигурации
+    # Key parameters configurations
     local workspace projects_root db_prod db_local
     workspace=$(get_config "workspace_root" "-")
     projects_root=$(get_config "ddev_projects_base_path" "-")
@@ -151,24 +151,24 @@ cmd_info() {
     printf "  %-18s %s\n" "prod_tld" "$(get_config 'default_prod_tld' '-')"
     echo ""
 
-    # --- Хранилище метаданных ---
-    print_header "Метаданные"
+    # --- Storage metadata ---
+    print_header "Metadata"
     local meta_file
     meta_file=$(dpx_meta_file 2>/dev/null || echo "${REAL_HOME}/.config/${TOOL_NAME}/projects.json")
 
     if [[ -f "$meta_file" ]]; then
         local project_count
         project_count=$(jq '.projects | length' "$meta_file" 2>/dev/null || echo "?")
-        printf "  %-18s %s\n" "Файл" "$meta_file"
-        printf "  %-18s %s\n" "Проектов" "$project_count"
+        printf "  %-18s %s\n" "File" "$meta_file"
+        printf "  %-18s %s\n" "Projects" "$project_count"
     else
-        printf "  %-18s %s\n" "Файл" "(не создан)"
+        printf "  %-18s %s\n" "File" "(not creat)"
     fi
 
     echo ""
 
-    # --- DDEV проекты ---
-    print_header "DDEV проекты"
+    # --- DDEV projects ---
+    print_header "DDEV projects"
 
     if command -v ddev >/dev/null 2>&1; then
         local ddev_list
@@ -177,9 +177,9 @@ cmd_info() {
         if [[ -n "$ddev_list" ]]; then
             echo "$ddev_list"
         else
-            print_info "Нет запущенных проектов"
+            print_info "No running projects"
         fi
     else
-        print_warning "DDEV не найден"
+        print_warning "DDEV not found"
     fi
 }
