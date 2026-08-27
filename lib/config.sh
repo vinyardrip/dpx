@@ -75,7 +75,11 @@ _expand_config_path() {
     local value="$1"
     value="${value//\$HOME/$HOME}"
     value="${value//\$WORKSPACE_ROOT/${DEFAULT_CONFIG[workspace_root]}}"
-    [[ "$value" == ~/* ]] && value="$HOME/${value#~/}"
+    # Pattern is quoted so the literal '~/' is matched; otherwise bash
+    # expands the RHS at parse time and the test never fires.
+    if [[ "$value" == "~/"* ]]; then
+        value="$HOME/${value#\~/}"
+    fi
     printf '%s\n' "$value"
 }
 

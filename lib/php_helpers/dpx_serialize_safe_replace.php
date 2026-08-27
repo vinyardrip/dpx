@@ -152,25 +152,51 @@ function dpx_replace_in_line(string $line, string $old, string $new): string
         return $line;
     }
 
-    $oldBare = preg_replace('#^https?://#', '', rtrim($old, '/'));
-    $newBare = preg_replace('#^https?://#', '', rtrim($new, '/'));
-    $oldBare = is_string($oldBare) ? $oldBare : $old;
-    $newBare = is_string($newBare) ? $newBare : $new;
+    $oldBare = (string) preg_replace('#^https?://#', '', rtrim($old, '/'));
+    $newBare = (string) preg_replace('#^https?://#', '', rtrim($new, '/'));
 
     $line = dpx_replace_serialized_tokens($line, $old, $new);
     if ($oldBare !== $old) {
         $line = dpx_replace_serialized_tokens($line, $oldBare, $newBare);
     }
 
-    // The helper is used for known URL/domain values.  Replacing across the
-    // complete line is intentional: serialized keys and values can contain
-    // either the full URL or only its bare domain.
     $line = str_replace($old, $new, $line);
     if ($oldBare !== $old) {
-        $line = str_replace($oldBare, $newBare, $line);
+        $line = dpx_replace_bare_domains($line, $oldBare, $newBare);
     }
 
     return dpx_fix_serialized_lengths($line);
+}
+
+/**
+ * Replace the bare-domain form (no scheme) of the old host inside a SQL
+ * line, but only where it appears as the authority of a URL — i.e. directly
+ * after `//` or on its own at start-of-token. Bare-domain look-alikes in
+ * unrelated contexts (email local-parts, unrelated hostnames that happen
+ * to end with the same suffix) are left alone.
+ *
+ * The pattern requires the bare domain to be preceded by `//` (the URL
+ * authority separator) or by start-of-line / a non-word character that
+ * is not `.` (so `cdn.mysite.by` is not matched) and followed by a URL
+ * boundary (`/`, end of line, `"`, `'`, `)`, `,`, whitespace). The `@`
+ * is intentionally not in the leading boundary set, so email addresses
+ * like `admin@mysite.by` are skipped.
+ */
+function dpx_replace_bare_domains(string $line, string $oldBare, string $newBare): string
+{
+    if ($oldBare === '' || $oldBare === $newBare) {
+        return $line;
+    }
+    // Escape regex metacharacters in the bare host.
+    $quoted = preg_quote($oldBare, '#');
+
+    $result = preg_replace(
+        '#(?<![\w@.])//?' . $quoted . '(?=/?[\s"\'\)\,;]|$)#i',
+        '//' . $newBare,
+        $line
+    );
+
+    return is_string($result) ? $result : $line;
 }
 
 function dpx_main(array $argv): int

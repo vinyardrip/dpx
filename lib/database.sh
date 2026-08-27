@@ -112,6 +112,10 @@ db_get_db_name() {
     if [[ -z "$db_name" && -f "$project_path/.ddev/config.yaml" ]]; then
         db_name=$(grep -E '^(database_name|db_name):[[:space:]]*' "$project_path/.ddev/config.yaml" 2>/dev/null \
             | head -1 | sed -E 's/^[^:]+:[[:space:]]*//')
+        db_name="${db_name//$'\r'/}"
+        db_name="${db_name%%#*}"
+        db_name="${db_name#"${db_name%%[![:space:]]*}"}"
+        db_name="${db_name%"${db_name##*[![:space:]]}"}"
         db_name="${db_name#\"}"
         db_name="${db_name%\"}"
         db_name="${db_name#\'}"
@@ -123,6 +127,10 @@ db_get_db_name() {
     if [[ -z "$db_name" && -f "$project_path/.env" ]]; then
         db_name=$(grep -E '^(DB_DATABASE|DB_NAME)[[:space:]]*=' "$project_path/.env" 2>/dev/null \
             | head -1 | sed -E 's/^[^=]+=[[:space:]]*//')
+        db_name="${db_name//$'\r'/}"
+        db_name="${db_name%%#*}"
+        db_name="${db_name#"${db_name%%[![:space:]]*}"}"
+        db_name="${db_name%"${db_name##*[![:space:]]}"}"
         db_name="${db_name#\"}"
         db_name="${db_name%\"}"
         db_name="${db_name#\'}"
@@ -140,9 +148,21 @@ db_get_db_name() {
             | head -1) || db_name=""
     fi
 
-    # Validation: name database — only safe symbols (protect from garbage)
+    # Validation: name database — only safe symbols (protect from garbage).
+    # The CMS-defined name is authoritative; if it is invalid, abort.
+    # Heuristic values from .env / .ddev/config.yaml are soft — bad
+    # formatting (CRLF, inline comments, hyphens) means "not detected"
+    # and the caller falls back to the project name.
     if [[ -n "$db_name" ]]; then
-        db_validate_identifier "$db_name" "database name" || return 1
+        if ! db_validate_identifier "$db_name" "database name"; then
+            if [[ "$cms_type" == "$CMS_TYPE_WORDPRESS" \
+               || "$cms_type" == "$CMS_TYPE_JOOMLA" \
+               || "$cms_type" == "$CMS_TYPE_OPENCART" \
+               || "$cms_type" == "$CMS_TYPE_OCSTORE" ]]; then
+                return 1
+            fi
+            db_name=""
+        fi
     fi
 
     echo "$db_name"
@@ -160,15 +180,25 @@ db_resolve_name_interactive() {
 
 # Newest-first dump picker. UI goes to stderr and the selected absolute path
 # is the only stdout value, preserving command-substitution contracts.
+#
+# Interactive with a prefix match: the user always sees the list and
+# picks a number. When the prefix misses and stdin is not a real tty
+# the picker refuses, because "default to entry 1" against a list of
+# other projects' dumps would silently overwrite the local DB.
 db_pick_dump_file() {
     local directory="$1" prefix="${2:-}"
     [[ -d "$directory" ]] || return 1
+
     local -a files=()
     if [[ -n "$prefix" ]]; then
         mapfile -t files < <(command ls -1t "$directory"/"$prefix"*.sql "$directory"/"$prefix"*.sql.gz 2>/dev/null)
     fi
     if (( ${#files[@]} == 0 )); then
+        # Refuse a widened list (other projects' dumps) without a tty.
+        [[ -t 0 ]] || return 1
         mapfile -t files < <(command ls -1t "$directory"/*.sql "$directory"/*.sql.gz 2>/dev/null)
+        (( ${#files[@]} > 0 )) && [[ -n "$prefix" ]] \
+            && print_warning "No dump matches prefix '${prefix}' — listing every dump in ${directory}." >&2
     fi
     (( ${#files[@]} > 0 )) || return 1
 
@@ -178,7 +208,7 @@ db_pick_dump_file() {
         printf '  %d) %s\n' "$((i + 1))" "$(basename "${files[i]}")" >&2
     done
     local choice=""
-    read -r -p "Select dump [1]: " choice
+    read -r -p "Select dump [1]: " choice || return 1
     choice="${choice:-1}"
     [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#files[@]} )) || return 1
     printf '%s\n' "${files[$((choice - 1))]}"

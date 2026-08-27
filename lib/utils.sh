@@ -159,7 +159,10 @@ validate_safe_identifier() {
 
 confirm() {
     local prompt="${1:-Continue?}"
-    local default="${2:-y}"
+    # Default NO: most callers guard destructive work (DB overwrite, ddev
+    # delete). An empty answer, or EOF in a piped/non-tty session, must
+    # never be read as consent — callers opt in explicitly with "y".
+    local default="${2:-n}"
     local full_prompt
 
     case "$default" in
@@ -167,7 +170,8 @@ confirm() {
         *)   full_prompt="$prompt [y/N]: " ;;
     esac
 
-    read -r -p "$full_prompt" response
+    # A failed read (EOF/closed stdin) falls through to the default.
+    read -r -p "$full_prompt" response || response=""
     response="${response:-$default}"
 
     [[ "$response" =~ ^[Yy]$ ]]
@@ -230,11 +234,59 @@ prompt_choice() {
 # directory for all project-scoped commands. Override with
 # DPX_SESSION_LOG_DIR when a different anchor is needed.
 #
+# Secret-bearing flag values are redacted: the log file is world-readable
+# (0644) and must never carry credentials passed on the command line.
+#
 # ARGUMENTS: full command line of the session (optional)
 # =================================================================
+
+# Flags whose VALUE must never reach the log.
+_DPX_LOG_SECRET_FLAGS=(
+    "--db-password" "--admin-pass" "--dbpass" "--password" "--token"
+)
+
+# Rebuild a command line with secret values masked.
+dpx_redact_command_line() {
+    local -a out=()
+    local arg flag redact_next=false
+
+    for arg in "$@"; do
+        if [[ "$redact_next" == true ]]; then
+            out+=("***")
+            redact_next=false
+            continue
+        fi
+
+        for flag in "${_DPX_LOG_SECRET_FLAGS[@]}"; do
+            # --flag=value form: mask in place.
+            if [[ "$arg" == "${flag}="* ]]; then
+                arg="${flag}=***"
+                break
+            fi
+            # --flag value form: mask the next argument.
+            if [[ "$arg" == "$flag" ]]; then
+                redact_next=true
+                break
+            fi
+        done
+
+        out+=("$arg")
+    done
+
+    printf '%s\n' "${out[*]}"
+}
+
 dpx_init_session_log() {
-    local session="$*"
     [[ -n "${_DPX_SESSION_LOG_INITIALIZED:-}" ]] && return 0
+
+    # Informational commands touch no project: creating .dpx/ in whatever
+    # directory the user happens to stand in would be litter.
+    case "${1:-}" in
+        ""|help|-h|--help|version|-v|--version|commands) return 0 ;;
+    esac
+
+    local session
+    session="$(dpx_redact_command_line "$@")"
 
     local log_dir="${DPX_SESSION_LOG_DIR:-$PWD}/.dpx"
     local log_file="${log_dir}/debug.log"

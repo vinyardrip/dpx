@@ -75,11 +75,11 @@ check_value "Шаг" "$out"
 
 out="$(probe 'export DPX_LANG=en' 't sel.project.header; t sel.project.outside "ddev logs -f"')"
 test_start "[en] project selection headers localized"
-check_value $'--- Select project ---\n--- You are outside a project directory. Select project for '\''ddev logs -f'\'' ---' "$out"
+check_value $'Select project\nYou are outside a project directory. Select project for '\''ddev logs -f'\''' "$out"
 
 out="$(probe 'export DPX_LANG=ru' 't sel.project.header; t sel.project.outside "ddev logs -f"')"
 test_start "[ru] project selection headers localized"
-check_value $'--- Выберите проект ---\n--- Вы находитесь вне директории проекта. Выберите проект для '\''ddev logs -f'\'' ---' "$out"
+check_value $'Выберите проект\nВы находитесь вне директории проекта. Выберите проект для '\''ddev logs -f'\''' "$out"
 
 # =================================================================
 # Localized output through print_* functions
