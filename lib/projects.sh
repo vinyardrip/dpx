@@ -77,7 +77,7 @@ projects_get_php_version() {
 
 projects_select_interactive() {
     local return_path=false
-    local prompt="${1:-Select project}"
+    local prompt="${1:-$(t sel.project.header)}"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -152,7 +152,7 @@ projects_select_interactive() {
     echo "" >&2
 
     local choice
-    read -r -p "Enter number ors name project: " choice
+    read -r -p "$(t sel.project.prompt)" choice
 
     local selected=""
 

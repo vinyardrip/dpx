@@ -42,7 +42,7 @@ cmd_ddev() {
 
     # Scenario 2: Wes find OUTSIDE folders project (need show menu)
     local project_name
-    project_name=$(projects_select_interactive "Yous outside directors project. Select project for 'ddev $*'")
+    project_name=$(projects_select_interactive "$(t sel.project.outside "ddev $*")")
     
     [[ -z "$project_name" ]] && return 1
 

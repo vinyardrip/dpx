@@ -78,8 +78,8 @@ cmd_backup() {
 
     # --- Confirmation ---
     echo "Project:            ${COLOR_GREEN}${project_name}${COLOR_RESET}"
-    echo "Director archive: ${COLOR_GREEN}${backup_dir}${COLOR_RESET}"
-    echo "Store cop:     ${COLOR_GREEN}${keep_count}${COLOR_RESET}"
+    printf '%s %s\n' "$(t msg.backup.directory)" "${COLOR_GREEN}${backup_dir}${COLOR_RESET}"
+    printf '%s %s\n' "$(t msg.backup.retention)" "${COLOR_GREEN}${keep_count}${COLOR_RESET}"
 
     if ! has_arg "yes"; then
         confirm "Create full backup?" || { print_info "Cancel."; return 0; }

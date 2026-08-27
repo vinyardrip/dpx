@@ -85,38 +85,43 @@ show_help() {
     printf '    %s <command> [options]\n\n' "$TOOL_NAME"
 
     printf '%sCOMMANDS:%s\n' "$bold" "$reset"
-    printf '    %s%-12s%s %s\n' "$green" "list" "$reset" "List DDEV projects"
-    printf '    %s%-12s%s %s\n' "$green" "edit" "$reset" "Edit project metadata"
-    printf '    %s%-12s%s %s\n' "$green" "set-php" "$reset" "Change project PHP version"
-    printf '    %s%-12s%s %s\n' "$green" "deploy" "$reset" "Deploy existing project on DDEV"
-    printf '    %s%-12s%s %s\n' "$green" "new" "$reset" "Scaffold a project (WordPress/Joomla/OpenCart/ocStore/Laravel/PHP)"
-    printf '    %s%-12s%s %s\n' "$green" "new-wp" "$reset" "New WordPress (= new --cms=wordpress, kept for compatibility)"
-    printf '    %s%-12s%s %s\n' "$green" "config" "$reset" "Interactive configuration wizard / --show"
+    printf '    %s%-12s%s %s\n' "$green" "new" "$reset" "Scaffold a project (6 CMS/framework types)"
+    printf '    %s%-12s%s %s\n' "$green" "new-wp" "$reset" "Alias for new --cms=wordpress"
+    printf '    %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Public URL (cloudflare or ngrok)"
+    printf '\n%sDATABASE:%s\n' "$bold" "$reset"
+    printf '    %s%-20s%s %s\n' "$green" "db pull" "$reset" "Refresh from production (alias: refresh)"
+    printf '    %s%-20s%s %s\n' "$green" "db snap" "$reset" "Quick local snapshot (alias: db-snap)"
+    printf '    %s%-20s%s %s\n' "$green" "db restore" "$reset" "Restore a local DB backup (alias: db-restore)"
+    printf '    %s%-20s%s %s\n' "$green" "db push" "$reset" "Prepare a production export (alias: to-prod)"
+    printf '\n%sSITE:%s\n' "$bold" "$reset"
+    printf '    %s%-20s%s %s\n' "$green" "site backup" "$reset" "Full files + database backup (alias: backup)"
+    printf '    %s%-20s%s %s\n' "$green" "site restore" "$reset" "Restore a full backup archive (alias: restore)"
+    printf '    %s%-20s%s %s\n' "$green" "site new" "$reset" "Scaffold a project (alias: new)"
+    printf '    %s%-20s%s %s\n' "$green" "site migrate" "$reset" "Migrate from Devilbox (alias: migrate)"
+    printf '    %s%-20s%s %s\n' "$green" "site deploy" "$reset" "Deploy an existing codebase (alias: deploy)"
+    printf '\n%sTOOLS:%s\n' "$bold" "$reset"
+    printf '    %s%-12s%s %s\n' "$green" "config" "$reset" "Configuration wizard / --show"
     printf '    %s%-12s%s %s\n' "$green" "ddev" "$reset" "Run any DDEV command for a project"
-    printf '    %s%-12s%s %s\n' "$green" "refresh" "$reset" "Refresh local DB from production data"
-    printf '    %s%-12s%s %s\n' "$green" "migrate" "$reset" "Migrate a project from Devilbox to DDEV"
-    printf '    %s%-12s%s %s\n' "$green" "db-snap" "$reset" "Fast snapshot (backup) local database"
-    printf '    %s%-12s%s %s\n' "$green" "db-restore" "$reset" "Restore database from local backup"
-    printf '    %s%-12s%s %s\n' "$green" "backup" "$reset" "Full backup project (files + database)"
-    printf '    %s%-12s%s %s\n' "$green" "to-prod" "$reset" "Preparation local database to unload on cont"
-    printf '    %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Forwarding tunnel for show project"
-    printf '    %s%-12s%s %s\n' "$green" "update" "$reset" "Check and install update"
-    printf '    %s%-12s%s %s\n' "$green" "clean" "$reset" "Remove stale DPX temporary files"
-    printf '    %s%-12s%s %s\n\n' "$green" "info" "$reset" "Configuration and versions environment"
+    printf '    %s%-12s%s %s\n' "$green" "list" "$reset" "List projects"
+    printf '    %s%-12s%s %s\n' "$green" "set-php" "$reset" "Change project PHP version"
+    printf '    %s%-12s%s %s\n' "$green" "edit" "$reset" "Edit project metadata"
+    printf '    %s%-12s%s %s\n' "$green" "info" "$reset" "Environment and configuration report"
+    printf '    %s%-12s%s %s\n' "$green" "update" "$reset" "Self-update from Git"
+    printf '    %s%-12s%s %s\n\n' "$green" "clean" "$reset" "Remove stale temporary files"
 
     printf '%sOPTIONS:%s\n' "$bold" "$reset"
     printf '    -h, --help        Show help\n'
     printf '    -v, --version     Show version\n'
-    printf '    -y, --yes         Automatics confirm action\n'
-    printf '        --debug      Enable structured execution tracing\n\n'
+    printf '    -y, --yes         Automatically confirm actions\n'
+    printf '        --debug       Enable structured execution tracing\n\n'
 
     printf '%sEXAMPLES:%s\n' "$bold" "$reset"
     printf '    %s list\n' "$TOOL_NAME"
     printf '    %s edit mysite --php-max 8.2\n' "$TOOL_NAME"
     printf '    %s set-php\n' "$TOOL_NAME"
-    printf '    %s db-snap\n' "$TOOL_NAME"
+    printf '    %s db snap\n' "$TOOL_NAME"
     printf '    %s to-prod --project-name mysite --prod-url https://mysite.by\n' "$TOOL_NAME"
-    printf '    %s tunnel --project-name mysite\n' "$TOOL_NAME"
+    printf '    %s tunnel --project-name mysite --provider=cloudflare\n' "$TOOL_NAME"
     printf '    %s update\n' "$TOOL_NAME"
     printf '    %s info\n\n' "$TOOL_NAME"
 
@@ -173,7 +178,7 @@ run_command() {
             [[ $# -gt 0 ]] && shift
             command="$(domain_resolve "$command" "$sub")" || {
                 domain_usage "$command"
-                exit 1
+                return 1
             }
             ;;
     esac
@@ -196,7 +201,7 @@ run_command() {
                 if ! bash -n "$cmd_file" 2>/dev/null; then
                     print_error "Error syntax in file command: $cmd_file"
                     print_error "Verify script on presence typos"
-                    exit 1
+                    return 1
                 fi
                 # Dynamic download command — architecture DPX (plugin router)
                 # shellcheck disable=SC1090
@@ -206,19 +211,21 @@ run_command() {
                 func_name="${func_name//\//_}"
                 if declare -f "$func_name" >/dev/null; then
                     $func_name "$@"
+                    local status=$?
+                    return $status
                 else
                     print_error "Function $func_name not found in $cmd_file"
-                    exit 1
+                    return 1
                 fi
             else
                 print_error "File command not found: $cmd_file"
-                exit 1
+                return 1
             fi
             ;;
         *)
             print_error "Unknown command: $command"
             show_commands
-            exit 1
+            return 1
             ;;
     esac
 }
@@ -228,6 +235,9 @@ run_command() {
 # =================================================================
 
 main() {
+    # Fresh session log: overwrite .dpx/debug.log, everything later appends.
+    dpx_init_session_log "$@"
+
     local command="${1:-help}"
     shift || true
 
@@ -292,13 +302,14 @@ main() {
 
     # First-run wizard: fires once when the user config file is absent
     # (interactive terminals only; CI/non-tty sessions get a hint).
-    if [[ "$command" != "config" ]]; then
-        config_first_run_hook
-    fi
+    case "$command" in
+        config|help|-h|--help|version|-v|--version|commands) ;;
+        *) config_first_run_hook ;;
+    esac
 
     # Check dependency only for functional command
     if command_requires_ddev "$command"; then
-        check_dependencies || exit 1
+        check_dependencies || return 1
         if [[ "$command" != "clean" ]]; then
             # Recover an interrupted tunnel before dispatching the next
             # command. A failed restore is non-fatal here and keeps the
@@ -308,9 +319,15 @@ main() {
     fi
 
     run_command "$command" "${clean_args[@]}"
+    local status=$?
 
     # Non-blocking 24h update notice (respects auto_update_check=false)
+    # Must never mask the command status.
     update_check_daily || true
+
+    dpx_debug_trace "command.exit" "command=$command" "status=$status"
+    return $status
 }
 
 main "$@"
+exit $?

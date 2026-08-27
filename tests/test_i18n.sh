@@ -73,6 +73,14 @@ out="$(probe 'export LANG=en_US.UTF-8 DPX_LANG=ru' 't lbl.step')"
 test_start "DPX_LANG=ru wins over en_US locale"
 check_value "Шаг" "$out"
 
+out="$(probe 'export DPX_LANG=en' 't sel.project.header; t sel.project.outside "ddev logs -f"')"
+test_start "[en] project selection headers localized"
+check_value $'--- Select project ---\n--- You are outside a project directory. Select project for '\''ddev logs -f'\'' ---' "$out"
+
+out="$(probe 'export DPX_LANG=ru' 't sel.project.header; t sel.project.outside "ddev logs -f"')"
+test_start "[ru] project selection headers localized"
+check_value $'--- Выберите проект ---\n--- Вы находитесь вне директории проекта. Выберите проект для '\''ddev logs -f'\'' ---' "$out"
+
 # =================================================================
 # Localized output through print_* functions
 # =================================================================
@@ -118,6 +126,61 @@ out="$(probe 'true' \
     'source "$DPX_ROOT/lib/cms.sh"; t msg.refresh.nonwp.warn Joomla')"
 test_start "[en] canonical English wording returned"
 check_value "Project type is Joomla. Database URL replacement will NOT be performed." "$out"
+
+# =================================================================
+# Tunnel command wording
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== tunnel locale strings ===${TEST_RESET}"
+
+out="$(probe 'export LANG=C' 't tunnel.project.root; t tunnel.cms.detected; t tunnel.cms.warning Joomla; t tunnel.cms.continue; t tunnel.cms.type; t tunnel.project.running; t tunnel.local_url; t tunnel.host_port_ddev; t tunnel.local_domain; t tunnel.params.header; t tunnel.replace.no; t tunnel.rollback.hint; t tunnel.start.prompt; t tunnel.step.start cloudflare; t tunnel.cloudflare.running 123; t tunnel.waiting_url; t tunnel.created https://example.trycloudflare.com; t tunnel.active; t tunnel.stop_hint')"
+test_start "[en] tunnel required strings are localized"
+if grep -qF "Root project:" <<<"$out" \
+    && grep -qF "CMS autodetected:" <<<"$out" \
+    && grep -qF "Project type is Joomla. Database URL replacement will NOT be performed." <<<"$out" \
+    && grep -qF "Continue without database URL replacement?" <<<"$out" \
+    && grep -qF "Project type:" <<<"$out" \
+    && grep -qF "Project is running." <<<"$out" \
+    && grep -qF "Host port (DDEV → Docker):" <<<"$out" \
+    && grep -qF "Verify parameters" <<<"$out" \
+    && grep -qF "No (port forwarding only)" <<<"$out" \
+    && grep -qF "Ctrl+C → full rollback: restore snapshot + reverse search-replace" <<<"$out" \
+    && grep -qF "Start forwarding tunnel?" <<<"$out" \
+    && grep -qF "Starting tunnel (cloudflare)" <<<"$out" \
+    && grep -qF "Running cloudflared (PID: 123)..." <<<"$out" \
+    && grep -qF "Waiting for tunnel URL..." <<<"$out" \
+    && grep -qF "Tunnel created: https://example.trycloudflare.com" <<<"$out" \
+    && grep -qF "🎉 Tunnel active! 🎉" <<<"$out" \
+    && grep -qF "Press Ctrl+C to stop the tunnel and rollback." <<<"$out"; then
+    test_pass
+else
+    test_fail "got: $out"
+fi
+
+out="$(probe 'export LANG=ru_RU.UTF-8' 't tunnel.project.root; t tunnel.cms.detected; t tunnel.cms.warning Joomla; t tunnel.cms.continue; t tunnel.cms.type; t tunnel.project.running; t tunnel.local_url; t tunnel.host_port_ddev; t tunnel.local_domain; t tunnel.params.header; t tunnel.replace.no; t tunnel.rollback.hint; t tunnel.start.prompt; t tunnel.step.start cloudflare; t tunnel.cloudflare.running 123; t tunnel.waiting_url; t tunnel.created https://example.trycloudflare.com; t tunnel.active; t tunnel.stop_hint')"
+test_start "[ru] tunnel required strings are localized"
+if grep -qF "Корень проекта:" <<<"$out" \
+    && grep -qF "Автоопределение CMS:" <<<"$out" \
+    && grep -qF "Тип проекта — Joomla. Замена URL в базе данных НЕ будет выполнена." <<<"$out" \
+    && grep -qF "Продолжить без замены URL в БД?" <<<"$out" \
+    && grep -qF "Тип проекта:" <<<"$out" \
+    && grep -qF "Проект запущен." <<<"$out" \
+    && grep -qF "Порт хоста (DDEV → Docker):" <<<"$out" \
+    && grep -qF "Проверка параметров" <<<"$out" \
+    && grep -qF "Нет (только проброс порта)" <<<"$out" \
+    && grep -qF "Ctrl+C → полный откат: восстановление из снапшота + обратный search-replace" <<<"$out" \
+    && grep -qF "Запустить проброс туннеля?" <<<"$out" \
+    && grep -qF "Запуск туннеля (cloudflare)" <<<"$out" \
+    && grep -qF "Запуск cloudflared (PID: 123)..." <<<"$out" \
+    && grep -qF "Ожидание URL туннеля..." <<<"$out" \
+    && grep -qF "Туннель создан: https://example.trycloudflare.com" <<<"$out" \
+    && grep -qF "🎉 Туннель активен! 🎉" <<<"$out" \
+    && grep -qF "Нажмите Ctrl+C для завершения работы туннеля и отката." <<<"$out"; then
+    test_pass
+else
+    test_fail "got: $out"
+fi
 
 # =================================================================
 # Grammar artifacts must not exist anywhere in shell sources
@@ -194,4 +257,3 @@ check_value "Select [1-6]: " "$en_prompt"
 print_test_summary
 cleanup_temp_dir
 exit $(( TESTS_FAILED > 0 ))
-

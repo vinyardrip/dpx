@@ -159,12 +159,12 @@ validate_safe_identifier() {
 
 confirm() {
     local prompt="${1:-Continue?}"
-    local default="${2:-n}"
+    local default="${2:-y}"
     local full_prompt
 
     case "$default" in
-        y|Y) full_prompt="$prompt (Y/n): " ;;
-        *)   full_prompt="$prompt (y/n): " ;;
+        y|Y) full_prompt="$prompt [Y/n]: " ;;
+        *)   full_prompt="$prompt [y/N]: " ;;
     esac
 
     read -r -p "$full_prompt" response
@@ -217,6 +217,43 @@ prompt_choice() {
     else
         echo "$default"
     fi
+}
+
+# =================================================================
+# SESSION LOG BOOTSTRAP
+#
+# dpx_init_session_log — truncates .dpx/debug.log at the start of a CLI
+# session and writes a session header. Every later log write in the same
+# session appends with '>>', so the file always holds exactly one session.
+#
+# The log lives in the local (cwd) .dpx/ directory, which is the project
+# directory for all project-scoped commands. Override with
+# DPX_SESSION_LOG_DIR when a different anchor is needed.
+#
+# ARGUMENTS: full command line of the session (optional)
+# =================================================================
+dpx_init_session_log() {
+    local session="$*"
+    [[ -n "${_DPX_SESSION_LOG_INITIALIZED:-}" ]] && return 0
+
+    local log_dir="${DPX_SESSION_LOG_DIR:-$PWD}/.dpx"
+    local log_file="${log_dir}/debug.log"
+
+    mkdir -p "$log_dir" 2>/dev/null || return 0
+
+    # Explicit overwrite: drops any output left by previous sessions.
+    cat > "$log_file" <<EOF 2>/dev/null || return 0
+=================================================================
+DPX Session Log: ${session:-dpx}
+Started at: $(date '+%Y-%m-%d %H:%M:%S')
+=================================================================
+EOF
+
+    _DPX_SESSION_LOG_INITIALIZED=1
+    export _DPX_SESSION_LOG_INITIALIZED
+    DPX_SESSION_LOG_FILE="$log_file"
+    export DPX_SESSION_LOG_FILE
+    return 0
 }
 
 # =================================================================
@@ -304,3 +341,4 @@ safe_sed_stream() {
 # =================================================================
 # Note: export -f not requires durings usages source
 export -f dpx_exec_and_log
+export -f dpx_init_session_log

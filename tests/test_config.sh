@@ -60,6 +60,9 @@ source "$DPX_ROOT/commands/config.sh"
 test_start "config_user_file points to ~/.config/dpx/dpx.conf"
 check_value "$FAKE_HOME/.config/dpx/dpx.conf" "$(config_user_file)"
 
+test_start "config_global_file points to ~/.config/dpx/config"
+check_value "$FAKE_HOME/.config/dpx/config" "$(config_global_file)"
+
 test_start "needs_first_run = true when file missing"
 if config_needs_first_run; then
     test_pass
@@ -163,6 +166,9 @@ echo "${TEST_CYAN}=== cmd_config flag updates ===${TEST_RESET}"
 rm -f "$(config_user_file)"
 test_start "flags write managed keys and reload config"
 cmd_config --projects-root "$FAKE_HOME/work/php" --provider cloudflare \
+           --db-local-dir "$FAKE_HOME/work/db_local" \
+           --db-prod-dir "$FAKE_HOME/work/db_prod" \
+           --backup-dir "$FAKE_HOME/work/backups" \
            --db-user dbu1 --db-password dbp1 --lang en -y >/dev/null 2>&1
 rc=$?
 all_ok=true
@@ -172,7 +178,21 @@ grep -qF "default_tunnel_provider = cloudflare" "$(config_user_file)" || all_ok=
 grep -qF "db_user = dbu1" "$(config_user_file)"                 || all_ok=false
 grep -qF "db_password = dbp1" "$(config_user_file)"             || all_ok=false
 grep -qF "cli_lang = en" "$(config_user_file)"                  || all_ok=false
+grep -qF "DPX_PROJECTS_DIR = $FAKE_HOME/work/php" "$(config_global_file)" || all_ok=false
+grep -qF "DPX_DB_LOCAL_DIR = $FAKE_HOME/work/db_local" "$(config_global_file)" || all_ok=false
+grep -qF "DPX_DB_PROD_DIR = $FAKE_HOME/work/db_prod" "$(config_global_file)" || all_ok=false
+grep -qF "DPX_BACKUP_DIR = $FAKE_HOME/work/backups" "$(config_global_file)" || all_ok=false
 if [[ "$all_ok" == true ]]; then test_pass; else test_fail "rc=$rc file=$(tr '\n' '|' < "$(config_user_file)")"; fi
+
+test_start "global path getters resolve canonical DPX directories"
+if [[ "$(get_ddev_projects_path)" == "$FAKE_HOME/work/php" \
+   && "$(get_db_local_path)" == "$FAKE_HOME/work/db_local" \
+   && "$(get_db_prod_path)" == "$FAKE_HOME/work/db_prod" \
+   && "$(get_config full_backup_path)" == "$FAKE_HOME/work/backups" ]]; then
+    test_pass
+else
+    test_fail "global path getters not synchronized"
+fi
 
 test_start "invalid provider rejected"
 if cmd_config --provider terraform -y >/dev/null 2>&1; then
@@ -190,7 +210,9 @@ fi
 
 test_start "--show prints path and managed key"
 out="$(cmd_config --show 2>&1)"
-if grep -qF "$(config_user_file)" <<<"$out" && grep -qF "default_tunnel_provider" <<<"$out"; then
+if grep -qF "$(config_global_file)" <<<"$out" \
+   && grep -qF "$(config_user_file)" <<<"$out" \
+   && grep -qF "default_tunnel_provider" <<<"$out"; then
     test_pass
 else
     test_fail "show output incomplete"
@@ -204,22 +226,48 @@ echo ""
 echo "${TEST_CYAN}=== interactive wizard ===${TEST_RESET}"
 
 rm -f "$(config_user_file)"
-test_start "wizard writes all four answers"
-out="$(printf '%s\n%s\n%s\n%s\n%s\n' \
-        "$FAKE_HOME/projects-x" "ngrok" "myuser" "mypass" "ru" \
+rm -f "$(config_global_file)"
+test_start "wizard writes global paths and application settings"
+out="$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+        "$FAKE_HOME/projects-x" "$FAKE_HOME/db-local-x" "$FAKE_HOME/db-prod-x" \
+        "$FAKE_HOME/backups-x" "ngrok" "myuser" "mypass" "ru" \
         | cmd_config force 2>&1)"
 if [[ -f "$(config_user_file)" ]] \
    && grep -qF "ddev_projects_base_path = $FAKE_HOME/projects-x" "$(config_user_file)" \
    && grep -qF "db_user = myuser" "$(config_user_file)" \
    && grep -qF "cli_lang = ru" "$(config_user_file)" \
    && grep -qF "default_tunnel_provider = ngrok" "$(config_user_file)"; then
-    test_pass
+    if grep -qF "DPX_PROJECTS_DIR = $FAKE_HOME/projects-x" "$(config_global_file)" \
+       && grep -qF "DPX_DB_LOCAL_DIR = $FAKE_HOME/db-local-x" "$(config_global_file)" \
+       && grep -qF "DPX_DB_PROD_DIR = $FAKE_HOME/db-prod-x" "$(config_global_file)" \
+       && grep -qF "DPX_BACKUP_DIR = $FAKE_HOME/backups-x" "$(config_global_file)"; then
+        test_pass
+    else
+        test_fail "global config missing paths"
+    fi
 else
     test_fail "conf: $(tr '\n' '|' < "$(config_user_file)" 2>/dev/null)"
 fi
 
+test_start "first run prefers cloudflare when only cloudflared is installed"
+rm -f "$(config_user_file)"
+rm -f "$(config_global_file)"
+smart_bin="$TEST_TEMP_DIR/smart-bin"
+mkdir -p "$smart_bin"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$smart_bin/cloudflared"
+chmod +x "$smart_bin/cloudflared"
+out="$(printf '%s\n\n\n\n\n%s\n%s\n%s\n' \
+        "$FAKE_HOME/projects-smart" "db" "db" "en" \
+        | PATH="$smart_bin:/usr/bin:/bin" config_run_wizard force 2>&1)"
+if grep -qF "default_tunnel_provider = cloudflare" "$(config_user_file)"; then
+    test_pass
+else
+    test_fail "smart default not applied: $out"
+fi
+
 test_start "first-run hint in non-interactive session (stdin closed)"
 rm -f "$(config_user_file)"
+rm -f "$(config_global_file)"
 out="$(config_run_wizard </dev/null 2>&1)"
 if [[ ! -f "$(config_user_file)" ]] && grep -qi "dpx config" <<<"$out"; then
     test_pass
@@ -243,6 +291,13 @@ out="$(bash -c "
     t lbl.step
 ")"
 check_value "Шаг" "$out"
+
+test_start "load_config immediately synchronizes configured language"
+config_upsert_kv "cli_lang" "ru"
+DPX_LANG=""
+_DPX_LANG="en"
+load_config
+check_value "Шаг" "$(t lbl.step)"
 
 test_start "[en] explicit DPX_LANG still beats config"
 out="$(bash -c "

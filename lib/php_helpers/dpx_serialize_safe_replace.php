@@ -140,8 +140,9 @@ function dpx_fix_serialized_lengths(string $line): string
  * Three-phase, serialization-safe strategy:
  *   1. Serialized tokens first: URL replaced on the unescaped payload
  *      and the `s:LENGTH:` header recomputed (byte-accurate).
- *   2. Plain occurrences inside SQL string literals only — split on
- *      quoted segments so SQL syntax is never touched.
+ *   2. Plain occurrences throughout the dump line.  This also handles
+ *      bare domains stored in serialized values and keys (for example,
+ *      a `host` value), not only occurrences of the complete old URL.
  *   3. Final length audit over all serialized tokens (defense in
  *      depth in case phase 2 mutated a payload length).
  */
@@ -151,40 +152,22 @@ function dpx_replace_in_line(string $line, string $old, string $new): string
         return $line;
     }
 
+    $oldBare = preg_replace('#^https?://#', '', rtrim($old, '/'));
+    $newBare = preg_replace('#^https?://#', '', rtrim($new, '/'));
+    $oldBare = is_string($oldBare) ? $oldBare : $old;
+    $newBare = is_string($newBare) ? $newBare : $new;
+
     $line = dpx_replace_serialized_tokens($line, $old, $new);
+    if ($oldBare !== $old) {
+        $line = dpx_replace_serialized_tokens($line, $oldBare, $newBare);
+    }
 
-    if (strpos($line, $old) !== false) {
-        // Match SQL string literals: 'foo\'bar' or "foo\"bar".
-        $pattern   = '/(\'(?:[^\'\\\\]|\\\\.)*\'|"(?:[^"\\\\]|\\\\.)*")/';
-        $parts     = preg_split(
-            $pattern,
-            $line,
-            -1,
-            PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY
-        );
-
-        if ($parts === false) {
-            // Regex failure - fall back to a plain replace.  Safer than
-            // bailing out, because SQL dumps may include exotic chars.
-            $line = str_replace($old, $new, $line);
-        } else {
-            foreach ($parts as $i => $part) {
-                if ($part === '') {
-                    continue;
-                }
-                $first = $part[0];
-                if ($first !== "'" && $first !== '"') {
-                    continue; // SQL syntax segment - skip
-                }
-                $inner     = substr($part, 1, -1);
-                $rewritten = str_replace($old, $new, $inner);
-                if ($rewritten === $inner) {
-                    continue;
-                }
-                $parts[$i] = $first . $rewritten . $first;
-            }
-            $line = implode('', $parts);
-        }
+    // The helper is used for known URL/domain values.  Replacing across the
+    // complete line is intentional: serialized keys and values can contain
+    // either the full URL or only its bare domain.
+    $line = str_replace($old, $new, $line);
+    if ($oldBare !== $old) {
+        $line = str_replace($oldBare, $newBare, $line);
     }
 
     return dpx_fix_serialized_lengths($line);

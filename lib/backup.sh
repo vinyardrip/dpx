@@ -116,7 +116,7 @@ project_full_backup() {
     print_header "Full backup project '$project_name'"
 
     # --- Step 1: Dump bases data ---
-    print_step "1/3" "Export bases data"
+    print_step "1/3" "$(t msg.db.export)"
     if ! db_export "$db_dump" "$project_path" "true"; then
         print_warning "Dump database not create. Archive will contain ONLY files project."
         db_dump=""

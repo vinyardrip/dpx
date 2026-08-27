@@ -17,6 +17,9 @@ Thumbs.db
 # DPX backup files
 *.dpx-backup
 
+# Per-session runtime log directory (recreated on every CLI run)
+.dpx/
+
 # User configuration (contains passwords, local paths)
 # Never commit ~/.config/dpx/dpx.conf
 

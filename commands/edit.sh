@@ -160,7 +160,7 @@ cmd_edit() {
     fi
 
     # --- INTERACTIVE MODE ---
-    print_header "Editing: $project_name"
+    print_header "$(t "edit.title" "$project_name")"
 
     local current_php
     current_php=$(projects_get_php_version "$project_name")
@@ -174,23 +174,28 @@ cmd_edit() {
     local saved_tested
     saved_tested=$(dpx_get_tested "$project_name")
 
+    local php_ver="$current_php"
+    local php_max="$saved_php_max"
+    local date_test="$saved_tested"
+    local notes="$saved_notes"
+
     echo ""
-    printf "Current version PHP:    %s\n" "$current_php"
-    printf "Maximum working:  %s\n" "$saved_php_max"
-    printf "Date testing:     %s\n" "$saved_tested"
-    printf "Notes:               %s\n" "$saved_notes"
+    printf "%s\n" "$(t "edit.php_current" "$php_ver")"
+    printf "%s\n" "$(t "edit.php_max" "${php_max:--}")"
+    printf "%s\n" "$(t "edit.date_testing" "${date_test:--}")"
+    printf "%s\n" "$(t "edit.notes" "${notes:--}")"
     echo ""
 
-    echo "Select action:"
-    echo "  1. Install php_max"
-    echo "  2. Add note"
-    echo "  3. Show all metadata"
-    echo "  4. Remove metadata"
-    echo "  0. Exit"
+    echo "$(t "edit.menu.title")"
+    echo "  $(t "edit.menu.php_max")"
+    echo "  $(t "edit.menu.note")"
+    echo "  $(t "edit.menu.show")"
+    echo "  $(t "edit.menu.remove")"
+    echo "  $(t "edit.menu.exit")"
     echo ""
 
     local choice
-    read -r -p "Your selection: " choice
+    read -r -p "$(t "edit.prompt")" choice
 
     case "$choice" in
         1)

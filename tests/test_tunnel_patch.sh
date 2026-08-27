@@ -172,6 +172,27 @@ else
     test_fail "got: '$result'"
 fi
 
+dotenv_fixture="$TEST_TEMP_DIR/dotenv_site"
+mkdir -p "$dotenv_fixture/.ddev"
+printf 'DB_DATABASE=dotenv_db\n' > "$dotenv_fixture/.env"
+test_start ".env DB_DATABASE fallback"
+check_value "dotenv_db" "$(db_get_db_name "$dotenv_fixture" php)"
+
+ddev_name_fixture="$TEST_TEMP_DIR/ddev_name_site"
+mkdir -p "$ddev_name_fixture/.ddev"
+printf 'database_name: ddev_named_db\n' > "$ddev_name_fixture/.ddev/config.yaml"
+test_start ".ddev/config.yaml database_name fallback"
+check_value "ddev_named_db" "$(db_get_db_name "$ddev_name_fixture" php)"
+
+picker_dir="$TEST_TEMP_DIR/picker"
+mkdir -p "$picker_dir"
+printf 'old\n' > "$picker_dir/site_old.sql"
+printf 'new\n' > "$picker_dir/site_new.sql"
+touch -t 202601010101 "$picker_dir/site_old.sql"
+touch -t 202601020101 "$picker_dir/site_new.sql"
+test_start "dump picker defaults to newest file"
+check_value "$picker_dir/site_new.sql" "$(printf '\n' | db_pick_dump_file "$picker_dir" site 2>/dev/null)"
+
 # =================================================================
 # SECTION B: NGINX HOT-PATCH CONTENT
 # =================================================================

@@ -40,6 +40,12 @@ declare -A DEFAULT_CONFIG=(
     ["db_password"]="db"
     ["cli_lang"]="auto"                   # auto | en | ru (CLI output language)
     ["auto_update_check"]="true"          # daily non-blocking update notice (dpx update)
+    # Canonical global storage aliases. These are kept in sync with the
+    # legacy keys above and exported for integrations using DPX_* names.
+    ["DPX_PROJECTS_DIR"]=""
+    ["DPX_DB_LOCAL_DIR"]=""
+    ["DPX_DB_PROD_DIR"]=""
+    ["DPX_BACKUP_DIR"]=""
 )
 
 # =================================================================
@@ -51,11 +57,53 @@ load_config() {
     # Each next overwrites only need keies
     local global_config="/etc/${TOOL_NAME}/${TOOL_NAME}.conf"
     local user_config="$HOME/.config/${TOOL_NAME}/${TOOL_NAME}.conf"
+    local canonical_config="$HOME/.config/${TOOL_NAME}/config"
     local local_config="${DPX_ROOT}/config/${TOOL_NAME}.conf"
 
     [[ -f "$global_config" ]] && _parse_config_file "$global_config"
     [[ -f "$user_config" ]]   && _parse_config_file "$user_config"
+    [[ -f "$canonical_config" ]] && _parse_config_file "$canonical_config"
     [[ -f "$local_config" ]]  && _parse_config_file "$local_config"
+    _sync_global_path_config
+
+    if declare -F dpx_detect_lang >/dev/null; then
+        dpx_detect_lang
+    fi
+}
+
+_expand_config_path() {
+    local value="$1"
+    value="${value//\$HOME/$HOME}"
+    value="${value//\$WORKSPACE_ROOT/${DEFAULT_CONFIG[workspace_root]}}"
+    [[ "$value" == ~/* ]] && value="$HOME/${value#~/}"
+    printf '%s\n' "$value"
+}
+
+_sync_global_path_config() {
+    local projects local_db prod_db backups
+    projects="${DEFAULT_CONFIG[DPX_PROJECTS_DIR]:-}"
+    [[ -z "$projects" ]] && projects="${DEFAULT_CONFIG[ddev_projects_base_path]:-\$HOME/projects/php}"
+    projects="$(_expand_config_path "$projects")"
+    local_db="${DEFAULT_CONFIG[DPX_DB_LOCAL_DIR]:-}"
+    [[ -z "$local_db" ]] && local_db="${DEFAULT_CONFIG[db_local_path]:-\$HOME/projects/db_local}"
+    prod_db="${DEFAULT_CONFIG[DPX_DB_PROD_DIR]:-}"
+    [[ -z "$prod_db" ]] && prod_db="${DEFAULT_CONFIG[db_prod_path]:-\$HOME/projects/db_prod}"
+    backups="${DEFAULT_CONFIG[DPX_BACKUP_DIR]:-}"
+    [[ -z "$backups" ]] && backups="${DEFAULT_CONFIG[full_backup_path]:-\$HOME/projects/backups}"
+    local_db="$(_expand_config_path "$local_db")"
+    prod_db="$(_expand_config_path "$prod_db")"
+    backups="$(_expand_config_path "$backups")"
+
+    export DPX_PROJECTS_DIR="$projects" DPX_DB_LOCAL_DIR="$local_db" \
+        DPX_DB_PROD_DIR="$prod_db" DPX_BACKUP_DIR="$backups"
+    DEFAULT_CONFIG[DPX_PROJECTS_DIR]="$projects"
+    DEFAULT_CONFIG[DPX_DB_LOCAL_DIR]="$local_db"
+    DEFAULT_CONFIG[DPX_DB_PROD_DIR]="$prod_db"
+    DEFAULT_CONFIG[DPX_BACKUP_DIR]="$backups"
+    DEFAULT_CONFIG[ddev_projects_base_path]="$projects"
+    DEFAULT_CONFIG[db_local_path]="$local_db"
+    DEFAULT_CONFIG[db_prod_path]="$prod_db"
+    DEFAULT_CONFIG[full_backup_path]="$backups"
 }
 
 # Parsing configuration file
@@ -128,6 +176,30 @@ list_config() {
 # SPECIALIZED GETTERS
 # =================================================================
 
+# Canonicalize tunnel provider input. Accepted aliases are folded
+# silently; unknown values are echoed back unchanged so callers can
+# still reject them with their own error message.
+#   cloudflared | cf -> cloudflare
+#   ngrok            -> ngrok
+config_normalize_provider() {
+    local value="${1:-}"
+    value="${value,,}"
+
+    case "$value" in
+        cloudflare|cloudflared|cf) printf '%s\n' "cloudflare" ;;
+        ngrok)                     printf '%s\n' "ngrok" ;;
+        *)                         printf '%s\n' "$value" ;;
+    esac
+}
+
+# True when the value is a provider DPX can actually drive.
+config_provider_is_valid() {
+    case "$(config_normalize_provider "${1:-}")" in
+        ngrok|cloudflare) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 get_db_prod_path() {
     get_config "db_prod_path"
 }
@@ -164,8 +236,16 @@ config_user_file() {
     printf '%s/.config/%s/%s.conf\n' "${HOME}" "$TOOL_NAME" "$TOOL_NAME"
 }
 
+config_global_file() {
+    printf '%s/.config/%s/config\n' "${HOME}" "$TOOL_NAME"
+}
+
+config_display_file() {
+    config_global_file
+}
+
 config_needs_first_run() {
-    [[ ! -f "$(config_user_file)" ]]
+    [[ ! -f "$(config_user_file)" && ! -f "$(config_global_file)" ]]
 }
 
 # Upsert `key = value` into the user config, preserving all other
@@ -176,6 +256,18 @@ config_upsert_kv() {
     file="$(config_user_file)"
     ensure_directory "$(dirname "$file")"
 
+    if [[ -f "$file" ]] && grep -qE "^${key}[[:space:]]*=" "$file"; then
+        safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = ${value}|" "$file"
+    else
+        printf '%s = %s\n' "$key" "$value" >> "$file"
+    fi
+}
+
+config_upsert_global_kv() {
+    local key="$1" value="$2"
+    local file
+    file="$(config_global_file)"
+    ensure_directory "$(dirname "$file")"
     if [[ -f "$file" ]] && grep -qE "^${key}[[:space:]]*=" "$file"; then
         safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = ${value}|" "$file"
     else
@@ -208,15 +300,28 @@ config_run_wizard() {
     prompt_input "$(t cfg.q.projects_root)" "$projects_root" projects_root
     ensure_directory "$projects_root"
 
-    provider="$(get_config 'default_tunnel_provider' 'ngrok')"
+    # Keep central data outside project webroots. Existing users retain their
+    # configured legacy paths; new users receive predictable sibling folders.
+    local db_local_dir db_prod_dir backup_dir
+    db_local_dir="$(get_config 'DPX_DB_LOCAL_DIR' "$HOME/projects/db_local")"
+    db_prod_dir="$(get_config 'DPX_DB_PROD_DIR' "$HOME/projects/db_prod")"
+    backup_dir="$(get_config 'DPX_BACKUP_DIR' "$HOME/projects/backups")"
+    prompt_input "$(t cfg.q.db_local_path)" "$db_local_dir" db_local_dir
+    prompt_input "$(t cfg.q.db_prod_path)" "$db_prod_dir" db_prod_dir
+    prompt_input "$(t cfg.q.backup_path)" "$backup_dir" backup_dir
+
+    provider="$(config_normalize_provider "$(get_config 'default_tunnel_provider' 'ngrok')")"
+    if config_needs_first_run && command -v cloudflared >/dev/null 2>&1 \
+        && ! command -v ngrok >/dev/null 2>&1; then
+        provider="cloudflare"
+    fi
     while :; do
         prompt_input "$(t cfg.q.provider) (ngrok/cloudflare)" "$provider" provider
-        case "$provider" in
-            ngrok|cloudflare|cloudflared) provider="${provider%cloudflared}"; provider="${provider:-cloudflare}"
-                [[ "$provider" == "cloudflared" ]] && provider="cloudflare"
-                break ;;
-            *) print_warning "$(t err.unknown.choice "$provider")" ;;
-        esac
+        if config_provider_is_valid "$provider"; then
+            provider="$(config_normalize_provider "$provider")"
+            break
+        fi
+        print_warning "$(t err.unknown.choice "$provider")"
     done
 
     db_user="$(get_config 'db_user' 'db')"
@@ -235,10 +340,18 @@ config_run_wizard() {
     done
 
     config_upsert_kv "ddev_projects_base_path" "$projects_root"
+    config_upsert_kv "db_local_path" "$db_local_dir"
+    config_upsert_kv "db_prod_path" "$db_prod_dir"
+    config_upsert_kv "full_backup_path" "$backup_dir"
     config_upsert_kv "default_tunnel_provider" "$provider"
     config_upsert_kv "db_user"                 "$db_user"
     config_upsert_kv "db_password"             "$db_password"
     config_upsert_kv "cli_lang"                "$lang"
+
+    config_upsert_global_kv "DPX_PROJECTS_DIR" "$projects_root"
+    config_upsert_global_kv "DPX_DB_LOCAL_DIR" "$db_local_dir"
+    config_upsert_global_kv "DPX_DB_PROD_DIR" "$db_prod_dir"
+    config_upsert_global_kv "DPX_BACKUP_DIR" "$backup_dir"
 
     load_config   # re-read so the current process uses new values
     dpx_detect_lang

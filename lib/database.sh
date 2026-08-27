@@ -108,6 +108,27 @@ db_get_db_name() {
             ;;
     esac
 
+    # DDEV config may explicitly override the conventional `db` name.
+    if [[ -z "$db_name" && -f "$project_path/.ddev/config.yaml" ]]; then
+        db_name=$(grep -E '^(database_name|db_name):[[:space:]]*' "$project_path/.ddev/config.yaml" 2>/dev/null \
+            | head -1 | sed -E 's/^[^:]+:[[:space:]]*//')
+        db_name="${db_name#\"}"
+        db_name="${db_name%\"}"
+        db_name="${db_name#\'}"
+        db_name="${db_name%\'}"
+    fi
+
+    # Laravel and other dotenv-based applications commonly keep the DB name
+    # in .env rather than a CMS PHP configuration file.
+    if [[ -z "$db_name" && -f "$project_path/.env" ]]; then
+        db_name=$(grep -E '^(DB_DATABASE|DB_NAME)[[:space:]]*=' "$project_path/.env" 2>/dev/null \
+            | head -1 | sed -E 's/^[^=]+=[[:space:]]*//')
+        db_name="${db_name#\"}"
+        db_name="${db_name%\"}"
+        db_name="${db_name#\'}"
+        db_name="${db_name%\'}"
+    fi
+
     # WP-CLI fallback: only ifs regex not triggered and this WordPress.
     # v1.5.1: PHP diagnostics suppressed NATIVELY at engine level
     # (display_errors=0 + E_DEPRECATED masked) and WP-CLI runs with
@@ -125,6 +146,42 @@ db_get_db_name() {
     fi
 
     echo "$db_name"
+}
+
+db_resolve_name_interactive() {
+    local project_path="$1" cms_type="${2:-}" fallback="${3:-}"
+    local db_name=""
+    db_name="$(db_get_db_name "$project_path" "$cms_type")" || return 1
+    if [[ -z "$db_name" && -t 0 ]]; then
+        prompt_input "Database name" "$fallback" db_name
+    fi
+    printf '%s\n' "${db_name:-$fallback}"
+}
+
+# Newest-first dump picker. UI goes to stderr and the selected absolute path
+# is the only stdout value, preserving command-substitution contracts.
+db_pick_dump_file() {
+    local directory="$1" prefix="${2:-}"
+    [[ -d "$directory" ]] || return 1
+    local -a files=()
+    if [[ -n "$prefix" ]]; then
+        mapfile -t files < <(command ls -1t "$directory"/"$prefix"*.sql "$directory"/"$prefix"*.sql.gz 2>/dev/null)
+    fi
+    if (( ${#files[@]} == 0 )); then
+        mapfile -t files < <(command ls -1t "$directory"/*.sql "$directory"/*.sql.gz 2>/dev/null)
+    fi
+    (( ${#files[@]} > 0 )) || return 1
+
+    print_info "Available database dumps (newest first):" >&2
+    local i
+    for i in "${!files[@]}"; do
+        printf '  %d) %s\n' "$((i + 1))" "$(basename "${files[i]}")" >&2
+    done
+    local choice=""
+    read -r -p "Select dump [1]: " choice
+    choice="${choice:-1}"
+    [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#files[@]} )) || return 1
+    printf '%s\n' "${files[$((choice - 1))]}"
 }
 
 # =================================================================
@@ -280,7 +337,7 @@ db_export() {
     [[ -n "$project_path" ]] && cd "$project_path" || return 1
     ensure_directory "$(dirname "$output_file")"
 
-    print_step "auto" "Export bases data..."
+    print_step "auto" "$(t msg.db.export)"
 
     if ddev export-db --gzip="$gzip" --file="$output_file" >/dev/null 2>&1; then
         print_success "Export completion: $(basename "$output_file")"

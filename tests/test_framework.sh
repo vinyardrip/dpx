@@ -296,7 +296,7 @@ setup_temp_dir() {
 
     # [FIX] Guaranteed cleanup durings any completions script
     # Will fire even durings exit 1 ors Ctrl+C
-    trap 'cleanup_temp_dir' EXIT
+    trap 'cleanup_test_jobs; cleanup_temp_dir' EXIT
 
     echo "Test directory: $TEST_TEMP_DIR"
 }
@@ -307,6 +307,14 @@ cleanup_temp_dir() {
         rm -rf "$TEST_TEMP_DIR" 2>/dev/null || true
         TEST_TEMP_DIR=""
     fi
+}
+
+# Do not leave child jobs attached to a test shell.  In particular, update
+# checks and provider tests may create short-lived background processes.
+cleanup_test_jobs() {
+    local -a job_pids=()
+    mapfile -t job_pids < <(jobs -pr 2>/dev/null)
+    (( ${#job_pids[@]} == 0 )) || kill "${job_pids[@]}" 2>/dev/null || true
 }
 
 # =================================================================

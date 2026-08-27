@@ -5,7 +5,7 @@
 # =================================================================
 
 if (( BASH_VERSINFO[0] < 4 )); then
-    echo "ERROR: tests require Bash 4.0+" >&2
+    echo "ERROR: tests require Bash 4.0+">&2
     exit 1
 fi
 
@@ -95,7 +95,7 @@ echo "${TEST_CYAN}=== legacy alias e2e (--help) ===${TEST_RESET}"
 first_help_line() {
     # word splitting intentional
 # shellcheck disable=SC2086
-    timeout 20 bash "$DPX_ROOT/dpx.sh" ${*} --help 2>/dev/null \
+    timeout 20 bash "$DPX_ROOT/dpx.sh" ${*} --help </dev/null 2>/dev/null \
         | grep -m1 -F ' - '
 }
 
@@ -117,7 +117,7 @@ for pair in "db pull:refresh" "db push:to-prod" "db snap:db-snap" \
 done
 
 test_start "legacy dpx restore -> site restore help"
-out="$(timeout 20 bash "$DPX_ROOT/dpx.sh" restore --help 2>/dev/null | grep -m1 -F 'Restore project from a full backup')"
+out="$(timeout 20 bash "$DPX_ROOT/dpx.sh" restore --help </dev/null 2>/dev/null | grep -m1 -F 'Restore project from a full backup')"
 if [[ -n "$out" ]]; then test_pass; else test_fail "no help output"; fi
 
 # =================================================================
@@ -147,20 +147,31 @@ check_value "0" "$(update_read_behind "$CACHE")"
 
 # Banner unit: isolated child process, mocked git, forced display.
 banner_probe() { # $1=behind  $2=force(0|1); rc propagated via if/capture
-    export DPX_FORCE_BANNER="$2" FAKE_BEHIND="$1"
+    export DPX_FORCE_BANNER="$2" FAKE_BEHIND="$1" \
+        FAKE_LOCAL_VERSION=1.6.0 FAKE_REMOTE_VERSION=1.7.0
     # Isolated HOME: user-level dpx.conf must not leak into probes
     export HOME="$PROBE_HOME"
     bash -c '
         export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
         source "$DPX_ROOT/lib/core.sh" 2>/dev/null
         CACHE="'"$CACHE"'"
-        git() { case "$*" in *rev-list*) echo "$FAKE_BEHIND";; *) return 0;; esac; }
+        git() {
+            case "$*" in
+                *rev-list*)
+                    # Model the remote release explicitly: 1.7.0 is newer
+                    # than the checked-out 1.6.0 and therefore has commits.
+                    [[ "$FAKE_REMOTE_VERSION" != "$FAKE_LOCAL_VERSION" ]] \
+                        && echo "$FAKE_BEHIND" || echo 0
+                    ;;
+                *) return 0 ;;
+            esac
+        }
         update_check_daily "$CACHE"
-    '
+    ' </dev/null
 }
 
 set_stale_cache_with() { # $1 = behind count
-    printf '%s\n%s\n' "$ts_old" "$1" > "$CACHE"
+    printf '%s\n%s\n' "$ts_old" "$1"> "$CACHE"
     touch -d "2 days ago" "$CACHE"
 }
 
@@ -254,7 +265,7 @@ echo "${TEST_CYAN}=== Version SSOT ===${TEST_RESET}"
 test_start ".version equals 1.6.0"
 check_value "1.6.0" "$(cat "$DPX_ROOT/.version")"
 
-out="$(bash "$DPX_ROOT/dpx.sh" -v 2>&1)"
+out="$(bash "$DPX_ROOT/dpx.sh" -v </dev/null 2>&1)"
 test_start "dpx -v reports v1.6.0"
 if grep -qF "dpx v1.6.0" <<<"$out"; then
     test_pass

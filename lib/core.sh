@@ -116,6 +116,17 @@ for _dpx_expand_key in "${!DEFAULT_CONFIG[@]}"; do
     DEFAULT_CONFIG["$_dpx_expand_key"]=$(expand_path "${DEFAULT_CONFIG[$_dpx_expand_key]}")
 done
 
+# Export the canonical global storage contract after all path expansion.
+DPX_PROJECTS_DIR="${DEFAULT_CONFIG[DPX_PROJECTS_DIR]}"
+[[ -n "$DPX_PROJECTS_DIR" ]] || DPX_PROJECTS_DIR="${DEFAULT_CONFIG[ddev_projects_base_path]}"
+DPX_DB_LOCAL_DIR="${DEFAULT_CONFIG[DPX_DB_LOCAL_DIR]}"
+[[ -n "$DPX_DB_LOCAL_DIR" ]] || DPX_DB_LOCAL_DIR="${DEFAULT_CONFIG[db_local_path]}"
+DPX_DB_PROD_DIR="${DEFAULT_CONFIG[DPX_DB_PROD_DIR]}"
+[[ -n "$DPX_DB_PROD_DIR" ]] || DPX_DB_PROD_DIR="${DEFAULT_CONFIG[db_prod_path]}"
+DPX_BACKUP_DIR="${DEFAULT_CONFIG[DPX_BACKUP_DIR]}"
+[[ -n "$DPX_BACKUP_DIR" ]] || DPX_BACKUP_DIR="${DEFAULT_CONFIG[full_backup_path]}"
+export DPX_PROJECTS_DIR DPX_DB_LOCAL_DIR DPX_DB_PROD_DIR DPX_BACKUP_DIR
+
 # Get root director projects
 PROJECTS_ROOT=$(get_config "ddev_projects_base_path")
 export PROJECTS_ROOT

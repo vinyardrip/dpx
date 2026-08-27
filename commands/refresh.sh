@@ -139,18 +139,28 @@ cmd_refresh() {
             return 1
         fi
 
-        if [[ -n "$detected_db" ]]; then
-            print_info "From config CMS defin database: ${detected_db}"
-        else
-            detected_db="$project_name"
-            print_info "Name database not recognized, uses name project: ${detected_db}"
+        if [[ -z "$detected_db" ]]; then
+            if [[ -t 0 ]]; then
+                prompt_input "Database name" "$project_name" detected_db
+            else
+                detected_db="$project_name"
+            fi
         fi
-
-        prompt_input "2. Name file database from '$(get_db_prod_path)' (without .sql)" "$detected_db" db_filename
+        print_info "Resolved database name: ${detected_db}"
+        local picked_dump=""
+        if picked_dump=$(db_pick_dump_file "$(get_db_prod_path)" "$detected_db"); then
+            db_filename="$picked_dump"
+        else
+            prompt_input "2. Database dump from '$(get_db_prod_path)' (name or path)" "$detected_db" db_filename
+        fi
     fi
 
     local source_db_file
-    source_db_file=$(db_get_prod_filepath "$db_filename")
+    if [[ "$db_filename" == */* ]]; then
+        source_db_file="$db_filename"
+    else
+        source_db_file=$(db_get_prod_filepath "$db_filename")
+    fi
     validate_file "$source_db_file" "File bases data with production" || return 1
 
     # =================================================================

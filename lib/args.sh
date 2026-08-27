@@ -244,6 +244,21 @@ parse_args() {
                 DPX_ARGS["projects_root"]="$2"
                 shift 2
                 ;;
+            --db-local-dir)
+                [[ -n "${2:-}" ]] || { print_error "--db-local-dir requires an argument"; return 1; }
+                DPX_ARGS["db_local_dir"]="$2"
+                shift 2
+                ;;
+            --db-prod-dir)
+                [[ -n "${2:-}" ]] || { print_error "--db-prod-dir requires an argument"; return 1; }
+                DPX_ARGS["db_prod_dir"]="$2"
+                shift 2
+                ;;
+            --backup-dir)
+                [[ -n "${2:-}" ]] || { print_error "--backup-dir requires an argument"; return 1; }
+                DPX_ARGS["backup_dir"]="$2"
+                shift 2
+                ;;
             --lang)
                 [[ -n "${2:-}" ]] || { print_error "--lang requires an argument"; return 1; }
                 DPX_ARGS["lang"]="$2"

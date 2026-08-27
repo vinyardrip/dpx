@@ -20,13 +20,17 @@ show_config_help() {
     ${TOOL_NAME} config [options]
 
  ${COLOR_BOLD}Description:${COLOR_RESET}
-    Interactive wizard writes ~/.config/dpx/dpx.conf (managed keys are
-    upserted, manual lines preserved). The same wizard starts
+     Interactive wizard writes ~/.config/dpx/config (global DPX_* paths) and
+     ~/.config/dpx/dpx.conf (legacy/application keys); managed keys are
+     upserted and manual lines preserved. The same wizard starts
     automatically on first run when that file does not exist.
 
  ${COLOR_BOLD}Options:${COLOR_RESET}
-    --show                 Print active values and config file path
-    --projects-root PATH   Default directory for DDEV projects
+     --show                 Print active values and config file path
+     --projects-root PATH   Default directory for DDEV projects
+     --db-local-dir PATH    Central directory for local database dumps
+     --db-prod-dir PATH     Central directory for production database dumps
+     --backup-dir PATH      Central directory for full project backups
     --provider NAME        Preferred tunnel provider: ngrok | cloudflare
     --db-user USER         MySQL/MariaDB username used by scaffolders
     --db-password PASS     MySQL/MariaDB password
@@ -52,7 +56,8 @@ cmd_config() {
     # ---------- --show ----------
     if has_arg "show"; then
         print_header "$(t cfg.show.title)"
-        print_info "$(t cfg.show.file): $(config_user_file)"
+        print_info "$(t cfg.show.file): $(config_global_file)"
+        print_info "Compatibility config: $(config_user_file)"
         echo ""
         list_config
         return 0
@@ -63,15 +68,32 @@ cmd_config() {
     local v
 
     v="$(get_arg "projects_root" "")"
-    [[ -n "$v" ]] && updates+=("ddev_projects_base_path" "$v")
+    if [[ -n "$v" ]]; then
+        updates+=("ddev_projects_base_path" "$v")
+    fi
+
+    v="$(get_arg "db_local_dir" "")"
+    if [[ -n "$v" ]]; then
+        updates+=("db_local_path" "$v")
+    fi
+
+    v="$(get_arg "db_prod_dir" "")"
+    if [[ -n "$v" ]]; then
+        updates+=("db_prod_path" "$v")
+    fi
+
+    v="$(get_arg "backup_dir" "")"
+    if [[ -n "$v" ]]; then
+        updates+=("full_backup_path" "$v")
+    fi
 
     v="$(get_arg "provider" "")"
     if [[ -n "$v" ]]; then
-        case "$v" in
-            ngrok|cloudflare) : ;;
-            cloudflared) v="cloudflare" ;;
-            *) print_error "$(t cfg.err.provider)"; return 1 ;;
-        esac
+        if ! config_provider_is_valid "$v"; then
+            print_error "$(t cfg.err.provider)"
+            return 1
+        fi
+        v="$(config_normalize_provider "$v")"
         updates+=("default_tunnel_provider" "$v")
     fi
 
@@ -102,6 +124,12 @@ cmd_config() {
         local i
         for ((i = 0; i < ${#updates[@]}; i += 2)); do
             config_upsert_kv "${updates[i]}" "${updates[i + 1]}"
+            case "${updates[i]}" in
+                ddev_projects_base_path) config_upsert_global_kv "DPX_PROJECTS_DIR" "${updates[i + 1]}" ;;
+                db_local_path) config_upsert_global_kv "DPX_DB_LOCAL_DIR" "${updates[i + 1]}" ;;
+                db_prod_path) config_upsert_global_kv "DPX_DB_PROD_DIR" "${updates[i + 1]}" ;;
+                full_backup_path) config_upsert_global_kv "DPX_BACKUP_DIR" "${updates[i + 1]}" ;;
+            esac
         done
         load_config
         dpx_detect_lang
