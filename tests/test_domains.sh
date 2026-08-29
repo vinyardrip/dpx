@@ -207,6 +207,7 @@ if grep -qF "update available" <<<"$out"; then
 else
     test_pass
 fi
+# shellcheck disable=SC2034
 DEFAULT_CONFIG["auto_update_check"]="true"
 
 test_start "cache refreshed after check (TTL restarts)"

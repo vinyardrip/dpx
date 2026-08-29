@@ -272,3 +272,122 @@ ddev_wp_plugin_delete() {
         done
     )
 }
+
+# =================================================================
+# ROUTER TLS HEALTH PROBE & AUTO-RECOVERY (v1.7.0)
+#
+# `ddev-router` frequently drops or misplaces TLS certificates for
+# long-running containers, producing NET::ERR_CERT_COMMON_NAME_INVALID
+# in browsers. This module offers a non-blocking probe and a focused
+# `ddev restart` recovery path so the dpx start wrapper can refresh
+# stale bindings without bothering the user.
+#
+# The probe is a strict-TLS HEAD request against the project's primary
+# URL with a 1.5s cap. The strict (no -k) handshake is deliberate:
+#  - exit 0  -> HTTPS endpoint answered over a valid cert chain
+#  - exit 35/51/60 -> TLS / cert hostname mismatch -> "degraded"
+#  - exit 7/28/6/... -> connection failure / timeout / DNS -> "unreachable"
+# =================================================================
+
+# Returns one of: running | degraded | unreachable.
+# $1 - project_name (required)
+# $2 - project_path (optional; used to resolve the primary URL via
+#       `ddev describe -j` for projects with custom domains)
+ddev_check_http_health() {
+    local project_name="$1"
+    local project_path="${2:-}"
+
+    if [[ -z "$project_name" ]]; then
+        echo "unreachable"
+        return 0
+    fi
+
+    local healthcheck_timeout="${DPX_HEALTHCHECK_TIMEOUT:-1.5}"
+    local project_tld
+    project_tld=$(get_config "project_tld" "lo" 2>/dev/null || echo "lo")
+    local url="https://${project_name}.${project_tld}"
+
+    # Prefer the real primary URL DDEV knows about (custom domains).
+    if [[ -n "$project_path" ]] && command -v ddev >/dev/null 2>&1; then
+        local detected
+        detected=$(cd "$project_path" 2>/dev/null && ddev describe "$project_name" -j 2>/dev/null \
+            | (command -v jq >/dev/null 2>&1 && jq -r '.raw.primary_url // empty' || cat) \
+            2>/dev/null)
+        # Extract https URL from the JSON blob (jq absent fallback).
+        if [[ "$detected" == http* ]]; then
+            url="$detected"
+        fi
+    fi
+
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "running"
+        return 0
+    fi
+
+    # Strict-TLS HEAD: any valid response (even HTTP 4xx/5xx) is "running".
+    curl -sI --max-time "$healthcheck_timeout" "$url" >/dev/null 2>&1
+    local rc=$?
+    case "$rc" in
+        0)        echo "running" ;;
+        35|51|60) echo "degraded" ;;
+        *)        echo "unreachable" ;;
+    esac
+}
+
+# When a project is already in `running` state but the local probe
+# reports a degraded/unreachable HTTPS endpoint, force `ddev restart`
+# so ddev-router re-issues / rebinds the correct TLS certificate.
+# Caller-supplied args: $1=project_name  $2=project_path (cd context).
+# Returns 0 on success, non-zero if restart fails.
+ddev_auto_recover_router() {
+    local project_name="$1"
+    local project_path="$2"
+
+    print_info "$(t ddev.router.desync.info)"
+
+    dpx_debug_trace "ddev.call" "command=restart" "project=$project_name" "reason=stale_router_ssl"
+
+    if [[ -n "$project_path" ]]; then
+        (
+            cd "$project_path" 2>/dev/null || exit 1
+            ddev restart
+        )
+    else
+        ddev restart "$project_name"
+    fi
+}
+
+# Probe an already-running project; if the ddev-router is desynced,
+# recover automatically. Returns 0 when the project is reachable
+# (or has been successfully recovered) and 1 when recovery failed.
+ddev_probe_and_recover_if_running() {
+    local project_name="$1"
+    local project_path="$2"
+
+    if [[ -z "$project_name" ]]; then
+        return 0
+    fi
+
+    # Only relevant when the project is already in `running` state
+    # (ddev start would otherwise be a no-op and the browser would
+    # keep hitting the stale router cert).
+    if ! ddev_is_project_running "$project_name"; then
+        return 0
+    fi
+
+    local health
+    health=$(ddev_check_http_health "$project_name" "$project_path")
+
+    case "$health" in
+        running)
+            return 0
+            ;;
+        degraded|unreachable)
+            ddev_auto_recover_router "$project_name" "$project_path"
+            return $?
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}

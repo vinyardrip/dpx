@@ -435,8 +435,8 @@ test_start "[ngrok] wait loop extracts URL from mocked API (fast poll)"
 out="$(
     {
         export PATH="$SHIM_BIN:$PATH"
+        # shellcheck disable=SC2034
         TUNNEL_NGROK_POLL_INTERVAL=0.05
-        TUNNEL_NGROK_MAX_WAIT=5
         export FAKE_NGROK_API_PAYLOAD="$NGROK_OK_JSON"
         # [FIX] stdout child -> /dev/null, otherwise $( ) waits closed pipe
         sleep 30 >/dev/null 2>&1 & _DPX_TUNNEL_PID=$!
@@ -470,6 +470,7 @@ out="$(
     {
         export PATH="$SHIM_BIN:$PATH"
         TUNNEL_NGROK_POLL_INTERVAL=0.05
+        # shellcheck disable=SC2034
         TUNNEL_NGROK_MAX_WAIT=1
         export FAKE_NGROK_API_PAYLOAD="$NGROK_ERR_JSON"
         sleep 30 >/dev/null 2>&1 & _DPX_TUNNEL_PID=$!
@@ -488,6 +489,7 @@ test_start "[ngrok] start(): full lifecycle with mocked binary+API"
 lifecycle_out="$(
     {
         export PATH="$SHIM_BIN:$PATH"
+        # shellcheck disable=SC2034
         TUNNEL_NGROK_POLL_INTERVAL=0.05
         export FAKE_NGROK_API_PAYLOAD="$NGROK_OK_JSON"
         log_file="$TEST_TEMP_DIR/ngrok.log"

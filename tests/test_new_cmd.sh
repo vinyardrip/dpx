@@ -24,6 +24,7 @@ setup_temp_dir >/dev/null
 
 source "$DPX_ROOT/lib/core.sh"
 # Expanding projects in isolated director test
+# shellcheck disable=SC2034
 DEFAULT_CONFIG["ddev_projects_base_path"]="$TEST_TEMP_DIR/ws"
 PROJECTS_ROOT="$TEST_TEMP_DIR/ws"
 mkdir -p "$PROJECTS_ROOT"

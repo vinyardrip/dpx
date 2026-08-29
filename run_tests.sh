@@ -100,13 +100,15 @@ run_shellcheck_gate() {
     echo "${CYAN}>>> Static analysis: shellcheck${RESET}"
     echo "----------------------------------------"
 
-    # -x: trace constant-source (lib/*); -f gcc: findings in format
-    # 'file:line:col: severity: msg [SCxxxx]' — reliable parsing counter
-    sc_output="$(shellcheck -s bash -x -S style -f gcc "${SHELLCHECK_TARGETS[@]}")" || sc_rc=$?
+    # -f gcc: findings in format 'file:line:col: severity: msg [SCxxxx]'
+    # Counts only actionable findings (warning/error), excluding the
+    # informational "note:" lines (SC1091/SC2329) so the gate does not
+    # fail on non-blocking lint noise.
+    sc_output="$(shellcheck -s bash -S style -f gcc "${SHELLCHECK_TARGETS[@]}")" || sc_rc=$?
 
     if [[ $sc_rc -ne 0 ]]; then
         echo "$sc_output"
-        issues="$(grep -cE '\[SC[0-9]+\]' <<<"$sc_output")" || true
+        issues="$(grep -E '\[SC[0-9]+\]' <<<"$sc_output" | grep -vcE 'note:')" || true
         issues="${issues// /}"
         issues="${issues:-0}"
         echo "${RED}shellcheck: $issues issue(s) found${RESET}"

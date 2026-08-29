@@ -33,8 +33,19 @@ cmd_ddev() {
         return 0
     fi
 
+    # [v1.7.0] On `dpx ddev start`, if the target project is already in
+    # `running` state but the local HTTPS probe reports a stale
+    # ddev-router TLS cert, force a `ddev restart` to reissue/rebind
+    # the certificate. Only applies to the start subcommand; restart
+    # and other ddev ops keep their native fast path.
+    local is_start_call=false
+    [[ "$1" == "start" ]] && is_start_call=true
+
     # Scenario 1: Wes ALREADY find internals folders project DDEV
     if [[ -f ".ddev/config.yaml" ]]; then
+        if [[ "$is_start_call" == true ]]; then
+            ddev_probe_and_recover_if_running "$(basename "$PWD")" "$PWD"
+        fi
         # Simple transparent before all arguments in original DDEV
         ddev "$@"
         return $?
@@ -52,6 +63,10 @@ cmd_ddev() {
     if [[ ! -d "$project_path" ]]; then
         print_error "Director project not found: $project_path"
         return 1
+    fi
+
+    if [[ "$is_start_call" == true ]]; then
+        ddev_probe_and_recover_if_running "$project_name" "$project_path"
     fi
 
     print_info "Transition in project [$project_name] and execut: ddev $*"
