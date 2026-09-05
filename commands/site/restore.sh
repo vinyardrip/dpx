@@ -86,7 +86,52 @@ _restore_project_from_filename() {
         && printf '%s\n' "${BASH_REMATCH[1]}"
 }
 
+# Tar-slip guard: reject archives containing members that would escape
+# the extraction root ($projects_base) — absolute paths, `..` components
+# or device-special members. STDOUT: nothing; rc 1 on unsafe members.
+_restore_archive_is_safe() {
+    local archive="$1"
+    local members
+    members="$(tar -tzf "$archive" 2>/dev/null)" || return 1
+
+    local -a unsafe=()
+    local m
+    while IFS= read -r m; do
+        [[ -z "$m" ]] && continue
+        case "$m" in
+            /*|../*|*/../*|*/..|..)
+                unsafe+=("$m")
+                ;;
+        esac
+        case "$m" in
+            *)
+                case "$m" in
+                    /dev/*|/proc/*|/sys/*) unsafe+=("$m") ;;
+                esac
+                ;;
+        esac
+    done <<< "$members"
+
+    if (( ${#unsafe[@]} > 0 )); then
+        print_error "$(t cfg.err.archive.corrupt) $archive"
+        print_error "Unsafe path members detected (tar-slip):"
+        for m in "${unsafe[@]:0:10}"; do
+            print_error "  $m"
+        done
+        return 1
+    fi
+    return 0
+}
+
 cmd_site_restore() {
+    cmd_restore "$@"
+}
+
+# Router contract: dpx.sh derives the handler as cmd_${command//_/-},
+# so the canonical `restore` command dispatches to cmd_restore().
+# Keep the real implementation here and expose it under both names
+# (dpx restore / dpx site restore).
+cmd_restore() {
     parse_args "$@" || return 1
 
     if has_arg "help"; then
@@ -111,6 +156,9 @@ cmd_site_restore() {
         print_error "$(t cfg.err.archive.corrupt) $archive"
         return 1
     fi
+
+    # Tar-slip guard: validate member paths BEFORE any snapshot/unpack work
+    _restore_archive_is_safe "$archive" || return 1
 
     # --- Target project ---
     local project_name

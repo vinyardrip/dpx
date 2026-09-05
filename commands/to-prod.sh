@@ -81,38 +81,46 @@ cmd_to_prod() {
     print_success "Chosen type: $(get_cms_name "$cms_type")"
 
     # --- Step 3: Setup URL ---
-    local prod_tld prod_url
+    local prod_tld prod_url protocol_choice
     prod_tld=$(get_arg "prod_tld" "$(get_config 'default_prod_tld')")
     prod_url=$(get_arg "prod_url" "")
-    
+    protocol_choice=""
+
     if [[ -z "$prod_url" ]]; then
         if ! has_arg "prod_tld"; then
             prompt_input "    Domain zone production (.by, .com, etc)" "$prod_tld" prod_tld
         fi
-        
+
         local raw_domain="${project_name}.${prod_tld}"
-        
+
         # [FIX] Cleanup from protocols ifs user inserted full URL
         raw_domain="${raw_domain#*//}"     # Removes all until // inclusive
         raw_domain="${raw_domain%%/*}"     # Removes all after first slash
         raw_domain="${raw_domain%/}"       # Removes trailing slash
-        
-        local protocol_choice
+
         protocol_choice=$(prompt_choice "    Protocol production" "https" "http")
-        
+
         case "$protocol_choice" in
             https) prod_url="https://${raw_domain}" ;;
             http)  prod_url="http://${raw_domain}" ;;
         esac
+    else
+        # --prod-url supplied: remember its scheme BEFORE any stripping,
+        # so the final normalization below can restore it.
+        case "$prod_url" in
+            https://*) protocol_choice="https" ;;
+            http://*)  protocol_choice="http" ;;
+        esac
     fi
-    
-    # [FIX] Cleanup prod_url from double protocols
+
+    # [FIX] Normalize prod_url exactly once. When no scheme was detected
+    # (bare domain via --prod-url), keep the production-safe default https.
     prod_url="${prod_url#*//}"
     prod_url="${prod_url%%/*}"
     prod_url="${prod_url%/}"
-    case "$protocol_choice" in
-        https) prod_url="https://${prod_url}" ;;
+    case "${protocol_choice:-https}" in
         http)  prod_url="http://${prod_url}" ;;
+        *)     prod_url="https://${prod_url}" ;;
     esac
 
     local local_url="https://${project_name}.$(get_config 'project_tld')"

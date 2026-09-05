@@ -299,7 +299,7 @@ _update_bg_fetch() {
     [[ -w "$git_dir" ]] || return 0
     [[ -e "${git_dir}/FETCH_HEAD" && ! -w "${git_dir}/FETCH_HEAD" ]] && return 0
 
-    git -C "$DPX_ROOT" fetch origin main >/dev/null 2>&1 &
+    git -C "$DPX_ROOT" fetch origin main >/dev/null 2>&1 </dev/null &
     disown 2>/dev/null || true
     return 0
 }

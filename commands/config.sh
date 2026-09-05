@@ -123,12 +123,17 @@ cmd_config() {
         fi
         local i
         for ((i = 0; i < ${#updates[@]}; i += 2)); do
-            config_upsert_kv "${updates[i]}" "${updates[i + 1]}"
+            config_upsert_kv "${updates[i]}" "${updates[i + 1]}" \
+                || { print_error "Failed to write '${updates[i]}' to $(config_user_file)"; return 1; }
             case "${updates[i]}" in
-                ddev_projects_base_path) config_upsert_global_kv "DPX_PROJECTS_DIR" "${updates[i + 1]}" ;;
-                db_local_path) config_upsert_global_kv "DPX_DB_LOCAL_DIR" "${updates[i + 1]}" ;;
-                db_prod_path) config_upsert_global_kv "DPX_DB_PROD_DIR" "${updates[i + 1]}" ;;
-                full_backup_path) config_upsert_global_kv "DPX_BACKUP_DIR" "${updates[i + 1]}" ;;
+                ddev_projects_base_path) config_upsert_global_kv "DPX_PROJECTS_DIR" "${updates[i + 1]}" \
+                    || { print_error "Failed to write DPX_PROJECTS_DIR to $(config_global_file)"; return 1; } ;;
+                db_local_path) config_upsert_global_kv "DPX_DB_LOCAL_DIR" "${updates[i + 1]}" \
+                    || { print_error "Failed to write DPX_DB_LOCAL_DIR to $(config_global_file)"; return 1; } ;;
+                db_prod_path) config_upsert_global_kv "DPX_DB_PROD_DIR" "${updates[i + 1]}" \
+                    || { print_error "Failed to write DPX_DB_PROD_DIR to $(config_global_file)"; return 1; } ;;
+                full_backup_path) config_upsert_global_kv "DPX_BACKUP_DIR" "${updates[i + 1]}" \
+                    || { print_error "Failed to write DPX_BACKUP_DIR to $(config_global_file)"; return 1; } ;;
             esac
         done
         load_config

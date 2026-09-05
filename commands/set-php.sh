@@ -71,9 +71,9 @@ _open_in_browser() {
     if [[ -n "$url" ]]; then
         print_info "Open in browser: $url"
         if [[ "$OSTYPE" == "darwin"* ]]; then
-            open "$url" 2>/dev/null &
+            open "$url" 2>/dev/null </dev/null &
         else
-            xdg-open "$url" 2>/dev/null &
+            xdg-open "$url" 2>/dev/null </dev/null &
         fi
     fi
 }

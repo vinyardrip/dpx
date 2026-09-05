@@ -180,7 +180,7 @@ tunnel_cloudflare_start() {
         cf_cmd+=(--http-host-header "$host_header")
     fi
 
-    "${cf_cmd[@]}" > "$log_file" 2>&1 &
+    "${cf_cmd[@]}" > "$log_file" 2>&1 </dev/null &
     local pid=$!
 
     print_info "$(t tunnel.cloudflare.running "$pid")"
@@ -352,7 +352,7 @@ tunnel_ngrok_start() {
 
     cmd+=("$target_url")
 
-    "${cmd[@]}" > "$log_file" 2>&1 &
+    "${cmd[@]}" > "$log_file" 2>&1 </dev/null &
     local pid=$!
     _DPX_TUNNEL_PID="$pid"
 

@@ -114,6 +114,24 @@ config_upsert_kv "cli_lang" "ru"
 count=$(grep -c '^cli_lang[[:space:]]*=' "$(config_user_file)")
 check_value "1" "$count"
 
+test_start "upsert survives sed metacharacters in value (|, &, \\)"
+config_upsert_kv "db_password" 'p@ss|w&rd\x'
+val="$(grep -E '^db_password[[:space:]]*=' "$(config_user_file)" | sed -E 's/^[^=]+=[[:space:]]*//')"
+if [[ "$val" == 'p@ss|w&rd\x' ]] \
+   && config_upsert_kv "db_password" 'plain' \
+   && [[ "$(grep -E '^db_password[[:space:]]*=' "$(config_user_file)" | sed -E 's/^[^=]+=[[:space:]]*//')" == 'plain' ]]; then
+    test_pass
+else
+    test_fail "metacharacter value mangled: '$val'"
+fi
+
+test_start "upsert returns 0 on success"
+if config_upsert_kv "db_user" 'ok'; then
+    test_pass
+else
+    test_fail "valid upsert reported failure"
+fi
+
 # =================================================================
 # Precedence: project-level overrides user config
 # =================================================================
@@ -216,6 +234,21 @@ if grep -qF "$(config_global_file)" <<<"$out" \
     test_pass
 else
     test_fail "show output incomplete"
+fi
+
+test_start "--show masks db_password and admin_pass"
+# Values are read via list_config/cmd_config, not the array name itself.
+set_config "db_password" "leaky-secret-42"
+set_config "admin_pass"  "leaky-admin-pass"
+out="$(cmd_config --show 2>&1)"
+if grep -qF "db_password" <<<"$out" \
+   && grep -qF "db_password                    = ********" <<<"$out" \
+   && grep -qF "admin_pass                     = ********" <<<"$out" \
+   && ! grep -qF "leaky-secret-42" <<<"$out" \
+   && ! grep -qF "leaky-admin-pass" <<<"$out"; then
+    test_pass
+else
+    test_fail "secrets not masked: $out"
 fi
 
 # =================================================================

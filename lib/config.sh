@@ -169,10 +169,33 @@ has_config() {
     [[ -n "${DEFAULT_CONFIG[$key]:-}" ]]
 }
 
+# Keys whose values must never be printed in plaintext by list_config
+# (dpx config --show). Matched case-insensitively by substring.
+declare -a _DPX_SECRET_CONFIG_KEYS=(
+    "password"
+    "pass"
+    "token"
+    "secret"
+    "api_key"
+)
+
+_is_secret_config_key() {
+    local key="${1,,}"
+    local s
+    for s in "${_DPX_SECRET_CONFIG_KEYS[@]}"; do
+        [[ "$key" == *"$s"* ]] && return 0
+    done
+    return 1
+}
+
 list_config() {
-    local key
+    local key value
     for key in "${!DEFAULT_CONFIG[@]}"; do
-        printf "%-30s = %s\n" "$key" "${DEFAULT_CONFIG[$key]}"
+        value="${DEFAULT_CONFIG[$key]}"
+        if [[ -n "$value" ]] && _is_secret_config_key "$key"; then
+            value="********"
+        fi
+        printf "%-30s = %s\n" "$key" "$value"
     done | sort
 }
 
@@ -252,6 +275,16 @@ config_needs_first_run() {
     [[ ! -f "$(config_user_file)" && ! -f "$(config_global_file)" ]]
 }
 
+# Escape sed replacement metacharacters (&, \, and the s-delimiter |)
+# so arbitrary user values can never corrupt the upsert expression.
+_sed_escape_replacement() {
+    local value="$1"
+    value="${value//\\/\\\\}"   # backslash first
+    value="${value//&/\\&}"     # & expands to the whole match
+    value="${value//|/\\|}"     # s||| delimiter
+    printf '%s\n' "$value"
+}
+
 # Upsert `key = value` into the user config, preserving all other
 # lines (comments, custom keys). Creates parent directories.
 config_upsert_kv() {
@@ -261,10 +294,12 @@ config_upsert_kv() {
     ensure_directory "$(dirname "$file")"
 
     if [[ -f "$file" ]] && grep -qE "^${key}[[:space:]]*=" "$file"; then
-        safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = ${value}|" "$file"
+        safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = $(_sed_escape_replacement "$value")|" "$file" \
+            || return 1
     else
-        printf '%s = %s\n' "$key" "$value" >> "$file"
+        printf '%s = %s\n' "$key" "$value" >> "$file" || return 1
     fi
+    return 0
 }
 
 config_upsert_global_kv() {
@@ -273,10 +308,12 @@ config_upsert_global_kv() {
     file="$(config_global_file)"
     ensure_directory "$(dirname "$file")"
     if [[ -f "$file" ]] && grep -qE "^${key}[[:space:]]*=" "$file"; then
-        safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = ${value}|" "$file"
+        safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = $(_sed_escape_replacement "$value")|" "$file" \
+            || return 1
     else
-        printf '%s = %s\n' "$key" "$value" >> "$file"
+        printf '%s = %s\n' "$key" "$value" >> "$file" || return 1
     fi
+    return 0
 }
 
 # Interactive first-run/setup wizard.
@@ -343,19 +380,19 @@ config_run_wizard() {
         esac
     done
 
-    config_upsert_kv "ddev_projects_base_path" "$projects_root"
-    config_upsert_kv "db_local_path" "$db_local_dir"
-    config_upsert_kv "db_prod_path" "$db_prod_dir"
-    config_upsert_kv "full_backup_path" "$backup_dir"
-    config_upsert_kv "default_tunnel_provider" "$provider"
-    config_upsert_kv "db_user"                 "$db_user"
-    config_upsert_kv "db_password"             "$db_password"
-    config_upsert_kv "cli_lang"                "$lang"
+    config_upsert_kv "ddev_projects_base_path" "$projects_root" || return 1
+    config_upsert_kv "db_local_path" "$db_local_dir"            || return 1
+    config_upsert_kv "db_prod_path" "$db_prod_dir"              || return 1
+    config_upsert_kv "full_backup_path" "$backup_dir"           || return 1
+    config_upsert_kv "default_tunnel_provider" "$provider"       || return 1
+    config_upsert_kv "db_user"                 "$db_user"       || return 1
+    config_upsert_kv "db_password"             "$db_password"   || return 1
+    config_upsert_kv "cli_lang"                "$lang"          || return 1
 
-    config_upsert_global_kv "DPX_PROJECTS_DIR" "$projects_root"
-    config_upsert_global_kv "DPX_DB_LOCAL_DIR" "$db_local_dir"
-    config_upsert_global_kv "DPX_DB_PROD_DIR" "$db_prod_dir"
-    config_upsert_global_kv "DPX_BACKUP_DIR" "$backup_dir"
+    config_upsert_global_kv "DPX_PROJECTS_DIR" "$projects_root"  || return 1
+    config_upsert_global_kv "DPX_DB_LOCAL_DIR" "$db_local_dir"  || return 1
+    config_upsert_global_kv "DPX_DB_PROD_DIR" "$db_prod_dir"    || return 1
+    config_upsert_global_kv "DPX_BACKUP_DIR" "$backup_dir"       || return 1
 
     load_config   # re-read so the current process uses new values
     dpx_detect_lang

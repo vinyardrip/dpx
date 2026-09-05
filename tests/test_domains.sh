@@ -121,6 +121,107 @@ out="$(timeout 20 bash "$DPX_ROOT/dpx.sh" restore --help </dev/null 2>/dev/null 
 if [[ -n "$out" ]]; then test_pass; else test_fail "no help output"; fi
 
 # =================================================================
+# E2E dispatch: dpx restore must reach the handler, not "not found"
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== restore execution dispatch (e2e) ===${TEST_RESET}"
+
+# The router resolves cmd_restore in commands/site/restore.sh. Prove the
+# full chain (domain_resolve -> file override -> source -> declare -f)
+# without touching any real project: verify inside an isolated bash that
+# sources exactly what dpx.sh sources, in the same order.
+restore_dispatch_probe() {
+    bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        cmd_file="$DPX_ROOT/commands/restore.sh"
+        [[ -f "$cmd_file" ]] || cmd_file="$(domain_command_file restore)"
+        if [[ ! -f "$cmd_file" ]]; then
+            echo "NO_FILE"; exit 1
+        fi
+        if ! bash -n "$cmd_file" 2>/dev/null; then
+            echo "SYNTAX_FAIL"; exit 1
+        fi
+        # shellcheck disable=SC1090
+        source "$cmd_file" >/dev/null 2>&1
+        if declare -f cmd_restore >/dev/null; then
+            echo "CMD_RESTORE_OK"
+        else
+            echo "MISSING_cmd_restore"
+        fi
+    ' </dev/null 2>/dev/null
+}
+
+restore_dispatch_probe_alias() {
+    bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        cmd_file="$DPX_ROOT/commands/restore.sh"
+        [[ -f "$cmd_file" ]] || cmd_file="$(domain_command_file restore)"
+        # shellcheck disable=SC1090
+        source "$cmd_file" >/dev/null 2>&1
+        if declare -f cmd_site_restore >/dev/null; then
+            echo "CMD_SITE_RESTORE_OK"
+        else
+            echo "MISSING_cmd_site_restore"
+        fi
+    ' </dev/null 2>/dev/null
+}
+
+test_start "dpx restore dispatch resolves cmd_restore (router contract)"
+out="$(restore_dispatch_probe)"
+check_value "CMD_RESTORE_OK" "$out"
+
+test_start "dpx restore dispatch resolves cmd_site_restore (alias intact)"
+out="$(restore_dispatch_probe_alias)"
+check_value "CMD_SITE_RESTORE_OK" "$out"
+
+test_start "live dpx restore dispatches (no 'not found' error)"
+out="$(timeout 20 bash "$DPX_ROOT/dpx.sh" restore </dev/null 2>&1 | grep -cF 'Function cmd_restore not found')"
+check_value "0" "$out"
+
+# --- tar-slip guard: unsafe members must be rejected ---
+tar_slip_probe() { # $1 = archive; echoes SAFE/UNSAFE
+    local archive="$1"
+    bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        source "$DPX_ROOT/commands/site/restore.sh" >/dev/null 2>&1
+        if _restore_archive_is_safe "$1" >/dev/null 2>&1; then
+            echo SAFE
+        else
+            echo UNSAFE
+        fi
+    ' _ "$archive" </dev/null 2>/dev/null
+}
+
+SLIP_DIR="$TEST_TEMP_DIR/tarslip"
+mkdir -p "$SLIP_DIR/good"
+echo ok > "$SLIP_DIR/good/ok.txt"
+tar -czf "$SLIP_DIR/good.tar.gz" -C "$SLIP_DIR/good" ok.txt
+
+python3 - "$SLIP_DIR" << 'PYEOF' 2>/dev/null || true
+import tarfile, sys, io
+tmp = sys.argv[1]
+with tarfile.open(tmp + "/slip.tar.gz", "w:gz") as tf:
+    data = b"pwned"
+    ti = tarfile.TarInfo("../../../dpx_slip_target/pwned.txt")
+    ti.size = len(data)
+    tf.addfile(ti, io.BytesIO(data))
+PYEOF
+
+test_start "tar-slip guard rejects ../ members"
+if [[ -f "$SLIP_DIR/slip.tar.gz" ]]; then
+    check_value "UNSAFE" "$(tar_slip_probe "$SLIP_DIR/slip.tar.gz")"
+else
+    test_fail "python3 unavailable to craft slip archive"
+fi
+
+test_start "tar-slip guard accepts clean archives"
+check_value "SAFE" "$(tar_slip_probe "$SLIP_DIR/good.tar.gz")"
+
+# =================================================================
 # Update check: TTL logic + banner (mocked git)
 # =================================================================
 
@@ -263,21 +364,21 @@ unset -f ddev
 echo ""
 echo "${TEST_CYAN}=== Version SSOT ===${TEST_RESET}"
 
-test_start ".version equals 1.6.0"
-check_value "1.6.0" "$(cat "$DPX_ROOT/.version")"
+test_start ".version equals 1.6.1"
+check_value "1.6.1" "$(cat "$DPX_ROOT/.version")"
 
 out="$(bash "$DPX_ROOT/dpx.sh" -v </dev/null 2>&1)"
-test_start "dpx -v reports v1.6.0"
-if grep -qF "dpx v1.6.0" <<<"$out"; then
+test_start "dpx -v reports v1.6.1"
+if grep -qF "dpx v1.6.1" <<<"$out"; then
     test_pass
 else
     test_fail "got: $out"
 fi
 
 ok=true
-    grep -qF "version-1.6.0-blue" "$DPX_ROOT/README.md"    || ok=false
-    grep -qF "version-1.6.0-blue" "$DPX_ROOT/README.ru.md" || ok=false
-test_start "README badges show 1.6.0"
+    grep -qF "version-1.6.1-blue" "$DPX_ROOT/README.md"    || ok=false
+    grep -qF "version-1.6.1-blue" "$DPX_ROOT/README.ru.md" || ok=false
+test_start "README badges show 1.6.1"
 if [[ "$ok" == true ]]; then test_pass; else test_fail "badge missing"; fi
 
 print_test_summary

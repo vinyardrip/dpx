@@ -79,7 +79,7 @@ ddev_delete_project() {
 ddev_launch() {
     local project_name="$1"
     print_info "Open in browser..."
-    ddev launch "$project_name" 2>/dev/null &
+    ddev launch "$project_name" 2>/dev/null </dev/null &
 }
 
 # =================================================================
