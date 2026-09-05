@@ -576,6 +576,226 @@ fi
 rm -rf "$STAGE_TMP"
 
 # =================================================================
+# [Stage 3] LOGIC, ISOLATION & RETENTION RULES
+# =================================================================
+
+echo ""
+echo "=== Stage 3: config precedence (P-3) ==="
+
+S3_TMP="$(mktemp -d "${TMPDIR:-/tmp}/dpx_stage3_XXXXXX")"
+mkdir -p "$S3_TMP/.config/dpx"
+printf 'db_user = USR_WIN\ndefault_tunnel_provider = cloudflare\n' \
+    > "$S3_TMP/.config/dpx/dpx.conf"
+
+s3_config_probe() { # echoes resolved values under isolated HOME
+    HOME="$S3_TMP" bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'"
+        # core.sh defines TOOL_NAME before config.sh — required for the
+        # user config path (~/.config/dpx/dpx.conf) to resolve.
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        load_config
+        echo "db_user=$(get_config db_user)"
+        echo "provider=$(get_config default_tunnel_provider)"
+        echo "php=$(get_config default_php_version)"
+    ' </dev/null 2>/dev/null
+}
+
+out="$(s3_config_probe)"
+test_start "user config beats repo-local defaults"
+if grep -qF "db_user=USR_WIN" <<<"$out" \
+   && grep -qF "provider=cloudflare" <<<"$out"; then
+    test_pass
+else
+    test_fail "user values lost: $out"
+fi
+
+test_start "repo-local defaults still seed unset keys"
+if grep -qF "php=7.4" <<<"$out"; then
+    test_pass
+else
+    test_fail "repo seed missing: $out"
+fi
+
+echo ""
+echo "=== Stage 3: LOCAL_BACKUP rotation + name-timestamp order (P-7) ==="
+
+ROT_DIR="$S3_TMP/db"
+mkdir -p "$ROT_DIR"
+# 5 dumps with EMBEDDED timestamps; mtimes deliberately inverted so a
+# mtime-based rotation would delete the newest.
+for ts in 260901_120000 260902_120000 260903_120000 260904_120000 260905_120000; do
+    echo dump > "$ROT_DIR/shop_LOCAL_BACKUP_${ts}.sql"
+done
+touch -d "2020-01-01" "$ROT_DIR/shop_LOCAL_BACKUP_260905_120000.sql"
+touch -d "2030-01-01" "$ROT_DIR/shop_LOCAL_BACKUP_260901_120000.sql"
+# Foreign project file must survive untouched.
+echo dump > "$ROT_DIR/mall_LOCAL_BACKUP_260901_120000.sql"
+
+s3_rotate() { # $1 = keep arg
+    HOME="$S3_TMP" bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'"
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        core_rotate_backups shop "'"$ROT_DIR"'" LOCAL_BACKUP '"$1"'
+    ' </dev/null >/dev/null 2>&1
+}
+
+s3_rotate 3
+
+test_start "rotation keeps newest 3 by filename timestamp despite inverted mtimes"
+remaining="$(command ls -1 "$ROT_DIR"/shop_LOCAL_BACKUP_*.sql 2>/dev/null | tr '\n' ' ')"
+if [[ "$remaining" == *260903* && "$remaining" == *260904* && "$remaining" == *260905* \
+   && "$remaining" != *260901* && "$remaining" != *260902* ]]; then
+    test_pass
+else
+    test_fail "wrong survivors: $remaining"
+fi
+
+test_start "rotation scoped to project prefix (foreign dumps survive)"
+if [[ -f "$ROT_DIR/mall_LOCAL_BACKUP_260901_120000.sql" ]]; then
+    test_pass
+else
+    test_fail "foreign project dump deleted"
+fi
+
+test_start "local_backup_keep config honored"
+printf 'local_backup_keep = 2\n' >> "$S3_TMP/.config/dpx/dpx.conf"
+for ts in 260906_120000 260907_120000; do
+    echo dump > "$ROT_DIR/shop_LOCAL_BACKUP_${ts}.sql"
+done
+s3_rotate default
+remaining="$(command ls -1 "$ROT_DIR"/shop_LOCAL_BACKUP_*.sql 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$remaining" == "2" ]]; then
+    test_pass
+else
+    test_fail "expected 2 survivors, got $remaining"
+fi
+
+echo ""
+echo "=== Stage 3: prefix-safe dump picking (P-8) ==="
+
+PICK_DIR="$S3_TMP/pick"
+mkdir -p "$PICK_DIR"
+echo a > "$PICK_DIR/shop_SNAP_260905_120000.sql"
+echo b > "$PICK_DIR/shop_SNAP_260904_120000.sql"
+echo c > "$PICK_DIR/shop2_SNAP_260905_120001.sql"
+
+# Feed the pick via a pipe (deterministic in $() contexts) and select "1".
+picked="$(printf '1\n' | HOME="$S3_TMP" bash -c '
+    export DPX_ROOT="'"$DPX_ROOT"'"
+    source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+    source "$DPX_ROOT/lib/database.sh" >/dev/null 2>&1
+    db_pick_dump_file "'"$PICK_DIR"'" "shop_"
+' 2>/dev/null)"
+test_start "picker matches prefix exactly (shop_ != shop2_)"
+if [[ "$(basename "$picked")" == "shop_SNAP_260905_120000.sql" ]]; then
+    test_pass
+else
+    test_fail "picked: $picked"
+fi
+
+# Non-tty with a NON-matching prefix must refuse (no widened defaulting).
+picked_rc=0
+HOME="$S3_TMP" bash -c '
+    export DPX_ROOT="'"$DPX_ROOT"'"
+    source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+    source "$DPX_ROOT/lib/database.sh" >/dev/null 2>&1
+    db_pick_dump_file "'"$PICK_DIR"'" "nosuchproject_" </dev/null >/dev/null 2>&1
+' || picked_rc=$?
+test_start "non-tty picker refuses unmatched prefix"
+if [[ $picked_rc -ne 0 ]]; then
+    test_pass
+else
+    test_fail "picker accepted unmatched prefix headlessly"
+fi
+
+echo ""
+echo "=== Stage 3: unique filenames (P-9) ==="
+
+s3_gen_name() {
+    HOME="$S3_TMP" bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'"
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        source "$DPX_ROOT/lib/database.sh" >/dev/null 2>&1
+        db_generate_export_filename shop SNAP
+    ' </dev/null 2>/dev/null
+}
+
+test_start "two consecutive export filenames never collide"
+name1="$(s3_gen_name)"
+name2="$(s3_gen_name)"
+if [[ "$name1" != "$name2" && "$name1" == shop_SNAP_* && "$name1" == *.sql ]]; then
+    test_pass
+else
+    test_fail "collision: [$name1] vs [$name2]"
+fi
+
+test_start "filename still parses as <proj>_<TYPE>_<date>_<time>_<rand>"
+if [[ "$name1" =~ ^shop_SNAP_[0-9]{6}_[0-9]{6}_[0-9]+\.sql$ ]]; then
+    test_pass
+else
+    test_fail "bad format: $name1"
+fi
+
+echo ""
+echo "=== Stage 3: db_import/db_export CWD isolation (P-10) ==="
+
+ISO_DIR="$S3_TMP/iso"
+mkdir -p "$ISO_DIR/proj"
+echo "-- dump" > "$ISO_DIR/in.sql"
+iso_probe() { # $1 = func args string; echoes PWD-preserved verdict
+    HOME="$S3_TMP" bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        source "$DPX_ROOT/lib/database.sh" >/dev/null 2>&1
+        ddev() {
+            case "$1" in
+                export-db|import-db) return 0 ;;
+                *) return 0 ;;
+            esac
+        }
+        ddev_soft_restart() { return 0; }
+        cd "'"$ISO_DIR"'" || exit 1
+        before="$PWD"
+        '"$1"' >/dev/null 2>&1
+        [[ "$PWD" == "$before" ]] && echo PRESERVED || echo LEAKED
+    ' </dev/null 2>/dev/null
+}
+
+test_start "db_import preserves caller CWD"
+check_val="$(iso_probe 'db_import "'"$ISO_DIR"'/in.sql" "'"$ISO_DIR"'/proj"')"
+if [[ "$check_val" == "PRESERVED" ]]; then test_pass; else test_fail "$check_val"; fi
+
+test_start "db_export preserves caller CWD"
+check_val="$(iso_probe 'db_export "'"$ISO_DIR"'/out.sql" "'"$ISO_DIR"'/proj"')"
+if [[ "$check_val" == "PRESERVED" ]]; then test_pass; else test_fail "$check_val"; fi
+
+test_start "db_wp_export_safe validates path without touching CWD"
+check_val="$(iso_probe 'db_wp_export_safe "'"$ISO_DIR"'/x.sql" "https://a.lo" "https://b.com" "'"$ISO_DIR"'/nonexistent"')"
+if [[ "$check_val" == "PRESERVED" ]]; then test_pass; else test_fail "$check_val"; fi
+
+echo ""
+echo "=== Stage 3: update check noise suppressed (P-11) ==="
+
+test_start "update_touch_cache silent on read-only cache dir"
+ro="$S3_TMP/readonly"
+mkdir -p "$ro/.config/dpx"
+chmod -w "$ro/.config/dpx"
+err="$(HOME="$ro" bash -c '
+    export DPX_ROOT="'"$DPX_ROOT"'"
+    source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+    source "$DPX_ROOT/lib/checks.sh" >/dev/null 2>&1
+    update_touch_cache "$ro/.config/dpx/.update_cache" 0
+' 2>&1 </dev/null)"
+chmod +w "$ro/.config/dpx"
+if [[ -z "$err" ]]; then
+    test_pass
+else
+    test_fail "stderr noise: $err"
+fi
+
+rm -rf "$S3_TMP"
+
+# =================================================================
 # FINAL REPORT
 # =================================================================
 

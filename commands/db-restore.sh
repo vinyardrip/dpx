@@ -41,40 +41,36 @@ cmd_db_restore() {
         return 1
     fi
 
-    # [FIX] Safe reading files in array (works with paths with whitespaces)
-    # mapfile reads line-by-line, not split by by spaces as $(...)
-    local files=()
-    mapfile -t files < <(ls -1t "${backup_dir}/${project_name}"* 2>/dev/null)
-
-    if [[ ${#files[@]} -eq 0 ]]; then
-        print_warning "Backups for project '$project_name' not founds in $backup_dir"
-        return 1
+    # [FIX P-8] Unified dump selection via db_pick_dump_file:
+    #   * prefix-locked to "${project_name}_" (project `shop` no longer
+    #     matches `shop2_SNAP_...` dumps — the old glob lacked the `_`
+    #     delimiter);
+    #   * filename-timestamp ordering (newest first) instead of mtime;
+    #   * refuses a widened list in non-tty sessions instead of silently
+    #     defaulting to entry 1 of another project's dumps.
+    # --db-file (or a positional path) is honored as a direct input.
+    local selected_file=""
+    local file_arg
+    file_arg="$(get_arg "db_file" "")"
+    [[ -z "$file_arg" ]] && file_arg="$(get_positional_arg 1 "")"
+    if [[ -n "$file_arg" ]]; then
+        # Accepts a bare name in db_local_path or an absolute path.
+        if [[ -f "$file_arg" ]]; then
+            selected_file="$file_arg"
+        elif [[ -f "${backup_dir}/${file_arg}" ]]; then
+            selected_file="${backup_dir}/${file_arg}"
+        elif [[ -f "${backup_dir}/${file_arg}.sql" ]]; then
+            selected_file="${backup_dir}/${file_arg}.sql"
+        else
+            print_error "Dump file not found: $file_arg"
+            return 1
+        fi
+    else
+        selected_file=$(db_pick_dump_file "$backup_dir" "${project_name}_") || {
+            print_warning "Backups for project '$project_name' not founds in $backup_dir"
+            return 1
+        }
     fi
-
-    # 3. Interactive selection file
-    print_info "Available backups (first new):"
-    local i=1
-    local display_files=()
-    for f in "${files[@]}"; do
-        local filename=$(basename "$f")
-        # [FIX] awk instead cut - cross-platform compatibility (BSD/GNU du)
-        local fsize=$(du -h "$f" | awk '{print $1}')
-        echo "$i. $filename ($fsize)"
-        display_files+=("$f")
-        ((i++))
-    done
-
-    local choice
-    # [FIX] Removed redundant >&2 (read -p already prints in stderr)
-    read -r -p "Select number file for import [1]: " choice
-    choice="${choice:-1}"
-
-    if [[ ! "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#display_files[@]} )); then
-        print_error "Invalid selection"
-        return 1
-    fi
-
-    local selected_file="${display_files[$((choice-1))]}"
 
     # 4. Check status DDEV
     if ! ddev_is_project_running "$project_name"; then

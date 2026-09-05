@@ -2,9 +2,9 @@
 
 [Читать на английском](README.md)
 
-> **v1.6.2 (Stable)**
+> **v1.7.0 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.6.2-blue)
+![Version](https://img.shields.io/badge/version-1.7.0-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.4+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
@@ -233,7 +233,7 @@ Ctrl+C запускает trap отката: восстанавливает `wp-
 
 ## Конфигурация
 
-Настройки загружаются каскадом: `/etc/dpx/dpx.conf`, `~/.config/dpx/dpx.conf`, `~/.config/dpx/config` для глобальных путей хранения, затем локальный `config/dpx.conf` репозитория. Последующие файлы переопределяют предыдущие. Формат — `key = value`. `dpx config` создаёт и поддерживает глобальный файл путей `~/.config/dpx/config` с `DPX_PROJECTS_DIR`, `DPX_DB_LOCAL_DIR`, `DPX_DB_PROD_DIR` и `DPX_BACKUP_DIR`; прикладные и совместимые настройки остаются в `dpx.conf`.
+Настройки загружаются каскадом в порядке возрастания приоритета: `/etc/dpx/dpx.conf`, затем локальный `config/dpx.conf` репозитория (поставляемые значения по умолчанию — он никогда не переопределяет явные настройки пользователя), затем `~/.config/dpx/dpx.conf` и `~/.config/dpx/config` для глобальных путей хранения. Последующие файлы переопределяют предыдущие, поэтому пользовательская конфигурация всегда важнее значений из репозитория. Формат — `key = value`. `dpx config` создаёт и поддерживает глобальный файл путей `~/.config/dpx/config` с `DPX_PROJECTS_DIR`, `DPX_DB_LOCAL_DIR`, `DPX_DB_PROD_DIR` и `DPX_BACKUP_DIR`; прикладные и совместимые настройки остаются в `dpx.conf`.
 
 Центральное хранилище находится вне webroot проектов: настроенный каталог проектов содержит проекты DDEV, а `db_local/`, `db_prod/` и `backups/` — локальные дампы, дампы продакшена и полные архивы. Команды БД и сайта используют эти настроенные каталоги, если параметры путей не переданы.
 
@@ -349,7 +349,7 @@ bash tests/test_tunnel_patch.sh
 bash tests/test_macos_sim.sh
 ```
 
-В репозитории v1.6.2 есть покрытие Linux и симуляция Darwin. Реальный macOS, WSL2 и полевое тестирование остаются отдельными пунктами roadmap.
+В репозитории v1.7.0 есть покрытие Linux и симуляция Darwin. Реальный macOS, WSL2 и полевое тестирование остаются отдельными пунктами roadmap.
 
 ## Решение проблем
 

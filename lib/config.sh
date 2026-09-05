@@ -25,6 +25,9 @@ declare -A DEFAULT_CONFIG=(
     # --- FULL BACKUPS PROJECTS (files + database) ---
     ["full_backup_path"]="\$WORKSPACE_ROOT/backups"
     ["full_backup_keep"]="3"
+    # [P-7] Retention for *_LOCAL_BACKUP_*.sql protective dumps created
+    # by db pull / db restore before overwriting the local database.
+    ["local_backup_keep"]="3"
 
     # --- REMAINING SETUPS ---
     ["default_php_version"]="7.4"
@@ -55,15 +58,24 @@ declare -A DEFAULT_CONFIG=(
 load_config() {
     # Load cascade (Merge) without elif!
     # Each next overwrites only need keies
+    #
+    # [FIX P-3] PRECEDENCE (lowest -> highest):
+    #   1. /etc/dpx/dpx.conf                 — system-wide defaults
+    #   2. ${DPX_ROOT}/config/dpx.conf       — repo-local seed/defaults
+    #      (shipped values only; NEVER overrides explicit user settings)
+    #   3. ~/.config/dpx/dpx.conf            — user application config
+    #   4. ~/.config/dpx/config              — user canonical global paths
+    # The repo-local file is deliberately loaded BEFORE the user files so
+    # it can only seed defaults the user has not set anywhere else.
     local global_config="/etc/${TOOL_NAME}/${TOOL_NAME}.conf"
     local user_config="$HOME/.config/${TOOL_NAME}/${TOOL_NAME}.conf"
     local canonical_config="$HOME/.config/${TOOL_NAME}/config"
     local local_config="${DPX_ROOT}/config/${TOOL_NAME}.conf"
 
     [[ -f "$global_config" ]] && _parse_config_file "$global_config"
+    [[ -f "$local_config" ]]  && _parse_config_file "$local_config"
     [[ -f "$user_config" ]]   && _parse_config_file "$user_config"
     [[ -f "$canonical_config" ]] && _parse_config_file "$canonical_config"
-    [[ -f "$local_config" ]]  && _parse_config_file "$local_config"
     _sync_global_path_config
 
     if declare -F dpx_detect_lang >/dev/null; then

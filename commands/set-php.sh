@@ -170,9 +170,11 @@ cmd_set_php() {
             backup_dir=$(get_config "db_local_path")
             mkdir -p "$backup_dir"
 
-            local ts=$(date +"%y%m%d_%H%M")
+            local ts=$(date +"%y%m%d_%H%M%S")
+            local rand_suffix
+            rand_suffix="$(printf '%s' "$RANDOM$RANDOM" | tr -d '[:space:]')"
             local type_tag="BEFORE_PHP"
-            snap_name="${project_name}_${type_tag}_${ts}.sql"
+            snap_name="${project_name}_${type_tag}_${ts}_${rand_suffix}.sql"
             local snap_path="${backup_dir}/${snap_name}"
 
             print_info "Create backup: ${snap_name}"

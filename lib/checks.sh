@@ -277,8 +277,20 @@ update_cache_expired() {
 
 update_touch_cache() {
     local cache="$1" behind="${2:-0}" now="${3:-$(date +%s)}"
-    ensure_directory "$(dirname "$cache")"
-    printf '%s\n%s\n' "$now" "$behind" > "$cache"
+    # [FIX P-11] Read-only home / sandboxed CI: creating the cache dir or
+    # writing the cache file must never spray stderr noise across every
+    # command. Skip silently when the parent is not writable.
+    local cache_dir
+    cache_dir="$(dirname "$cache")"
+    if [[ ! -d "$cache_dir" && ! -w "$(dirname "$cache_dir")" ]]; then
+        return 0
+    fi
+    if [[ -d "$cache_dir" && ! -w "$cache_dir" ]]; then
+        return 0
+    fi
+    ensure_directory "$cache_dir" 2>/dev/null || return 0
+    printf '%s\n%s\n' "$now" "$behind" > "$cache" 2>/dev/null || return 0
+    return 0
 }
 
 update_read_behind() {

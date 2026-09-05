@@ -185,18 +185,34 @@ db_resolve_name_interactive() {
 # picks a number. When the prefix misses and stdin is not a real tty
 # the picker refuses, because "default to entry 1" against a list of
 # other projects' dumps would silently overwrite the local DB.
+#
+# [FIX P-7/P-8] Ordering is by the TIMESTAMP EMBEDDED IN THE FILENAME
+# (descending), not mtime — files synced without --times or touched by
+# restore tooling keep their true chronological order here.
+#
+# IMPLEMENTATION NOTE: the input lines may be FULL PATHS whose directory
+# components contain underscores (e.g. /tmp/dpx_stage3_x/pick/...), which
+# would shift the underscore field positions and silently break
+# sort -t_ -k3,3r. Sorting therefore runs on the BASENAME only: awk pairs
+# each line with its basename, sort orders the pair by the basename's
+# date (field 3) and time (field 4) fields, and cut restores the original
+# full path. Non-canonical names sort after canonical ones.
+_dpx_dump_sort_newest_first() { # stdin: paths/names; stdout: sorted
+    awk -F/ '{print $NF "\t" $0}' | sort -t_ -k3,3r -k4,4r | cut -f2-
+}
+
 db_pick_dump_file() {
     local directory="$1" prefix="${2:-}"
     [[ -d "$directory" ]] || return 1
 
     local -a files=()
     if [[ -n "$prefix" ]]; then
-        mapfile -t files < <(command ls -1t "$directory"/"$prefix"*.sql "$directory"/"$prefix"*.sql.gz 2>/dev/null)
+        mapfile -t files < <(command ls -1 "$directory"/"$prefix"*.sql "$directory"/"$prefix"*.sql.gz 2>/dev/null | _dpx_dump_sort_newest_first)
     fi
     if (( ${#files[@]} == 0 )); then
         # Refuse a widened list (other projects' dumps) without a tty.
         [[ -t 0 ]] || return 1
-        mapfile -t files < <(command ls -1t "$directory"/*.sql "$directory"/*.sql.gz 2>/dev/null)
+        mapfile -t files < <(command ls -1 "$directory"/*.sql "$directory"/*.sql.gz 2>/dev/null | _dpx_dump_sort_newest_first)
         (( ${#files[@]} > 0 )) && [[ -n "$prefix" ]] \
             && print_warning "No dump matches prefix '${prefix}' — listing every dump in ${directory}." >&2
     fi
@@ -332,8 +348,12 @@ db_import() {
     local project_path="$2"
     local pre_flush="${3:-true}"
 
-    [[ -n "$project_path" ]] && cd "$project_path" || return 1
+    # [FIX P-10] Validate BEFORE any cd: a bad path must not mutate CWD.
     validate_file "$sql_file" "SQL file" || return 1
+    [[ -n "$project_path" && -d "$project_path" ]] || {
+        print_error "db_import: project directory not found: $project_path"
+        return 1
+    }
 
     print_step "auto" "Import bases data [$(basename "$sql_file")]"
 
@@ -341,22 +361,28 @@ db_import() {
     local project_name
     project_name=$(basename "$project_path")
 
-    # [ISSUE 2] Flush state MySQL before hot import
-    if [[ "$pre_flush" == "true" ]]; then
-        print_info "Soft-restart containers (flush connection MySQL)..." >&2
-        if ! ddev_soft_restart "$project_name"; then
-            print_warning "Soft-restart not remove — continue without flush state."
-        fi
-    fi
+    # [FIX P-10] Run in a subshell: the caller's working directory is
+    # never mutated, and ddev commands still see the project context.
+    (
+        cd "$project_path" || exit 1
 
-    # [ISSUE 2] Import via wrapper with fallback (--name/--src -> cd/--file)
-    if ddev_import_db "$project_name" "$project_path" "$sql_file"; then
-        print_success "Base data imported."
-        return 0
-    else
-        print_error "Error durings import bases data."
-        return 1
-    fi
+        # [ISSUE 2] Flush state MySQL before hot import
+        if [[ "$pre_flush" == "true" ]]; then
+            print_info "Soft-restart containers (flush connection MySQL)..." >&2
+            if ! ddev_soft_restart "$project_name"; then
+                print_warning "Soft-restart not remove — continue without flush state."
+            fi
+        fi
+
+        # [ISSUE 2] Import via wrapper with fallback (--name/--src -> cd/--file)
+        if ddev_import_db "$project_name" "$project_path" "$sql_file"; then
+            print_success "Base data imported."
+            exit 0
+        else
+            print_error "Error durings import bases data."
+            exit 1
+        fi
+    )
 }
 
 db_export() {
@@ -364,18 +390,22 @@ db_export() {
     local project_path="$2"
     local gzip="${3:-false}"
 
-    [[ -n "$project_path" ]] && cd "$project_path" || return 1
-    ensure_directory "$(dirname "$output_file")"
+    # [FIX P-10] CWD isolation: run inside a subshell so the caller's
+    # working directory is preserved on return.
+    (
+        [[ -n "$project_path" ]] && cd "$project_path" || exit 1
+        ensure_directory "$(dirname "$output_file")"
 
-    print_step "auto" "$(t msg.db.export)"
+        print_step "auto" "$(t msg.db.export)"
 
-    if ddev export-db --gzip="$gzip" --file="$output_file" >/dev/null 2>&1; then
-        print_success "Export completion: $(basename "$output_file")"
-        return 0
-    else
-        print_error "Error durings export bases data."
-        return 1
-    fi
+        if ddev export-db --gzip="$gzip" --file="$output_file" >/dev/null 2>&1; then
+            print_success "Export completion: $(basename "$output_file")"
+            exit 0
+        else
+            print_error "Error durings export bases data."
+            exit 1
+        fi
+    )
 }
 
 # =================================================================
@@ -397,6 +427,11 @@ db_backup_local() {
     print_step "auto" "Create reserve cops before operation..." >&2
 
     if db_export "$backup_file" "$project_path" "false" >&2; then
+        # [FIX P-7] Protective LOCAL_BACKUP dumps used to accumulate
+        # forever. Retain the newest N (config: local_backup_keep,
+        # default 3) using filename-timestamp ordering — invoked AFTER a
+        # successful export so the fresh dump is never the deleted one.
+        core_rotate_backups "$project_name" "$backup_dir" "$tag" default >&2
         echo "$backup_file"
         return 0
     else
@@ -607,7 +642,12 @@ db_create_snapshot() {
         return 1
     fi
 
-    local snapshot_name="${tag}_$(date +%H%M%S)"
+    # [FIX P-9] Collision-proof name: second-resolution timestamps collide
+    # when two snapshots land in the same second (e.g. tunnel + refresh).
+    # Append a short random suffix; ddev accepts [a-zA-Z0-9_-] names.
+    local rand_suffix
+    rand_suffix="$(printf '%s' "$RANDOM$RANDOM" | tr -d '[:space:]')"
+    local snapshot_name="${tag}_$(date +%H%M%S)_${rand_suffix}"
     print_step "auto" "Safety Snapshot: $snapshot_name..." >&2
 
     # Create snapshot, suppress interactive.
@@ -971,7 +1011,13 @@ db_wp_export_safe() {
     local prod_url="$3"
     local project_path="$4"
 
-    [[ -n "$project_path" ]] && cd "$project_path" || return 1
+    # [FIX P-10] Validate first; the replace passes below run from the
+    # project path but inside their own subshells (db_wp_smart_replace
+    # is already subshell-isolated), so the caller's CWD is preserved.
+    [[ -n "$project_path" && -d "$project_path" ]] || {
+        print_error "db_wp_export_safe: project directory not found: $project_path"
+        return 1
+    }
 
     print_step "auto" "Export with replace URL for production..."
 
@@ -994,7 +1040,7 @@ db_wp_export_safe() {
 
     db_wp_clear_cache "$project_path"
 
-    if ddev export-db --file="$output_file" >/dev/null 2>&1; then
+    if (cd "$project_path" && ddev export-db --file="$output_file" >/dev/null 2>&1); then
         print_success "Base export: $(basename "$output_file")"
 
         # Reverse pass: hand it the rollback marker so any failure rolls
@@ -1044,8 +1090,15 @@ db_generate_export_filename() {
     local project_name="$1"
     local suffix="${2:-FROM_LOCAL}"
     local tag=$(echo "$suffix" | tr '[:lower:]' '[:upper:]')
-    local ts=$(date +"%y%m%d_%H%M")
-    echo "${project_name}_${tag}_${ts}.sql"
+    # [FIX P-9] Second resolution + random suffix: the old minute-level
+    # timestamp let a SNAP and a LOCAL_BACKUP created in the same minute
+    # collide in the same directory, silently overwriting the protective
+    # dump. The trailing field stays sort-compatible with the rotation
+    # contract (<proj>_<TYPE>_<yyMMdd>_<HHMMSS>_<rand>.sql).
+    local ts=$(date +"%y%m%d_%H%M%S")
+    local rand_suffix
+    rand_suffix="$(printf '%s' "$RANDOM$RANDOM" | tr -d '[:space:]')"
+    echo "${project_name}_${tag}_${ts}_${rand_suffix}.sql"
 }
 
 # =================================================================

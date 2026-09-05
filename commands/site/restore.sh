@@ -54,8 +54,13 @@ _restore_pick_archive() {
     ensure_directory "$backup_dir"
 
     local -a files=()
-    # shellcheck disable=SC2012  # mtime sorting is the point; names machine-generated
-    mapfile -t files < <(ls -1t "${backup_dir}"/FULL_*.tar.gz 2>/dev/null)
+    # shellcheck disable=SC2012  # timestamp-in-filename sorting is the point
+    # [FIX P-7] Filename-timestamp ordering (FULL_<proj>_<YYYY-MM-DD>_<HHMMSS>.tar.gz)
+    # instead of mtime — newest first, immune to sync/touch mtime changes.
+    # The awk+cut pairing anchors sort fields to the basename, so directory
+    # prefixes containing underscores cannot shift the fields.
+    mapfile -t files < <(ls -1 "${backup_dir}"/FULL_*.tar.gz 2>/dev/null \
+        | awk -F/ '{print $NF "\t" $0}' | sort -t_ -k3,3r -k4,4r | cut -f2-)
 
     if (( ${#files[@]} == 0 )); then
         print_error "$(t restore.no.archives) $backup_dir"

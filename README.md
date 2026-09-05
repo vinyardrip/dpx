@@ -2,9 +2,9 @@
 
 [Read in Russian](README.ru.md)
 
-> **v1.6.2 (Stable)**
+> **v1.7.0 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.6.2-blue)
+![Version](https://img.shields.io/badge/version-1.7.0-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.4+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
@@ -233,7 +233,7 @@ The workflow reads supported versions from `ddev debug capabilities`, falls back
 
 ## Configuration
 
-Settings are loaded in cascade order: `/etc/dpx/dpx.conf`, `~/.config/dpx/dpx.conf`, `~/.config/dpx/config` for global storage paths, then the repository-local `config/dpx.conf`. Later files override earlier values. Values use `key = value` syntax. `dpx config` creates and maintains the global path file `~/.config/dpx/config` with `DPX_PROJECTS_DIR`, `DPX_DB_LOCAL_DIR`, `DPX_DB_PROD_DIR` and `DPX_BACKUP_DIR`; application and compatibility settings remain in `dpx.conf`.
+Settings are loaded in cascade order, lowest to highest priority: `/etc/dpx/dpx.conf`, then the repository-local `config/dpx.conf` (shipped defaults — it never overrides explicit user settings), then `~/.config/dpx/dpx.conf` and `~/.config/dpx/config` for global storage paths. Later files override earlier values, so user configuration always wins over repo defaults. Values use `key = value` syntax. `dpx config` creates and maintains the global path file `~/.config/dpx/config` with `DPX_PROJECTS_DIR`, `DPX_DB_LOCAL_DIR`, `DPX_DB_PROD_DIR` and `DPX_BACKUP_DIR`; application and compatibility settings remain in `dpx.conf`.
 
 Central storage is outside project webroots: the configured projects directory contains DDEV projects, while `db_local/`, `db_prod/` and `backups/` hold local dumps, production dumps and full archives. Database and site commands use these configured paths when their path flags are omitted.
 
@@ -349,7 +349,7 @@ bash tests/test_tunnel_patch.sh
 bash tests/test_macos_sim.sh
 ```
 
-The v1.6.2 repository includes Linux and Darwin-simulation coverage. Real hardware macOS, WSL2 and field-environment coverage remain separate roadmap items.
+The v1.7.0 repository includes Linux and Darwin-simulation coverage. Real hardware macOS, WSL2 and field-environment coverage remain separate roadmap items.
 
 ## Troubleshooting
 

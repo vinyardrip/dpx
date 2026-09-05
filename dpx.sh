@@ -176,10 +176,16 @@ run_command() {
         db|site)
             local sub="${1:-}"
             [[ $# -gt 0 ]] && shift
-            command="$(domain_resolve "$command" "$sub")" || {
+            # [FIX P-2] Capture the resolution WITHOUT clobbering $command:
+            # on failure it is already blank, and domain_usage needs the
+            # ORIGINAL domain (db/site) to print the right usage text.
+            local resolved=""
+            resolved="$(domain_resolve "$command" "$sub")" || {
+                print_error "Unknown ${command} subcommand: ${sub:-<none>}"
                 domain_usage "$command"
                 return 1
             }
+            command="$resolved"
             ;;
     esac
 
@@ -250,12 +256,20 @@ main() {
 
     # Domain groups: resolve to the canonical command BEFORE global
     # --help stripping so subcommand help texts work as expected.
+    # [FIX P-2] A failed resolution must NOT fall through silently to
+    # show_help — print the domain usage and exit non-zero instead.
     case "$command" in
         db|site)
             local _dsub="${1:-}"
             local _mapped=""
-            _mapped="$(domain_resolve "$command" "$_dsub" 2>/dev/null)" \
-                && command="$_mapped" && shift
+            if _mapped="$(domain_resolve "$command" "$_dsub" 2>/dev/null)"; then
+                command="$_mapped"
+                shift
+            else
+                print_error "Unknown ${command} subcommand: ${_dsub:-<none>}"
+                domain_usage "$command"
+                return 1
+            fi
             ;;
     esac
 
@@ -323,7 +337,13 @@ main() {
 
     # Non-blocking 24h update notice (respects auto_update_check=false)
     # Must never mask the command status.
-    update_check_daily || true
+    # [FIX P-11] Informational invocations skip the update check entirely:
+    # --help/-v/commands runs are read-only by contract and must not hit
+    # the network, the git dir or the update cache.
+    case "$command" in
+        ""|help|-h|--help|version|-v|--version|commands) ;;
+        *) update_check_daily || true ;;
+    esac
 
     dpx_debug_trace "command.exit" "command=$command" "status=$status"
     return $status

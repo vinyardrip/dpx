@@ -60,5 +60,6 @@ domain_usage() {
     case "$domain" in
         db)   print_info "$(t dom.db.usage)" ;;
         site) print_info "$(t dom.site.usage)" ;;
+        *)    print_info "$(t dom.db.usage)" ;;
     esac
 }

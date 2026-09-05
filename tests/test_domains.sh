@@ -76,6 +76,51 @@ else
     test_pass
 fi
 
+# =================================================================
+# [Stage 3 / P-2] Unknown subcommands must print usage, not die silently
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== unknown subcommand usage output (P-2) ===${TEST_RESET}"
+
+test_start "dpx db <unknown> prints error + db usage"
+out="$(timeout 20 bash "$DPX_ROOT/dpx.sh" db import </dev/null 2>&1)"
+rc=$?
+if [[ $rc -ne 0 ]] \
+   && grep -qF "Unknown db subcommand: import" <<<"$out" \
+   && grep -qF "pull" <<<"$out" && grep -qF "snap" <<<"$out"; then
+    test_pass
+else
+    test_fail "rc=$rc out=$out"
+fi
+
+test_start "dpx site <unknown> prints error + site usage"
+out="$(timeout 20 bash "$DPX_ROOT/dpx.sh" site frobnicate </dev/null 2>&1)"
+rc=$?
+if [[ $rc -ne 0 ]] \
+   && grep -qF "Unknown site subcommand: frobnicate" <<<"$out" \
+   && grep -qF "backup" <<<"$out" && grep -qF "migrate" <<<"$out"; then
+    test_pass
+else
+    test_fail "rc=$rc out=$out"
+fi
+
+test_start "dpx db (no sub) prints usage"
+out="$(timeout 20 bash "$DPX_ROOT/dpx.sh" db </dev/null 2>&1)"
+if grep -qF "pull" <<<"$out" && grep -qF "push" <<<"$out"; then
+    test_pass
+else
+    test_fail "no usage: $out"
+fi
+
+test_start "valid subcommands still resolve (db pull)"
+out="$(timeout 20 bash "$DPX_ROOT/dpx.sh" db pull --help </dev/null 2>&1 | head -1)"
+if [[ -n "$out" ]]; then
+    test_pass
+else
+    test_fail "db pull --help empty"
+fi
+
 test_start "file-path override points site/restore at nested layout"
 out="$(domain_command_file restore)"
 if [[ "$out" == *"/commands/site/restore.sh" ]]; then
@@ -364,21 +409,21 @@ unset -f ddev
 echo ""
 echo "${TEST_CYAN}=== Version SSOT ===${TEST_RESET}"
 
-test_start ".version equals 1.6.2"
-check_value "1.6.2" "$(cat "$DPX_ROOT/.version")"
+test_start ".version equals 1.7.0"
+check_value "1.7.0" "$(cat "$DPX_ROOT/.version")"
 
 out="$(bash "$DPX_ROOT/dpx.sh" -v </dev/null 2>&1)"
-test_start "dpx -v reports v1.6.2"
-if grep -qF "dpx v1.6.2" <<<"$out"; then
+test_start "dpx -v reports v1.7.0"
+if grep -qF "dpx v1.7.0" <<<"$out"; then
     test_pass
 else
     test_fail "got: $out"
 fi
 
 ok=true
-    grep -qF "version-1.6.2-blue" "$DPX_ROOT/README.md"    || ok=false
-    grep -qF "version-1.6.2-blue" "$DPX_ROOT/README.ru.md" || ok=false
-test_start "README badges show 1.6.2"
+    grep -qF "version-1.7.0-blue" "$DPX_ROOT/README.md"    || ok=false
+    grep -qF "version-1.7.0-blue" "$DPX_ROOT/README.ru.md" || ok=false
+test_start "README badges show 1.7.0"
 if [[ "$ok" == true ]]; then test_pass; else test_fail "badge missing"; fi
 
 print_test_summary

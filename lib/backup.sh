@@ -39,8 +39,14 @@ backup_rotate() {
     [[ ! -d "$backup_dir" ]] && return 0
 
     local archives=()
-    # -t sorting by mtime (new firsts); mapfile — safe for whitespaces
-    mapfile -t archives < <(ls -1t "${backup_dir}/${prefix}"*.tar.gz 2>/dev/null)
+    # [FIX P-7] Filename-timestamp ordering instead of mtime: FULL
+    # archives embed <YYYY-MM-DD>_<HHMMSS>, so sorting the BASENAME's
+    # date field (3) with time (4) as tie-break is immune to mtime
+    # perturbations from sync/touch tooling. The awk+cut pairing keeps
+    # the sort fields anchored to the basename even when the directory
+    # path contains underscores. mapfile is whitespace-safe.
+    mapfile -t archives < <(ls -1 "${backup_dir}/${prefix}"*.tar.gz 2>/dev/null \
+        | awk -F/ '{print $NF "\t" $0}' | sort -t_ -k3,3r -k4,4r | cut -f2-)
 
     local total=${#archives[@]}
     (( total <= keep )) && return 0

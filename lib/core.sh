@@ -135,6 +135,19 @@ export PROJECTS_ROOT
 # FUNCTIONS CORE
 # =================================================================
 
+# [FIX P-7] Rotation for prefix-scoped dump files.
+#
+# Ordering contract: files are sorted by the TIMESTAMP EMBEDDED IN THE
+# FILENAME (descending), not by mtime. Filenames follow the canonical
+# pattern <project>_<TYPE>_<yyMMdd_HHMMSS>.sql — a lexical sort of the
+# trailing timestamp field is equivalent to a time sort and immune to
+# mtime perturbations (rsync without --times, touch, restore tooling).
+#
+#   $1 — project name (filename prefix component)
+#   $2 — backup directory
+#   $3 — type tag (SNAP | LOCAL_BACKUP | TO_PROD | BEFORE_PHP | ...)
+#   $4 — keep count (default 3; LOCAL_BACKUP_DEFAULT_KEEP applies when
+#        the caller passes "default")
 core_rotate_backups() {
     local project_name="$1"
     local backup_dir="$2"
@@ -143,10 +156,22 @@ core_rotate_backups() {
 
     [[ ! -d "$backup_dir" ]] && return 0
 
-    local skip_count=$((keep_count + 1))
-    local files_to_delete
+    if [[ "$keep_count" == "default" ]]; then
+        keep_count="$(get_config "local_backup_keep" "3")"
+        [[ "$keep_count" =~ ^[0-9]+$ ]] || keep_count=3
+    fi
 
-    files_to_delete=$(cd "$backup_dir" && command ls -1t "${project_name}_${type_prefix}_"*.sql 2>/dev/null | tail -n +"$skip_count")
+    local files_to_delete
+    # Sort by filename timestamp (descending), then delete beyond keep N.
+    # The filename tail after <TYPE>_ is yyMMdd_HHMMSS, so sorting the
+    # whole basename descending approximates newest-first deterministically.
+    # awk+cut pairs basenames for ordering so directory components with
+    # underscores cannot shift the sort fields (paths here are basenames
+    # already, but the pipeline stays prefix-robust by construction).
+    files_to_delete=$(cd "$backup_dir" 2>/dev/null \
+        && command ls -1 "${project_name}_${type_prefix}_"*.sql 2>/dev/null \
+        | awk -F/ '{print $NF "\t" $0}' | sort -t_ -k3,3r -k4,4r | cut -f2- \
+        | tail -n +"$((keep_count + 1))")
 
     [[ -z "$files_to_delete" ]] && return 0
 
