@@ -75,9 +75,17 @@ _expand_config_path() {
     local value="$1"
     value="${value//\$HOME/$HOME}"
     value="${value//\$WORKSPACE_ROOT/${DEFAULT_CONFIG[workspace_root]}}"
-    # Pattern is quoted so the literal '~/' is matched; otherwise bash
-    # expands the RHS at parse time and the test never fires.
-    if [[ "$value" == "~/"* ]]; then
+
+    # [Finding 6] Tilde expansion — leading form only, standard contract:
+    #   ~/anything  -> $HOME/anything
+    #   ~            -> $HOME          (bare tilde)
+    #   ~user/...    -> NOT expanded (user homes are out of scope; left
+    #                   literal so the misconfiguration stays visible)
+    # The `~` patterns below are quoted so bash does not expand the RHS
+    # at parse time and the tests actually fire.
+    if [[ "$value" == "~" ]]; then
+        value="$HOME"
+    elif [[ "$value" == "~/"* ]]; then
         value="$HOME/${value#\~/}"
     fi
     printf '%s\n' "$value"

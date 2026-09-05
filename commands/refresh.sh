@@ -197,6 +197,51 @@ cmd_refresh() {
     devilbox_stop
 
     # =================================================================
+    #  [C-3] INTERRUPT SAFETY: trap + snapshot marker
+    #
+    # The import/replace below is a long, destructive DB mutation. Before
+    # it starts, create a pre-mutation ddev snapshot and register it in
+    # .dpx/current_snapshot so boot-time orphan recovery can restore it
+    # after a crash. INT/TERM traps attempt an immediate in-process
+    # restore; if that fails the marker stays for `check_orphaned_snapshot`.
+    # =================================================================
+
+    refresh_snapshot_marker() {
+        rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
+        trap - INT TERM EXIT
+    }
+
+    refresh_interrupted() {
+        local sig="$1"
+        echo "" >&2
+        print_warning "Interrupted (${sig}) — restoring pre-mutation database snapshot..." >&2
+        local snap_name
+        snap_name="$(head -1 "${project_path}/.dpx/current_snapshot" 2>/dev/null | tr -d '[:space:]')"
+        if [[ -n "$snap_name" ]]; then
+            if (cd "$project_path" && ddev snapshot restore "$snap_name" 2>&1); then
+                print_success "Database restored from snapshot: $snap_name" >&2
+                refresh_snapshot_marker
+            else
+                print_error "Snapshot restore failed; marker preserved for orphan recovery." >&2
+            fi
+        else
+            print_error "No snapshot marker found; manual recovery may be required (dpx db restore)." >&2
+        fi
+        exit 130
+    }
+
+    local refresh_snap_name
+    refresh_snap_name=$(db_create_snapshot "$project_path" "pre_refresh") || {
+        print_error "Pre-mutation safety snapshot failed. Aborting to protect the database."
+        return 1
+    }
+    mkdir -p "${project_path}/.dpx" 2>/dev/null
+    printf '%s\n' "$refresh_snap_name" > "${project_path}/.dpx/current_snapshot"
+
+    trap 'refresh_interrupted INT' INT
+    trap 'refresh_interrupted TERM' TERM
+
+    # =================================================================
     #  Process update (in subshell for isolations cd)
     # =================================================================
 
@@ -232,7 +277,30 @@ cmd_refresh() {
         print_highlight "It accessible by address: ${local_url}"
 
         ddev_launch "$project_name"
-    ) || return 1
+    )
+    local refresh_rc=$?
+    trap - INT TERM
 
-    return 0
+    if [[ $refresh_rc -eq 0 ]]; then
+        # [C-3] Success: local DB intentionally holds the imported data.
+        # Drop the marker so the next command does not offer a pointless
+        # restore of the now-superseded pre-mutation snapshot.
+        refresh_snapshot_marker
+        return 0
+    fi
+
+    # [C-3] Handled failure mid-mutation: the DB may be partially
+    # imported/replaced. Attempt an immediate restore from the marker; if
+    # that fails, leave the marker for boot-time orphan recovery.
+    print_warning "Update failed mid-operation — attempting snapshot restore..." >&2
+    local snap_name
+    snap_name="$(head -1 "${project_path}/.dpx/current_snapshot" 2>/dev/null | tr -d '[:space:]')"
+    if [[ -n "$snap_name" ]] \
+       && (cd "$project_path" && ddev snapshot restore "$snap_name" 2>&1); then
+        print_success "Database restored from snapshot: $snap_name" >&2
+        refresh_snapshot_marker
+    else
+        print_error "Snapshot restore failed; marker preserved for orphan recovery." >&2
+    fi
+    return 1
 }

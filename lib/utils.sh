@@ -226,9 +226,15 @@ prompt_choice() {
 # =================================================================
 # SESSION LOG BOOTSTRAP
 #
-# dpx_init_session_log — truncates .dpx/debug.log at the start of a CLI
-# session and writes a session header. Every later log write in the same
-# session appends with '>>', so the file always holds exactly one session.
+# dpx_init_session_log — starts a new session entry in .dpx/debug.log.
+#
+# [FIX P-4] FORENSIC PRESERVATION: previous versions truncated the log
+# with `cat >` on every session, destroying the exact crash trail the
+# user needs on the very next (diagnostic) run. The log is now kept
+# across sessions:
+#   * the previous log survives as .dpx/debug.log.old (one generation);
+#   * the new session header is appended to a fresh debug.log;
+#   * every later write in the same session appends with '>>'.
 #
 # The log lives in the local (cwd) .dpx/ directory, which is the project
 # directory for all project-scoped commands. Override with
@@ -293,12 +299,20 @@ dpx_init_session_log() {
 
     mkdir -p "$log_dir" 2>/dev/null || return 0
 
-    # Explicit overwrite: drops any output left by previous sessions.
+    # [FIX P-4] Rotate instead of truncate: keep one generation of the
+    # previous session log so crash forensics survive the next command
+    # (including the orphan-recovery run itself).
+    if [[ -f "$log_file" ]]; then
+        rm -f "${log_file}.old" 2>/dev/null
+        mv -f "$log_file" "${log_file}.old" 2>/dev/null
+    fi
+
+    # Fresh session header; append semantics for the rest of the session.
     cat > "$log_file" <<EOF 2>/dev/null || return 0
-=================================================================
+================================================================
 DPX Session Log: ${session:-dpx}
 Started at: $(date '+%Y-%m-%d %H:%M:%S')
-=================================================================
+================================================================
 EOF
 
     _DPX_SESSION_LOG_INITIALIZED=1

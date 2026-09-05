@@ -399,6 +399,183 @@ else
 fi
 
 # =================================================================
+# [Stage 2] DATA SAFETY, TRAPS & STATE RECOVERY
+# =================================================================
+
+echo ""
+echo "=== Stage 2: session log forensics (P-4) ==="
+
+STAGE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/dpx_stage2_XXXXXX")"
+mkdir -p "$STAGE_TMP/.dpx"
+echo "CRASH TRACE from previous session" > "$STAGE_TMP/.dpx/debug.log"
+
+(
+    export DPX_SESSION_LOG_DIR="$STAGE_TMP"
+    dpx_init_session_log "db snap"
+) </dev/null >/dev/null 2>&1
+
+test_start "session log rotation keeps previous log as .old"
+if grep -qF "CRASH TRACE from previous session" "$STAGE_TMP/.dpx/debug.log.old" 2>/dev/null; then
+    test_pass
+else
+    test_fail "debug.log.old missing or empty"
+fi
+
+test_start "fresh session header written to new debug.log"
+if grep -qF "DPX Session Log: db snap" "$STAGE_TMP/.dpx/debug.log" 2>/dev/null; then
+    test_pass
+else
+    test_fail "session header missing"
+fi
+
+test_start "old crash trace NOT in the new debug.log"
+if grep -qF "CRASH TRACE from previous session" "$STAGE_TMP/.dpx/debug.log" 2>/dev/null; then
+    test_fail "truncate semantics regressed"
+else
+    test_pass
+fi
+
+echo ""
+echo "=== Stage 2: tilde expansion (Finding 6) ==="
+
+HOME_PROBE="$STAGE_TMP/fakehome"
+mkdir -p "$HOME_PROBE"
+tilde_probe() { # $1 = raw config value
+    HOME="$HOME_PROBE" bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'"
+        source "$DPX_ROOT/lib/paths.sh" >/dev/null 2>&1
+        source "$DPX_ROOT/lib/config.sh" >/dev/null 2>&1
+        _expand_config_path "$1"
+    ' _ "$1" </dev/null 2>/dev/null
+}
+
+test_start "leading-tilde path expands under \$HOME"
+# shellcheck disable=SC2088  # quoted tilde is the literal test input
+check_val="$(tilde_probe '~/projects')"
+if [[ "$check_val" == "$HOME_PROBE/projects" ]]; then
+    test_pass
+else
+    test_fail "got: $check_val"
+fi
+
+test_start "bare ~ expands to \$HOME"
+check_val="$(tilde_probe '~')"
+if [[ "$check_val" == "$HOME_PROBE" ]]; then
+    test_pass
+else
+    test_fail "got: $check_val"
+fi
+
+test_start "~user path left literal (no silent mangling)"
+check_val="$(tilde_probe '~other/projects')"
+if [[ "$check_val" == "~other/projects" ]]; then
+    test_pass
+else
+    test_fail "got: $check_val"
+fi
+
+echo ""
+echo "=== Stage 2: wp-config stale backup triage (C-5) ==="
+
+WP_PROJ="$STAGE_TMP/wpproj"
+mkdir -p "$WP_PROJ"
+
+PRISTINE_LIVE='<?php require_once ABSPATH . "wp-settings.php";'
+PRISTINE_BAK='<?php require_once ABSPATH . "wp-settings.php";'
+PATCHED_LIVE='<?php /** DPX_SMART_TUNNEL */ if (isset($_SERVER["HTTP_HOST"])) {} require_once ABSPATH . "wp-settings.php";'
+
+# Triage matrix helper: writes live+stale pair, runs snapshot, reports.
+wp_triage_probe() { # $1 = live content, $2 = stale bak content; echoes events
+    HOME="$HOME_PROBE" bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        cfg="'"$WP_PROJ"'/wp-config.php"
+        printf "%s" "$1" > "$cfg"
+        bak="$(_dpx_wp_config_backup_path "$cfg")"
+        printf "%s" "$2" > "$bak"
+        dpx_wp_config_snapshot "$cfg" >/dev/null 2>&1
+        echo "rc=$?"
+        printf "LIVE:%s\n" "$(cat "$cfg")"
+    ' _ "$1" "$2" </dev/null 2>/dev/null
+}
+
+test_start "pristine stale backup restored over pristine live config"
+out="$(wp_triage_probe "$PRISTINE_LIVE" "$PRISTINE_BAK")"
+if grep -qF "rc=0" <<<"$out" && grep -qF "LIVE:$PRISTINE_BAK" <<<"$out"; then
+    test_pass
+else
+    test_fail "got: $out"
+fi
+
+test_start "stale pristine backup wins over patched live file"
+out="$(wp_triage_probe "$PATCHED_LIVE" "$PRISTINE_BAK")"
+if grep -qF "LIVE:$PRISTINE_BAK" <<<"$out" \
+   && ! grep -qF "DPX_SMART_TUNNEL" <<<"$out"; then
+    test_pass
+else
+    test_fail "live config not restored: $out"
+fi
+
+test_start "tainted stale backup (DPX markers) discarded, live untouched"
+out="$(wp_triage_probe "$PRISTINE_LIVE" "$PATCHED_LIVE")"
+if grep -qF "rc=0" <<<"$out" && grep -qF "LIVE:$PRISTINE_LIVE" <<<"$out"; then
+    test_pass
+else
+    test_fail "tainted backup leaked into live: $out"
+fi
+
+echo ""
+echo "=== Stage 2: smart replace marker + auto-restore (C-3) ==="
+
+SR_PROJ="$STAGE_TMP/srproj"
+mkdir -p "$SR_PROJ/.dpx"
+
+smart_replace_probe() { # $1 = pass1 rc; echoes events + final marker state
+    HOME="$HOME_PROBE" bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        source "$DPX_ROOT/lib/database.sh" >/dev/null 2>&1
+        proj="'"$SR_PROJ"'"
+        pass1_rc="'"$1"'"
+        # ddev mock: snapshot subcommand returns the scripted rc;
+        # exec search-replace passes inherit it; snapshot restore returns 0.
+        ddev() {
+            case "$1" in
+                snapshot) return "$pass1_rc" ;;
+                exec)    return "$pass1_rc" ;;
+                *)       return 0 ;;
+            esac
+        }
+        db_wp_smart_replace "https://old.lo" "https://new.example.com" "$proj" </dev/null
+        sr_rc=$?
+        echo "SR_RC=$sr_rc"
+        if [[ -f "$proj/.dpx/current_snapshot" ]]; then
+            echo "MARKER=$(tr -d "[:space:]" < "$proj/.dpx/current_snapshot")"
+        else
+            echo "MARKER=none"
+        fi
+    ' _ "$1" </dev/null 2>/dev/null
+}
+
+test_start "smart replace pass-1 failure auto-restores snapshot, clears marker"
+out="$(smart_replace_probe 1)"
+if grep -qF "SR_RC=1" <<<"$out" && grep -qF "MARKER=none" <<<"$out"; then
+    test_pass
+else
+    test_fail "expected rc=1 with marker cleared, got: $out"
+fi
+
+test_start "smart replace success keeps recovery marker registered"
+out="$(smart_replace_probe 0)"
+if grep -qF "SR_RC=0" <<<"$out" && grep -qF "MARKER=pre_replace_" <<<"$out"; then
+    test_pass
+else
+    test_fail "expected rc=0 with marker present, got: $out"
+fi
+
+rm -rf "$STAGE_TMP"
+
+# =================================================================
 # FINAL REPORT
 # =================================================================
 

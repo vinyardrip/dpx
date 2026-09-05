@@ -253,6 +253,20 @@ dpx_wp_config_stale_check() {
 #   3. [ -s "$backup_file" ] — not empty
 #   4. diff -q — byte-for-byte identity (catches RSSSL and etc.)
 #
+# [FIX C-5] STALE BACKUP PRESERVATION:
+#   A leftover .wp-config.php.dpx_bak is the ONLY surviving copy of the
+#   pre-patch original when a previous session crashed between patch and
+#   cleanup. Deleting it (old Zero-Trust behavior) destroyed the clean
+#   original forever. New rules, in priority order:
+#     1. The backup does NOT contain DPX tunnel markers -> it is a
+#        pristine original. Try to RESTORE it over the (possibly patched)
+#        live config via mv -f; when restoration is impossible (locked
+#        file, permissions), move it aside to .dpx_bak.stale instead of
+#        deleting, so the content survives for manual recovery.
+#     2. The backup DOES contain DPX markers -> it is a tainted snapshot
+#        of an already-patched file. Only then delete it and snapshot the
+#        current file as usual.
+#
 # Returns path to backup via echo (stdout).
 # print_* write in stderr — NOT pollute return value.
 dpx_wp_config_snapshot() {
@@ -265,15 +279,44 @@ dpx_wp_config_snapshot() {
         return 1
     fi
 
-    # Ifs backup already exist — this hung artifact.
-    # Zero-Trust: NOT restore (content unknown), simple remove.
+    # [FIX C-5] Stale-backup triage BEFORE any deletion (see header).
     if [[ -f "$backup_file" ]]; then
-        print_warning "Detected hung snapshot: $backup_file"
-        print_info "Zero-Trust: delete before create new..."
-        rm -f "$backup_file" 2>/dev/null || dpx_sudo rm -f "$backup_file" 2>/dev/null || {
-            print_error "Not remove remove hung snapshot!"
-            return 1
-        }
+        if grep -q "DPX_SMART_TUNNEL\|DPX_TUNNEL_FIX\|DPX_TUNNEL_START" "$backup_file" 2>/dev/null; then
+            # Tainted: this backup itself carries tunnel markers, i.e. it
+            # snapshots an already-patched file. Safe to discard.
+            print_warning "Discarding tainted hung snapshot (contains DPX markers): $backup_file"
+            rm -f "$backup_file" 2>/dev/null || dpx_sudo rm -f "$backup_file" 2>/dev/null || {
+                print_error "Not remove remove tainted hung snapshot!"
+                return 1
+            }
+        else
+            # Pristine: restore it over the live config. The live file may
+            # still carry DPX markers; restoring gives back the clean
+            # original, which is then re-snapshotted below (no-op diff).
+            print_warning "Detected pristine hung snapshot: $backup_file"
+            print_info "Restoring original wp-config.php before creating a fresh snapshot..."
+            if mv -f "$backup_file" "$config_file" 2>/dev/null \
+               || dpx_sudo mv -f "$backup_file" "$config_file"; then
+                print_success "Original wp-config.php restored from hung snapshot."
+            else
+                # Restoration impossible: PRESERVE the pristine copy
+                # instead of overwriting it with a possibly patched file.
+                local stale_keep="${backup_file}.stale"
+                print_error "Cannot restore hung snapshot. Preserving it as: $stale_keep"
+                mv -f "$backup_file" "$stale_keep" 2>/dev/null \
+                    || dpx_sudo mv -f "$backup_file" "$stale_keep" 2>/dev/null \
+                    || {
+                        print_error "Cannot preserve hung snapshot either. ABORT — manual recovery:"
+                        print_error "  cp '$backup_file' '$config_file'"
+                        return 1
+                    }
+                # A preserved .stale file must not be silently clobbered by
+                # the fresh snapshot: refuse to continue patching while the
+                # pristine original could not be placed back.
+                print_error "Patch CANCEL — resolve the preserved snapshot manually first."
+                return 1
+            fi
+        fi
     fi
 
     # cp with check exit code

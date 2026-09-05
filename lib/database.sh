@@ -852,6 +852,11 @@ db_wp_smart_replace() {
     local old_url="$1"
     local new_url="$2"
     local project_path="$3"
+    # Optional $4: marker snapshot name to KEEP registered instead of the
+    # fresh one. Used by db_wp_export_safe's reverse pass so a failure
+    # rolls back to the ORIGINAL local state rather than to the
+    # intermediate prod-URL'd snapshot taken by this replace.
+    local keep_marker="${4:-}"
 
     if [[ -z "$old_url" || -z "$new_url" || -z "$project_path" ]]; then
         print_error "db_wp_smart_replace: not specifieds arguments (old_url new_url project_path)."
@@ -877,8 +882,17 @@ db_wp_smart_replace() {
     )
     if [[ $? -eq 0 ]]; then
         print_success "Safety Snapshot create: $snapshot_name"
+        # Register the marker so boot-time orphan recovery can find and
+        # restore this snapshot if the process dies mid-replace (Ctrl+C,
+        # kill, terminal loss). When a keep_marker override is supplied,
+        # that snapshot represents the state a crash must roll back to.
+        mkdir -p "${project_path}/.dpx" 2>/dev/null
+        local marker_name="$snapshot_name"
+        [[ -n "$keep_marker" ]] && marker_name="$keep_marker"
+        printf '%s\n' "$marker_name" > "${project_path}/.dpx/current_snapshot" 2>/dev/null
     else
         print_warning "Not remove create snapshot. Continue without insurances."
+        snapshot_name=""
     fi
 
     # Warning
@@ -900,6 +914,27 @@ db_wp_smart_replace() {
     )
     if [[ $? -ne 0 ]]; then
         print_error "Error replaces full URL."
+        # [FIX C-3] Match the tunnel safety posture: attempt automatic
+        # restore of the pre-replace snapshot before exiting. The DB is
+        # left untouched or restored — never partially migrated.
+        if [[ -n "$snapshot_name" ]]; then
+            print_warning "Attempting automatic restore from snapshot: $snapshot_name..."
+            if db_restore_snapshot "$project_path" "$snapshot_name"; then
+                # Restore succeeded: when a keep_marker override was in
+                # play, the exported snapshot name still refers to the
+                # state a LATER crash must roll back to (see the reverse
+                # pass of db_wp_export_safe) — re-point and keep it;
+                # otherwise the replace is fully rolled back, drop it.
+                if [[ -n "$keep_marker" ]]; then
+                    printf '%s\n' "$keep_marker" > "${project_path}/.dpx/current_snapshot" 2>/dev/null
+                else
+                    rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
+                fi
+            else
+                print_error "Automatic restore failed. Marker preserved for orphan recovery:"
+                print_error "  ddev snapshot restore $snapshot_name"
+            fi
+        fi
         return 1
     fi
 
@@ -940,21 +975,43 @@ db_wp_export_safe() {
 
     print_step "auto" "Export with replace URL for production..."
 
+    # The marker that must remain recoverable across the WHOLE export
+    # window: the state a crash must roll back to. On entry this is the
+    # marker left by the forward replace (or an existing one pointing at
+    # the current local state when to-prod runs standalone).
+    local rollback_marker
+    rollback_marker="$(head -1 "${project_path}/.dpx/current_snapshot" 2>/dev/null | tr -d '[:space:]')"
+
     if ! db_wp_smart_replace "$local_url" "$prod_url" "$project_path"; then
         print_error "Not remove execute replace URL before export."
         return 1
     fi
+    # Forward replace completed: the DB is fully prod-URL'd until the
+    # reverse pass below restores it. db_wp_smart_replace registered a
+    # marker pointing at the clean local state — capture it (it may have
+    # replaced our initial value) and keep it live through the export.
+    rollback_marker="$(head -1 "${project_path}/.dpx/current_snapshot" 2>/dev/null | tr -d '[:space:]')"
 
     db_wp_clear_cache "$project_path"
 
     if ddev export-db --file="$output_file" >/dev/null 2>&1; then
         print_success "Base export: $(basename "$output_file")"
 
-        if ! db_wp_smart_replace "$prod_url" "$local_url" "$project_path"; then
+        # Reverse pass: hand it the rollback marker so any failure rolls
+        # back to the ORIGINAL local state, not the prod-URL'd snapshot
+        # taken by the reverse pass itself.
+        if ! db_wp_smart_replace "$prod_url" "$local_url" "$project_path" "$rollback_marker"; then
             print_error "CRITICAL ERROR: not remove back URL reverse!"
-            print_error "Execute manual: ddev snapshot restore <name_snapshot>"
+            if [[ -n "$rollback_marker" ]]; then
+                printf '%s\n' "$rollback_marker" > "${project_path}/.dpx/current_snapshot" 2>/dev/null
+            fi
+            print_error "Marker preserved for orphan recovery. Execute manual:"
+            print_error "  ddev snapshot restore <name from .dpx/current_snapshot>"
             return 1
         fi
+        # Reverse replace completed: local URLs are fully restored, the
+        # rollback snapshot no longer represents the live state.
+        rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
 
         db_wp_clear_cache "$project_path"
         print_info "URL in local base restors."
@@ -962,8 +1019,13 @@ db_wp_export_safe() {
     else
         print_error "Error export bases."
         print_warning "Attempt restore URL after errors export..."
-        db_wp_smart_replace "$prod_url" "$local_url" "$project_path" || true
+        # Best-effort reverse with the same rollback-marker contract.
+        db_wp_smart_replace "$prod_url" "$local_url" "$project_path" "$rollback_marker" || true
         db_wp_clear_cache "$project_path" 2>/dev/null || true
+        # The reverse pass either restored local URLs or left the marker
+        # pointing at the local-state snapshot; if it fully succeeded the
+        # marker refers to a state identical to live — drop it.
+        rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
         return 1
     fi
 }

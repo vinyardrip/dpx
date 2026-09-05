@@ -156,6 +156,39 @@ cmd_to_prod() {
 
     ensure_directory "$(get_db_prod_path)"
 
+    # =================================================================
+    #  [C-3] INTERRUPT SAFETY: trap + snapshot marker
+    #
+    # db_wp_export_safe performs a local→prod URL replace, an export and
+    # a reverse replace back. Between the first and last pass the local
+    # DB holds production URLs. db_wp_smart_replace registers its own
+    # pre_replace_<ts> marker; the traps below attempt an immediate
+    # snapshot restore on Ctrl+C/TERM, and the marker stays for orphan
+    # recovery when the in-process restore cannot complete.
+    # =================================================================
+
+    to_prod_interrupted() {
+        local sig="$1"
+        echo "" >&2
+        print_warning "Interrupted (${sig}) — restoring pre-mutation database snapshot..." >&2
+        local snap_name
+        snap_name="$(head -1 "${project_path}/.dpx/current_snapshot" 2>/dev/null | tr -d '[:space:]')"
+        if [[ -n "$snap_name" ]]; then
+            if (cd "$project_path" && ddev snapshot restore "$snap_name" 2>&1); then
+                print_success "Database restored from snapshot: $snap_name" >&2
+                rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
+            else
+                print_error "Snapshot restore failed; marker preserved for orphan recovery." >&2
+            fi
+        else
+            print_error "No snapshot marker found; manual recovery may be required (dpx db restore)." >&2
+        fi
+        exit 130
+    }
+
+    trap 'to_prod_interrupted INT' INT
+    trap 'to_prod_interrupted TERM' TERM
+
     # Isolate switch directors in subshell
     (
         cd "$project_path" || exit 1
@@ -171,7 +204,20 @@ cmd_to_prod() {
                 exit 1
             fi
         fi
-    ) || return 1
+    )
+    local to_prod_rc=$?
+    trap - INT TERM
+
+    # [C-3] db_wp_export_safe clears the marker on its own success paths;
+    # on failure it deliberately leaves it for orphan recovery. Non-WP
+    # flows never mutate URLs, so any leftover marker is stale — drop it.
+    if [[ "$cms_type" != "wordpress" ]]; then
+        rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
+    fi
+
+    if [[ $to_prod_rc -ne 0 ]]; then
+        return 1
+    fi
 
     # Rotation backups
     core_rotate_backups "$project_name" "$(get_db_prod_path)" "TO_PROD"

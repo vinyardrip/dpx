@@ -701,10 +701,27 @@ tunnel_patch_wp_config() {
     tail -n +$((php_tag_line + 1)) "$config_file" >> "$temp_file"
     rm -f "$block_file"
 
-    sed -i \
-        -e "/^[[:space:]]*define('WP_HOME',/ { /!defined('WP_HOME')/! s/^\([[:space:]]*\)define('WP_HOME',/\1if (!defined('WP_HOME')) define('WP_HOME',/ }" \
-        -e "/^[[:space:]]*define('WP_SITEURL',/ { /!defined('WP_SITEURL')/! s/^\([[:space:]]*\)define('WP_SITEURL',/\1if (!defined('WP_SITEURL')) define('WP_SITEURL',/ }" \
-        "$temp_file"
+    # [FIX P-1] Wrap unconditional WP_HOME/WP_SITEURL defines in
+    # if (!defined(...)) guards via safe_sed_inplace: raw `sed -i -e`
+    # is GNU-only (BSD sed consumes `-e` as the backup suffix on
+    # macOS, leaving stray files and skipping the substitution).
+    # safe_sed_inplace handles the BSD/GNU in-place distinction.
+    if ! safe_sed_inplace \
+        "/^[[:space:]]*define('WP_HOME',/ { /!defined('WP_HOME')/! s/^\([[:space:]]*\)define('WP_HOME',/\1if (!defined('WP_HOME')) define('WP_HOME',/ }" \
+        "$temp_file"; then
+        print_error "$(t tunnel.wp.patch_empty)"
+        rm -f "$temp_file"
+        tunnel_restore_wp_config "$config_file"
+        return 1
+    fi
+    if ! safe_sed_inplace \
+        "/^[[:space:]]*define('WP_SITEURL',/ { /!defined('WP_SITEURL')/! s/^\([[:space:]]*\)define('WP_SITEURL',/\1if (!defined('WP_SITEURL')) define('WP_SITEURL',/ }" \
+        "$temp_file"; then
+        print_error "$(t tunnel.wp.patch_empty)"
+        rm -f "$temp_file"
+        tunnel_restore_wp_config "$config_file"
+        return 1
+    fi
 
     if [[ ! -s "$temp_file" ]]; then
         print_error "$(t tunnel.wp.patch_empty)"
