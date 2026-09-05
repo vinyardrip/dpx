@@ -30,7 +30,7 @@ show_set_php_help() {
 
  ${COLOR_BOLD}Workflow:${COLOR_RESET}
     1. Selection project and versions PHP
-    2. Automatic backup bases data
+    2. Automatic database backup
     3. Switch versions PHP + restart container
     4. Check works site user
     5. Saved php_max ifs all works
@@ -83,7 +83,7 @@ _open_in_browser() {
 # =================================================================
 
 cmd_set_php() {
-    print_header "DDEV PHP Manager v2.9.1"
+    print_header "DDEV PHP Manager"
 
     parse_args "$@" || return 1
 
@@ -136,7 +136,7 @@ cmd_set_php() {
     done
     echo ""
 
-    read -r -p "Select number ors version: " v_choice
+    read -r -p "Select a number or version: " v_choice
     local new_php=""
     if [[ "$v_choice" =~ ^[0-9]+$ ]] && (( v_choice > 0 && v_choice <= ${#versions[@]} )); then
         new_php="${versions[$((v_choice-1))]}"
@@ -152,7 +152,7 @@ cmd_set_php() {
     fi
 
     if [[ "$saved_php_max" != "-" ]] && [[ $(echo "$new_php $saved_php_max" | awk '{if ($1 > $2) print 1; else print 0}') -eq 1 ]]; then
-        print_warning "Attention! Selects version above tested ($saved_php_max)"
+        print_warning "Warning: the selected version is above the tested maximum ($saved_php_max)"
         if ! confirm "Continue?"; then
             return 0
         fi
@@ -182,7 +182,7 @@ cmd_set_php() {
             if ddev export-db --gzip=false --file="$snap_path" >/dev/null 2>&1; then
                 print_success "Backup create: $(du -h "$snap_path" | awk '{print $1}')"
             else
-                print_warning "Not remove create backup (possible base empty)"
+                print_warning "Failed to create backup (possible base empty)"
             fi
 
             core_rotate_backups "$project_name" "$backup_dir" "$type_tag"
@@ -223,13 +223,19 @@ cmd_set_php() {
             _open_in_browser "$project_url"
         fi
     else
-        print_warning "Not remove determin URL project"
+        print_warning "Failed to determine URL project"
     fi
 
     echo ""
-    print_info "Verify work site in browser"
+    print_info "Verify the site works in the browser"
     echo ""
-    read -r -p "Site works correct? (y/n): " works
+    # [FIX I-4] Unified confirm() wrapper: default-No, EOF-safe (raw
+    # read -r inherited piped stdin and could misread empty as consent).
+    if confirm "Does the site work correctly?"; then
+        works="y"
+    else
+        works="n"
+    fi
 
     case "$works" in
         y|Y|yes|yes)
@@ -239,11 +245,14 @@ cmd_set_php() {
 
             if [[ "$current_saved" == "-" ]] || [[ "$new_php" != "$current_saved" ]]; then
                 if [[ "$current_saved" == "-" ]]; then
-                    printf "%sSave PHP %s as maximum working version?%s (y/n): " "$COLOR_GREEN" "$new_php" "$COLOR_RESET"
+                    if confirm "Save PHP ${new_php} as the maximum working version?"; then
+                        save_it="y"
+                    fi
                 else
-                    printf "%sUpdat php_max: %s → %s?%s (y/n): " "$COLOR_GREEN" "$current_saved" "$new_php" "$COLOR_RESET"
+                    if confirm "Update php_max: ${current_saved} → ${new_php}?"; then
+                        save_it="y"
+                    fi
                 fi
-                read -r -p "" save_it
 
                 if [[ "$save_it" =~ ^[yY] ]]; then
                     local project_type
@@ -264,11 +273,11 @@ cmd_set_php() {
 
         n|N|no|no)
             echo ""
-            print_warning "Site not works on PHP $new_php"
+            print_warning "The site does not work on PHP $new_php"
             echo ""
             echo "Action:"
-            echo "  1. Roll back on previous version ($current_php)"
-            echo "  2. Tried other version"
+            echo "  1. Roll back to the previous version ($current_php)"
+            echo "  2. Try another version"
             echo "  0. Leave as consumes"
             echo ""
             read -r -p "Selection: " rollback_choice
@@ -287,7 +296,7 @@ cmd_set_php() {
                     print_info "Start dpx set-php again for selection other versions"
                     ;;
                 0|*)
-                    print_info "Version PHP $new_php left without chang"
+                    print_info "PHP version $new_php left unchanged"
                     if [[ -n "$snap_name" ]] && [[ -n "$backup_dir" ]]; then
                         print_info "Backup accessible: ${backup_dir}/${snap_name}"
                     fi

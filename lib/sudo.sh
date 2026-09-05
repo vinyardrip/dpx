@@ -45,7 +45,7 @@ dpx_sudo() {
         ((attempt++))
     done
 
-    print_error "Not remove execute sudo after $DPX_SUDO_MAX_ATTEMPTS attempts."
+    print_error "Failed to execute sudo after $DPX_SUDO_MAX_ATTEMPTS attempts."
     return 1
 }
 
@@ -67,7 +67,7 @@ dpx_snapshot() {
         echo "$backup_file"
         return 0
     else
-        print_error "Not remove create backup: $file"
+        print_error "Failed to create backup: $file"
         return 1
     fi
 }
@@ -91,7 +91,7 @@ dpx_rollback() {
             dpx_sudo rm -f "$backup_file" 2>/dev/null
             return 0
         else
-            print_error "Not remove restore from backup: $file"
+            print_error "Failed to restore from backup: $file"
             return 1
         fi
     fi
@@ -127,7 +127,7 @@ dpx_hosts_add() {
     dpx_snapshot /etc/hosts || return 1
 
     if ! dpx_sudo bash -c "echo '${ip} ${hostname}' >> /etc/hosts"; then
-        print_error "Not remove add record in /etc/hosts."
+        print_error "Failed to add record in /etc/hosts."
         dpx_rollback /etc/hosts || true
         return 1
     fi
@@ -234,7 +234,7 @@ dpx_wp_config_stale_check() {
             if dpx_sudo mv -f "$backup_file" "$config_file"; then
                 print_success "Original wp-config.php restore from hung backup (sudo)."
             else
-                print_error "Not remove restore wp-config.php from hung backup!"
+                print_error "Failed to restore wp-config.php from hung backup!"
                 print_error "Manual restore: mv -f '$backup_file' '$config_file'"
                 return 1
             fi
@@ -286,7 +286,7 @@ dpx_wp_config_snapshot() {
             # snapshots an already-patched file. Safe to discard.
             print_warning "Discarding tainted hung snapshot (contains DPX markers): $backup_file"
             rm -f "$backup_file" 2>/dev/null || dpx_sudo rm -f "$backup_file" 2>/dev/null || {
-                print_error "Not remove remove tainted hung snapshot!"
+                print_error "Failed to remove tainted hung snapshot!"
                 return 1
             }
         else
@@ -327,14 +327,14 @@ dpx_wp_config_snapshot() {
     if [[ $cp_rc -ne 0 ]]; then
         print_error "Sb create snapshot wp-config.php (exit code: $cp_rc)!"
         print_error "Reason: $cp_error"
-        print_error "Patch CANCEL — original file not will chang."
+        print_error "Patch CANCELLED — the original file was not changed."
         return 1
     fi
 
     # Check: backup physicals exist on disk
     if [[ ! -f "$backup_file" ]]; then
         print_error "Snapshot not created! File missing: $backup_file"
-        print_error "Patch CANCEL — original file not will chang."
+        print_error "Patch CANCELLED — the original file was not changed."
         return 1
     fi
 
@@ -342,7 +342,7 @@ dpx_wp_config_snapshot() {
     if [[ ! -s "$backup_file" ]]; then
         print_error "Snapshot create, but empty! File: $backup_file"
         rm -f "$backup_file" 2>/dev/null
-        print_error "Patch CANCEL — original file not will chang."
+        print_error "Patch CANCELLED — the original file was not changed."
         return 1
     fi
 
@@ -352,7 +352,7 @@ dpx_wp_config_snapshot() {
         print_error "Snapshot NOT identical original! File chang between cp and check."
         print_error "Possible, plugin (RSSSL and etc.) modified wp-config.php."
         rm -f "$backup_file" 2>/dev/null
-        print_error "Patch CANCEL — original file not will chang."
+        print_error "Patch CANCELLED — the original file was not changed."
         return 1
     fi
 
@@ -401,7 +401,7 @@ dpx_wp_config_rollback() {
             print_success "wp-config.php restore from snapshot (sudo mv -f). Post-verify OK."
             return 0
         else
-            print_error "Not remove restore wp-config.php from snapshot!"
+            print_error "Failed to restore wp-config.php from snapshot!"
             print_error "Manual restore: mv -f '$backup_file' '$config_file'"
             return 1
         fi

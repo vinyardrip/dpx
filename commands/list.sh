@@ -55,7 +55,7 @@ cmd_list() {
     local ddev_projects_path="${PROJECTS_ROOT:-$(get_config "ddev_projects_base_path")}"
 
     if [[ ! -d "$ddev_projects_path" ]]; then
-        print_error "Director projects not found: $ddev_projects_path"
+        print_error "Projects directory not found: $ddev_projects_path"
         return 1
     fi
 
@@ -96,7 +96,7 @@ cmd_list() {
     done
 
     if [[ $count -eq 0 ]]; then
-        print_warning "DDEV projects not founds in directors: $ddev_projects_path"
+        print_warning "No DDEV projects found in: $ddev_projects_path"
         return 0
     fi
 

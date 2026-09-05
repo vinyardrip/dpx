@@ -56,7 +56,7 @@ db_get_prefix() {
 # =================================================================
 # DYNAMIC DEFIN NAMEDS database FROM CONFIG CMS [FIX refresh]
 #
-# Extracts name bases data without call container:
+# Extracts the database name without calling the container:
 #   WordPress : define('DB_NAME', '...');      from wp-config.php
 #   Joomla    : public $db = '...';            from configuration.php
 #   OpenCart  : define('DB_DATABASE', '...');  from config.php
@@ -275,7 +275,7 @@ db_sql_get_option() {
 
 db_sql_delete_transients() {
     local project_path="$1"
-    local mask="$2"  # e.g. 'flatsome_%' ors 'elementor_%'
+    local mask="$2"  # e.g. 'flatsome_%' or 'elementor_%'
     local mask_sql
 
     mask_sql="$(db_escape_sql_literal "$mask")"
@@ -355,9 +355,9 @@ db_import() {
         return 1
     }
 
-    print_step "auto" "Import bases data [$(basename "$sql_file")]"
+    print_step "auto" "Import database [$(basename "$sql_file")]"
 
-    # Name DDEV-project = name directors project (see. projects_list)
+    # DDEV project name = project directory name (see. projects_list)
     local project_name
     project_name=$(basename "$project_path")
 
@@ -379,7 +379,7 @@ db_import() {
             print_success "Base data imported."
             exit 0
         else
-            print_error "Error durings import bases data."
+            print_error "Error while importing the database."
             exit 1
         fi
     )
@@ -402,7 +402,7 @@ db_export() {
             print_success "Export completion: $(basename "$output_file")"
             exit 0
         else
-            print_error "Error durings export bases data."
+            print_error "Error while exporting the database."
             exit 1
         fi
     )
@@ -424,7 +424,7 @@ db_backup_local() {
     filename=$(db_generate_export_filename "$project_name" "$tag")
     local backup_file="${backup_dir}/${filename%.gz}"
 
-    print_step "auto" "Create reserve cops before operation..." >&2
+    print_step "auto" "Creating a safety backup before the operation..." >&2
 
     if db_export "$backup_file" "$project_path" "false" >&2; then
         # [FIX P-7] Protective LOCAL_BACKUP dumps used to accumulate
@@ -612,7 +612,7 @@ db_post_import_cms() {
                 cd "$project_path" || exit 1
                 find cache administrator/cache -mindepth 1 ! -name 'index.html' -delete 2>/dev/null
             ) >&2
-            print_success "Joomla: cache flushed. Verify configuration.php durings problems connected to database."
+            print_success "Joomla: cache flushed. Verify configuration.php if database problems occur."
             ;;
         "$CMS_TYPE_OPENCART")
             print_info "Project OpenCart: cleanup system/storage/cache and modification..." >&2
@@ -620,10 +620,10 @@ db_post_import_cms() {
                 cd "$project_path" || exit 1
                 find system/storage/cache system/storage/modification -mindepth 1 ! -name 'index.html' -delete 2>/dev/null
             ) >&2
-            print_success "OpenCart: cache modification flushed. Update then in admin panel durings necessities."
+            print_success "OpenCart: cache modification flushed. Update them in the admin panel if needed."
             ;;
         *)
-            print_info "Type project: $(get_cms_name "$cms_type") — post-processing cache not requires." >&2
+            print_info "Type project: $(get_cms_name "$cms_type") — no cache post-processing required." >&2
             ;;
     esac
 }
@@ -694,7 +694,7 @@ db_restore_snapshot() {
         print_success "database restore from snapshot: $snapshot_name"
         return 0
     else
-        print_error "Not remove restore snapshot: $snapshot_name"
+        print_error "Failed to restore snapshot: $snapshot_name"
         print_error "Execute manual: ddev snapshot restore $snapshot_name"
         return 1
     fi
@@ -738,7 +738,7 @@ db_smart_replace_tunnel() {
     # Single point extract prefix
     local db_prefix
     db_prefix=$(db_get_prefix "$project_path") || {
-        print_error "Not remove extract db_prefix. Stop!" >&2
+        print_error "Failed to extract db_prefix. Stop!" >&2
         return 1
     }
 
@@ -747,7 +747,7 @@ db_smart_replace_tunnel() {
     local snap_rc=$?
 
     if [[ $snap_rc -ne 0 || -z "$snapshot_name" ]]; then
-        print_error "Not remove create Safety Snapshot. Stop!" >&2
+        print_error "Failed to create Safety Snapshot. Stop!" >&2
         return 1
     fi
 
@@ -931,7 +931,7 @@ db_wp_smart_replace() {
         [[ -n "$keep_marker" ]] && marker_name="$keep_marker"
         printf '%s\n' "$marker_name" > "${project_path}/.dpx/current_snapshot" 2>/dev/null
     else
-        print_warning "Not remove create snapshot. Continue without insurances."
+        print_warning "Failed to create snapshot. Continue without insurances."
         snapshot_name=""
     fi
 
@@ -1029,7 +1029,7 @@ db_wp_export_safe() {
     rollback_marker="$(head -1 "${project_path}/.dpx/current_snapshot" 2>/dev/null | tr -d '[:space:]')"
 
     if ! db_wp_smart_replace "$local_url" "$prod_url" "$project_path"; then
-        print_error "Not remove execute replace URL before export."
+        print_error "Failed to execute replace URL before export."
         return 1
     fi
     # Forward replace completed: the DB is fully prod-URL'd until the
@@ -1064,7 +1064,7 @@ db_wp_export_safe() {
         return 0
     else
         print_error "Error export bases."
-        print_warning "Attempt restore URL after errors export..."
+        print_warning "Attempting to restore URLs after the export error..."
         # Best-effort reverse with the same rollback-marker contract.
         db_wp_smart_replace "$prod_url" "$local_url" "$project_path" "$rollback_marker" || true
         db_wp_clear_cache "$project_path" 2>/dev/null || true

@@ -25,7 +25,7 @@ show_backup_help() {
 
  ${COLOR_BOLD}Options:${COLOR_RESET}
     --project-name NAME    Name project DDEV
-    --output DIR           Director for archive (by default: full_backup_path)
+    --output DIR           Directory for the archive (by default: full_backup_path)
     --keep N               How many last archives store (by default: full_backup_keep)
     -h, --help             Show this help
 
@@ -57,16 +57,16 @@ cmd_backup() {
 
     local project_path
     project_path=$(projects_get_path "$project_name")
-    validate_directory "$project_path" "Director project" || return 1
+    validate_directory "$project_path" "Project directory" || return 1
 
     # --- Project must was run (needed export-db) ---
-    print_info "Verify status project '$project_name'..."
+    print_info "Verifying project status '$project_name'..."
     if ! ddev_is_project_running "$project_name"; then
-        print_warning "Project '$project_name' not run."
+        print_warning "Project '$project_name' is not running."
         if has_arg "yes" || confirm "Start its now?"; then
             safe_start_ddev_project "$project_name" "$project_path" || return 1
         else
-            print_error "Operation cancel."
+            print_error "Operation cancelled."
             return 1
         fi
     fi

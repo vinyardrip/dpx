@@ -33,7 +33,7 @@ show_deploy_help() {
     --php-version VERSION  Version PHP (by default: 7.4)
     --db-type TYPE         Type database (mysql, mariadb)
     --db-version VERSION   Version database (by default: 5.7)
-    -y, --yes              Skipp confirmation
+    -y, --yes              Skip confirmations
     -h, --help             Show this help
 
  ${COLOR_BOLD}Examples:${COLOR_RESET}
@@ -82,14 +82,14 @@ cmd_deploy() {
     ddev_projects_path=$(get_config "ddev_projects_base_path")
     local project_path="${ddev_projects_path}/${project_name}"
 
-    validate_directory "$project_path" "Director project" || return 1
+    validate_directory "$project_path" "Project directory" || return 1
 
     # --- Step 3: Check existing project DDEV ---
     if ddev_project_exists "$project_name"; then
         print_warning "DDEV already contains data for project '$project_name'."
         if has_arg "yes" || confirm "Remove all existing data DDEV and start anew?"; then
             ddev delete "$project_name" -y 2>&1
-            print_success "Old data DDEV success delets."
+            print_success "Old DDEV data deleted successfully."
         else
             print_error "Deploy cancel."
             return 1
@@ -107,7 +107,7 @@ cmd_deploy() {
 
     local source_db_file
     source_db_file=$(db_get_prod_filepath "$db_filename")
-    validate_file "$source_db_file" "File bases data" || return 1
+    validate_file "$source_db_file" "Database dump" || return 1
 
     # --- Step 5: Input URL production ---
     local prod_url
@@ -186,7 +186,7 @@ cmd_deploy() {
         # Steps 4-5: Import and replace URL
         if uses_wp_cli_for_url_replace "$cms_type"; then
             # WordPress: import + WP-CLI replace
-            print_step "4" "Import bases data"
+            print_step "4" "Import the database"
             db_import "$source_db_file" "$project_path" || exit 1
 
             print_step "5" "Replace URL in base data (WP-CLI)"
@@ -196,7 +196,7 @@ cmd_deploy() {
             db_wp_clear_cache "$project_path"
         else
             # Joomla, OpenCart, etc: import with replace URL in file
-            print_step "4-5" "Preparation and import bases data with replace URL"
+            print_step "4-5" "Prepare and import the database with URL replacement"
             db_import_with_replace "$source_db_file" "$prod_url" "$local_url" "$project_path" || exit 1
         fi
 

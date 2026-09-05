@@ -23,14 +23,14 @@ show_to_prod_help() {
 
  ${COLOR_BOLD}Description:${COLOR_RESET}
     Exports local database with replace URL on production.
-    Automatics creates reserve cop in folder dumps.
+    Automatically creates a safety backup in the dumps folder.
 
  ${COLOR_BOLD}Options:${COLOR_RESET}
     --project-name NAME    Name project DDEV
     --cms-type TYPE        Type CMS (wordpress, joomla, opencart, php)
     --prod-url URL         Full URL production
     --prod-tld TLD         Domain zone production (by default: by)
-    -y, --yes              Skipp confirmation
+    -y, --yes              Skip confirmations
     -h, --help             Show this help
 
  ${COLOR_BOLD}Examples:${COLOR_RESET}
@@ -52,11 +52,11 @@ cmd_to_prod() {
         return 0
     fi
     
-    print_header "Preparation database for production v1.6.0"
+    print_header "$(t toprod.title)"
 
     # --- Step 1: Selection project ---
     local project_name
-    project_name=$(projects_select_interactive "Select project for export on cont")
+    project_name=$(projects_select_interactive "$(t toprod.select.project)")
     [[ -z "$project_name" ]] && return 1
 
     local project_path
@@ -67,7 +67,7 @@ cmd_to_prod() {
     cms_type=$(get_arg "cms_type" "")
     
     if [[ -z "$cms_type" ]]; then
-        print_header "Type CMS for [$project_name]"
+        print_header "$(t toprod.cms.header "$project_name")"
         echo "1. WordPress | 2. Joomla | 3. OpenCart | 4. PHP"
         local choice
         read -r -p "Select [1]: " choice
@@ -78,7 +78,7 @@ cmd_to_prod() {
             *) cms_type="php" ;;
         esac
     fi
-    print_success "Chosen type: $(get_cms_name "$cms_type")"
+    print_success "$(t refresh.chosen.type "$(get_cms_name "$cms_type")")"
 
     # --- Step 3: Setup URL ---
     local prod_tld prod_url protocol_choice
@@ -98,7 +98,7 @@ cmd_to_prod() {
         raw_domain="${raw_domain%%/*}"     # Removes all after first slash
         raw_domain="${raw_domain%/}"       # Removes trailing slash
 
-        protocol_choice=$(prompt_choice "    Protocol production" "https" "http")
+        protocol_choice=$(prompt_choice "$(t toprod.protocol)" "https" "http")
 
         case "$protocol_choice" in
             https) prod_url="https://${raw_domain}" ;;
@@ -127,10 +127,10 @@ cmd_to_prod() {
 
     # --- Step 4: Check status DDEV ---
     if ! ddev_is_project_running "$project_name"; then
-        if confirm "Project '$project_name' not run. Start?"; then
+        if confirm "Project '$project_name' is not running. Start it now?"; then
             safe_start_ddev_project "$project_name" "$project_path" || return 1
         else
-            print_error "Project must was run for export database."
+            print_error "$(t toprod.not.running)"
             return 1
         fi
     fi
@@ -149,7 +149,7 @@ cmd_to_prod() {
     print_separator
     
     if ! has_arg "yes"; then
-        confirm "Start export?" || return 1
+        confirm "$(t toprod.start)" || return 1
     fi
 
     devilbox_stop
@@ -189,7 +189,7 @@ cmd_to_prod() {
     trap 'to_prod_interrupted INT' INT
     trap 'to_prod_interrupted TERM' TERM
 
-    # Isolate switch directors in subshell
+    # Isolate the directory switch in a subshell
     (
         cd "$project_path" || exit 1
 
@@ -222,5 +222,5 @@ cmd_to_prod() {
     # Rotation backups
     core_rotate_backups "$project_name" "$(get_db_prod_path)" "TO_PROD"
 
-    print_celebration "Ready! File in folder dumps."
+    print_celebration "$(t toprod.exported)"
 }

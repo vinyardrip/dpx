@@ -65,7 +65,7 @@ declare -gA _DPX_CMS_ALIASES=(
 detect_cms_type() {
     local project_path="$1"
 
-    # WordPress: wp-config.php ors wp-config-sample.php
+    # WordPress: wp-config.php or wp-config-sample.php
     if [[ -f "$project_path/wp-config.php" || -f "$project_path/wp-config-sample.php" ]]; then
         echo "$CMS_TYPE_WORDPRESS"
         return 0
@@ -107,7 +107,7 @@ detect_cms_type() {
 #   - "1".."4"             -> item by number (leading zeros and whitespaces ok);
 #   - text                -> name CMS without accounting case (prefix ors
 #                             shortened: "wp", "jml", "oc");
-#   - invalid input        -> repeat request (in TTY) ors error (EOF);
+#   - invalid input        -> repeat the prompt (in a TTY) or error (on EOF);
 #   - no interactivities  -> error + hint about --cms-type.
 select_cms_type() {
     local prompt="${1:-Select type CMS}"
@@ -175,7 +175,7 @@ select_cms_type() {
             continue
         fi
 
-        # Text selection: exact name ors prefix nameds, case not important
+        # Text selection: exact name or prefix, case-insensitive
         for num in "${!_DPX_CMS_MENU_ORDER[@]}"; do
             key="${_DPX_CMS_MENU_ORDER[num]}"
             if [[ "$input" == "${key,,}" || "${key,,}" == "$input"* ]]; then
@@ -190,7 +190,7 @@ select_cms_type() {
             return 0
         fi
 
-        print_warning "Unknown variant '$input'. Enter number ors name CMS."
+        print_warning "Unknown variant '$input'. Enter a number or CMS name."
     done
 }
 
@@ -210,7 +210,7 @@ get_ddev_project_type() {
 # CONFIGURATION WP-CLI (for WordPress)
 # =================================================================
 
-# Checks, need whethers use WP-CLI for replaces URL
+# Checks whether WP-CLI should be used for URL replacement
 uses_wp_cli_for_url_replace() {
     local cms_type="$1"
     [[ "$cms_type" == "$CMS_TYPE_WORDPRESS" ]]
@@ -239,7 +239,7 @@ configure_cms_for_ddev() {
             configure_opencart_config "$project_path" "$new_url"
             ;;
         *)
-            print_info "Configuration not requires for type: $cms_type"
+            print_info "No configuration needed for type: $cms_type"
             ;;
     esac
 }
@@ -369,7 +369,7 @@ configure_opencart_config() {
 #
 # Convention for handlers:
 #   - Variable: $_CMS_HANDLER_PROJECT_PATH — path to project
-#   - Output: >&2 for logs, errors mask via || true
+#   - Output: >#   - Output: >&2 for logs, errors mask via || true2 for logs, errors masked via || true
 #   - Detector: each handler-file FIRST checks presence plugin, then acts
 # =================================================================
 

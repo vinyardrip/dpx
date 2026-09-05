@@ -11,17 +11,17 @@
 # Reliable check versions Bash (works on macOS and Linux)
 # BASH_VERSINFO - built-in array with numerics components versions
 if [[ -z "${BASH_VERSINFO[0]:-}" ]] || (( BASH_VERSINFO[0] < 4 )); then
-    echo "ERROR: This script requires Bash 4.0 ors above." >&2
+    echo "ERROR: This script requires Bash 4.0 or above." >&2
     echo "Current version: ${BASH_VERSION:-unknown}" >&2
     if [[ "$OSTYPE" == "darwin"* ]]; then
         echo "" >&2
         echo "Hint for macOS:" >&2
         echo "  1. Install modern Bash: brew install bash" >&2
-        echo "  2. Add in ~/.zshrc ors ~/.bash_profile:" >&2
+        echo "  2. Add ~/.zshrc or ~/.bash_profile:" >&2
         echo "     export PATH=\"/opt/homebrew/bin:\$PATH\"" >&2
-        echo "     # ors for Intel Mac:" >&2
+        echo "     # or, for Intel Macs:" >&2
         echo "     export PATH=\"/usr/local/bin:\$PATH\"" >&2
-        echo "  3. Restart terminal ors execute: source ~/.zshrc" >&2
+        echo "  3. Restart the terminal or run: source ~/.zshrc" >&2
     fi
     exit 1
 fi
@@ -141,25 +141,30 @@ show_commands() {
     local reset="$COLOR_RESET"
     local green="$COLOR_GREEN"
 
-    printf '%sAvailable command:%s\n' "$bold" "$reset"
-    printf '  %s%-12s%s %s\n' "$green" "list" "$reset" "List projects"
-    printf '  %s%-12s%s %s\n' "$green" "edit" "$reset" "Editing metadata"
-    printf '  %s%-12s%s %s\n' "$green" "set-php" "$reset" "Switch versions PHP"
-    printf '  %s%-12s%s %s\n' "$green" "deploy" "$reset" "Deploy project"
-    printf '  %s%-12s%s %s\n' "$green" "new" "$reset" "Create project (all types)"
-    printf '  %s%-12s%s %s\n' "$green" "new-wp" "$reset" "New WordPress (alias new --cms=wordpress)"
+    printf '%sAvailable commands:%s\n' "$bold" "$reset"
+    printf '\n%sDATABASE:%s\n' "$bold" "$reset"
+    printf '  %s%-12s%s %s\n' "$green" "db pull" "$reset" "Refresh the local DB from production (alias: refresh)"
+    printf '  %s%-12s%s %s\n' "$green" "db snap" "$reset" "Quick local DB snapshot (alias: db-snap)"
+    printf '  %s%-12s%s %s\n' "$green" "db restore" "$reset" "Restore a local DB backup (alias: db-restore)"
+    printf '  %s%-12s%s %s\n' "$green" "db push" "$reset" "Prepare a production export (alias: to-prod)"
+    printf '\n%sSITE:%s\n' "$bold" "$reset"
+    printf '  %s%-12s%s %s\n' "$green" "site new" "$reset" "Scaffold a project (alias: new)"
+    printf '  %s%-12s%s %s\n' "$green" "site backup" "$reset" "Full files + database backup (alias: backup)"
+    printf '  %s%-12s%s %s\n' "$green" "site restore" "$reset" "Restore a full backup archive (alias: restore)"
+    printf '  %s%-12s%s %s\n' "$green" "site migrate" "$reset" "Migrate from Devilbox (alias: migrate)"
+    printf '  %s%-12s%s %s\n' "$green" "site deploy" "$reset" "Deploy an existing codebase (alias: deploy)"
+    printf '\n%sTOOLS:%s\n' "$bold" "$reset"
+    printf '  %s%-12s%s %s\n' "$green" "new" "$reset" "Scaffold a project (6 CMS/framework types)"
+    printf '  %s%-12s%s %s\n' "$green" "new-wp" "$reset" "Alias for new --cms=wordpress"
+    printf '  %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Public URL (cloudflare or ngrok)"
     printf '  %s%-12s%s %s\n' "$green" "config" "$reset" "Configuration wizard / --show"
-    printf '  %s%-12s%s %s\n' "$green" "ddev" "$reset" "Wrapper command DDEV"
-    printf '  %s%-12s%s %s\n' "$green" "refresh" "$reset" "Update database"
-    printf '  %s%-12s%s %s\n' "$green" "migrate" "$reset" "Migration with Devilbox"
-    printf '  %s%-12s%s %s\n' "$green" "db-snap" "$reset" "Snapshot local database"
-    printf '  %s%-12s%s %s\n' "$green" "db-restore" "$reset" "Restore database"
-    printf '  %s%-12s%s %s\n' "$green" "backup" "$reset" "Full backup project"
-    printf '  %s%-12s%s %s\n' "$green" "to-prod" "$reset" "Export database on cont"
-    printf '  %s%-12s%s %s\n' "$green" "tunnel" "$reset" "Forwarding tunnel"
-    printf '  %s%-12s%s %s\n' "$green" "update" "$reset" "Update DPX"
-    printf '  %s%-12s%s %s\n' "$green" "clean" "$reset" "Clean stale temporary files"
-    printf '  %s%-12s%s %s\n' "$green" "info" "$reset" "Configuration and versions"
+    printf '  %s%-12s%s %s\n' "$green" "ddev" "$reset" "Run any DDEV command for a project"
+    printf '  %s%-12s%s %s\n' "$green" "list" "$reset" "List projects"
+    printf '  %s%-12s%s %s\n' "$green" "set-php" "$reset" "Change project PHP version"
+    printf '  %s%-12s%s %s\n' "$green" "edit" "$reset" "Edit project metadata"
+    printf '  %s%-12s%s %s\n' "$green" "info" "$reset" "Environment and configuration report"
+    printf '  %s%-12s%s %s\n' "$green" "update" "$reset" "Self-update from Git"
+    printf '  %s%-12s%s %s\n' "$green" "clean" "$reset" "Remove stale temporary files"
     printf '\nUse: %s <command> --help\n' "$TOOL_NAME"
 }
 
@@ -274,7 +279,7 @@ main() {
     esac
 
     # Processing call helps for specific command: dpx <cmd> --help
-    # Verify --help ors -h in ANY positions arguments
+    # Detect --help or -h in ANY argument position
     local help_requested=false
     local clean_args=()
 
@@ -294,7 +299,7 @@ main() {
 
     if [[ "$help_requested" == true ]]; then
         case "$command" in
-            list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|tunnel|update|info|backup|config|restore|clean)
+            list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|ddev|tunnel|update|info|backup|config|restore|clean)
                 local cmd_file="${DPX_ROOT}/commands/${command}.sh"
                 [[ -f "$cmd_file" ]] || cmd_file="$(domain_command_file "$command")"
                 if [[ -f "$cmd_file" ]]; then

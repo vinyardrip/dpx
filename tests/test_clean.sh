@@ -17,11 +17,14 @@ source "$DPX_ROOT/lib/core.sh"
 source "$DPX_ROOT/commands/clean.sh"
 
 PROJECT="$TEST_TEMP_DIR/project"
-mkdir -p "$PROJECT/.dpx/tmp" "$PROJECT/.dpx/config" "$PROJECT/.dpx/snapshots"
+# [D-3] Real DDEV DB snapshots live in <project>/.ddev-db-snapshots;
+# .dpx/snapshots never existed in production code (dead feature).
+mkdir -p "$PROJECT/.dpx/tmp" "$PROJECT/.dpx/config" "$PROJECT/.ddev-db-snapshots"
 printf 'old\n' > "$PROJECT/.dpx/tmp/old.tmp"
 printf 'new\n' > "$PROJECT/.dpx/tmp/new.tmp"
 printf 'config\n' > "$PROJECT/.dpx/config/settings"
-printf 'snapshot\n' > "$PROJECT/.dpx/snapshots/snap.sql"
+printf 'marker\n' > "$PROJECT/.dpx/current_snapshot"
+printf 'snapshot\n' > "$PROJECT/.ddev-db-snapshots/snap.sql"
 touch -t 202001010000 "$PROJECT/.dpx/tmp/old.tmp"
 
 test_start "default clean removes only temp files older than 7 days"
@@ -32,28 +35,29 @@ else
     test_fail "default age policy incorrect"
 fi
 
-test_start "default clean preserves config and snapshots"
-if [[ -e "$PROJECT/.dpx/config/settings" && -e "$PROJECT/.dpx/snapshots/snap.sql" ]]; then
+test_start "default clean preserves config, marker and DDEV snapshots"
+if [[ -e "$PROJECT/.dpx/config/settings" && -e "$PROJECT/.dpx/current_snapshot" \
+   && -e "$PROJECT/.ddev-db-snapshots/snap.sql" ]]; then
     test_pass
 else
     test_fail "protected DPX state removed"
 fi
 
-test_start "--snapshots removes snapshots but preserves config and fresh temp"
+test_start "--snapshots removes DDEV snapshots but preserves config, marker and fresh temp"
 (cd "$PROJECT" && cmd_clean --snapshots >/dev/null 2>&1)
-if [[ ! -d "$PROJECT/.dpx/snapshots" && -e "$PROJECT/.dpx/config/settings" \
-   && -e "$PROJECT/.dpx/tmp/new.tmp" ]]; then
+if [[ ! -d "$PROJECT/.ddev-db-snapshots" && -e "$PROJECT/.dpx/config/settings" \
+   && -e "$PROJECT/.dpx/current_snapshot" && -e "$PROJECT/.dpx/tmp/new.tmp" ]]; then
     test_pass
 else
     test_fail "--snapshots policy incorrect"
 fi
 
-mkdir -p "$PROJECT/.dpx/snapshots"
-printf 'snapshot\n' > "$PROJECT/.dpx/snapshots/snap.sql"
-test_start "--all removes all temp files and snapshots but preserves config"
+mkdir -p "$PROJECT/.ddev-db-snapshots"
+printf 'snapshot\n' > "$PROJECT/.ddev-db-snapshots/snap.sql"
+test_start "--all removes all temp files and DDEV snapshots but preserves config"
 (cd "$PROJECT" && cmd_clean --all >/dev/null 2>&1)
-if [[ ! -e "$PROJECT/.dpx/tmp/new.tmp" && ! -d "$PROJECT/.dpx/snapshots" \
-   && -e "$PROJECT/.dpx/config/settings" ]]; then
+if [[ ! -e "$PROJECT/.dpx/tmp/new.tmp" && ! -d "$PROJECT/.ddev-db-snapshots" \
+   && -e "$PROJECT/.dpx/config/settings" && -e "$PROJECT/.dpx/current_snapshot" ]]; then
     test_pass
 else
     test_fail "--all policy incorrect"

@@ -23,7 +23,7 @@ EOF
 
 cmd_db_snap() {
     parse_args "$@" || return 1
-    print_header "Create snapshot local database v1.1.1"
+    print_header "Create a local database snapshot"
 
     # 1. Selection project
     local project_name
@@ -35,7 +35,7 @@ cmd_db_snap() {
 
     # 2. Check status DDEV
     if ! ddev_is_project_running "$project_name"; then
-        confirm "Project '$project_name' not run. Start for export?" && \
+        confirm "Project '$project_name' is not running. Start it for export?" && \
             safe_start_ddev_project "$project_name" "$project_path" || return 1
     fi
 
@@ -48,7 +48,7 @@ cmd_db_snap() {
     # db_generate_export_filename already generates .sql (without .gz)
     local out_file="${db_dir}/$(db_generate_export_filename "$project_name" "SNAP")"
 
-    print_info "Export bases [$project_name] (without compressed for fast access)..."
+    print_info "Exporting database [$project_name] (uncompressed for fast access)..."
 
     # Execute in subshell for isolations cd
     (
@@ -57,10 +57,10 @@ cmd_db_snap() {
         # [FIX] Removed 2>&1 - leave stderr visible for diagnostics errors
         # Backups criticals, errors shoulds was visibles!
         if ddev export-db --gzip=false --file="$out_file" >/dev/null; then
-            print_success "Snapshot create: $(basename "$out_file")"
+            print_success "Snapshot created: $(basename "$out_file")"
             print_info "Size: $(du -h "$out_file" | awk '{print $1}')"
         else
-            print_error "Not remove create snapshot."
+            print_error "Failed to create snapshot."
             exit 1
         fi
     ) || return 1

@@ -82,7 +82,7 @@ ensure_parent_directory() {
 
 validate_directory() {
     local path="$1"
-    local description="${2:-director}"
+    local description="${2:-directory}"
 
     if [[ -z "$path" ]]; then
         print_error "Path to $description not specified."
@@ -119,7 +119,7 @@ validate_non_empty() {
     local description="${2:-value}"
 
     if [[ -z "$value" ]]; then
-        print_error "$description not may was empty."
+        print_error "$description cannot be empty."
         return 1
     fi
 
@@ -212,7 +212,7 @@ prompt_choice() {
     read -r -p "$prompt ($choices_str) [$default]: " response
 
     if [[ -n "$response" ]]; then
-        # Verify, consumes whethers entered value in list
+        # Verify whether the entered value is in the list
         for choice in "${choices[@]}"; do
             [[ "$response" == "$choice" ]] && echo "$choice" && return
         done
@@ -327,13 +327,13 @@ EOF
 #
 # dpx_exec_and_log — wrapper for execut command with logging.
 #
-# Performs command in context directors project (cd "$project_path"),
+# Performs the command in the project directory context (cd "$project_path"),
 # shows output user (stdout/stderr) and guaranteed writes
 # full line start + result in file .dpx/debug.log internals project.
 #
 # v1.4.22: COMMAND PERFORMS In PROJECT CONTEXT.
 # All ddev-command (snapshot, mysql, exec) require start from
-# directors project. Wrapper automatics makes cd before
+# the project directory. The wrapper performs cd before
 # execut, therefore callers NOT shoulds itself cd.
 #
 # APPLIED:
@@ -383,7 +383,7 @@ safe_sed_inplace() {
 
     if [[ "$DPX_OS_TYPE" == "macos" ]]; then
         sed -i "${DPX_SED_INPLACE_EXT}" "$pattern" "$file"
-        # Auto-cleanup .bak on macOS (sed -i .bak creates reserve cop)
+        # Auto-cleanup .bak on macOS (sed -i .bak creates a backup copy)
         rm -f "${file}${DPX_SED_INPLACE_EXT}" 2>/dev/null || true
     else
         sed -i "$pattern" "$file"

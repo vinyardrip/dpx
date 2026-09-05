@@ -199,6 +199,71 @@ for bad in Continu Creat Updat Restor Delet Cancell Verifi replac continu creat 
 done
 
 # =================================================================
+# [Stage 4] db-restore / refresh / to-prod dictionary coverage
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== stage 4: new command dictionaries ===${TEST_RESET}"
+
+out="$(probe 'export LANG=C' 't dbrestore.title; t dbrestore.protective; t dbrestore.done; t common.cancelled')"
+test_start "[en] db-restore strings present"
+if grep -qF "Restore a database from a local backup" <<<"$out" \
+   && grep -qF "Creating a protective dump of the current database..." <<<"$out" \
+   && grep -qF "Database restored successfully!" <<<"$out" \
+   && grep -qF "Cancelled." <<<"$out"; then
+    test_pass
+else
+    test_fail "got: $out"
+fi
+
+out="$(probe 'export LANG=ru_RU.UTF-8' 't dbrestore.title; t dbrestore.protective; t dbrestore.done; t common.cancelled')"
+test_start "[ru] db-restore strings localized"
+if grep -qF "Восстановление базы данных из локального бэкапа" <<<"$out" \
+   && grep -qF "Создаём страховочный дамп текущей базы данных..." <<<"$out" \
+   && grep -qF "База данных успешно восстановлена!" <<<"$out" \
+   && grep -qF "Отменено." <<<"$out"; then
+    test_pass
+else
+    test_fail "got: $out"
+fi
+
+out="$(probe 'export LANG=C' 't refresh.title; t refresh.overwrite.warn mysite; t toprod.title')"
+test_start "[en] refresh/to-prod strings present"
+if grep -qF "Update the local database with production data" <<<"$out" \
+   && grep -qF "The current local database of project 'mysite' will be FULLY OVERWRITTEN!" <<<"$out" \
+   && grep -qF "Prepare the local database for production" <<<"$out"; then
+    test_pass
+else
+    test_fail "got: $out"
+fi
+
+out="$(probe 'export LANG=ru_RU.UTF-8' 't refresh.title; t refresh.overwrite.warn mysite; t toprod.title')"
+test_start "[ru] refresh/to-prod strings localized"
+if grep -qF "Обновление локальной базы данных данными продакшена" <<<"$out" \
+   && grep -qF "ПОЛНОСТЬЮ ПЕРЕЗАПИСАНА" <<<"$out" \
+   && grep -qF "Подготовка локальной базы данных к продакшену" <<<"$out"; then
+    test_pass
+else
+    test_fail "got: $out"
+fi
+
+# =================================================================
+# [Stage 4] Engrish regression sweep: banned machine-translation tokens
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== engrish artifact sweep (stage 4) ===${TEST}" 2>/dev/null || echo "${TEST_CYAN}=== engrish artifact sweep (stage 4) ===${TEST_RESET}"
+
+for bad in "Not remove" " ors " "neithers" "Yous confidents" "not founds" "Skipp confirmation" "restors bases" "reserve cop" "bases data"; do
+    test_start "no user-facing token '$bad' in sources"
+    if grep -rqF "$bad" "$DPX_ROOT/lib" "$DPX_ROOT/commands" "$DPX_ROOT/dpx.sh" 2>/dev/null; then
+        test_fail "found: $(grep -rlF "$bad" "$DPX_ROOT/lib" "$DPX_ROOT/commands" "$DPX_ROOT/dpx.sh" 2>/dev/null | head -1)"
+    else
+        test_pass
+    fi
+done
+
+# =================================================================
 # new.sh interactive menu respects locale
 # =================================================================
 

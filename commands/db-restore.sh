@@ -24,11 +24,11 @@ EOF
 
 cmd_db_restore() {
     parse_args "$@" || return 1
-    print_header "Restore bases data v1.3.0"
+    print_header "$(t dbrestore.title)"
 
     # 1. Selection project
     local project_name
-    project_name=$(projects_select_interactive "Select project for restore database")
+    project_name=$(projects_select_interactive "$(t dbrestore.select.project)")
     [[ -z "$project_name" ]] && return 1
 
     local project_path
@@ -37,7 +37,7 @@ cmd_db_restore() {
     # 2. Search available backups in db_local
     local backup_dir=$(get_db_local_path)
     if [[ ! -d "$backup_dir" ]]; then
-        print_error "Director backups not found: $backup_dir"
+        print_error "Backups directory not found: $backup_dir"
         return 1
     fi
 
@@ -67,33 +67,36 @@ cmd_db_restore() {
         fi
     else
         selected_file=$(db_pick_dump_file "$backup_dir" "${project_name}_") || {
-            print_warning "Backups for project '$project_name' not founds in $backup_dir"
+            print_warning "$(t dbrestore.no.backups "$project_name" "$backup_dir")"
             return 1
         }
     fi
 
     # 4. Check status DDEV
     if ! ddev_is_project_running "$project_name"; then
-        confirm "Project '$project_name' not run. Start?" && safe_start_ddev_project "$project_name" "$project_path" || return 1
+        confirm "Project '$project_name' is not running. Start it now?" && safe_start_ddev_project "$project_name" "$project_path" || return 1
     fi
 
     # 5. Execute import
-    if confirm "Yous confidents, that want REPLACE base data project '$project_name' file $(basename "$selected_file")?"; then
+    # [FIX I-4] Declining a DESTRUCTIVE confirm now prints a clear
+    # cancelled message and returns non-zero instead of exiting rc=0
+    # silently (which looked like success to callers/scripts).
+    if confirm "$(t dbrestore.confirm.replace "$project_name" "$(basename "$selected_file")")"; then
         # Create protective backup current state before import
-        print_info "Create protective dump current database..."
+        print_info "$(t dbrestore.protective)"
         local backup_file
-        backup_file=$(db_backup_local "$project_name" "$project_path") || { print_error "Not remove create protective backup. Cancel."; return 1; }
-        print_success "Protective dump saved: $(basename "$backup_file")"
+        backup_file=$(db_backup_local "$project_name" "$project_path") || { print_error "$(t dbrestore.protective.failed)"; return 1; }
+        print_success "$(t dbrestore.protective.saved "$(basename "$backup_file")")"
 
-        print_info "Begin import..."
+        print_info "$(t dbrestore.importing)"
 
-        # [ISSUE 1] Type CMS: from arguments (--cms-type) ors autodetection.
-        # Page determin UNTIL import — from result depends post-processing.
+        # [ISSUE 1] Type CMS: from the --cms-type argument or autodetection.
+        # Resolved BEFORE the import — post-processing depends on it.
         local cms_type
         cms_type=$(get_arg "cms_type" "")
         if [[ -z "$cms_type" ]]; then
             cms_type=$(detect_cms_type "$project_path")
-            print_info "Type CMS defin automatics: $(get_cms_name "$cms_type")"
+            print_info "$(t dbrestore.cms.detected "$(get_cms_name "$cms_type")")"
         fi
 
         # Execute in subshell for isolations cd
@@ -101,16 +104,20 @@ cmd_db_restore() {
             cd "$project_path" || exit 1
 
             if db_import "$selected_file" "$project_path"; then
-                print_success "Base data success restore!"
+                print_success "$(t dbrestore.done)"
 
                 # [ISSUE 1] Post-processing PAGE by type CMS.
                 # WordPress-routine (wp-cli) performs only for wordpress;
                 # Joomla/OpenCart/PHP receive with action and message.
                 db_post_import_cms "$project_path" "$cms_type"
             else
-                print_error "Error durings restors bases."
+                print_error "$(t dbrestore.import.failed)"
                 exit 1
             fi
         ) || return 1
+    else
+        # [FIX I-4] Explicit decline: visible message + non-zero status.
+        print_warning "$(t common.cancelled)"
+        return 1
     fi
 }

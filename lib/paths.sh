@@ -61,7 +61,7 @@ dpx_resolve_symlink() {
     return 1
 }
 
-# Defin root directors project
+# Determine the project root directory
 dpx_get_root() {
     local source="${BASH_SOURCE[0]:-$0}"
     local dir

@@ -93,7 +93,7 @@ cmd_edit() {
             echo ""
             print_info "File: $(dpx_meta_file)"
         else
-            print_warning "Metadata not givens"
+            print_warning "Metadata is empty"
         fi
         return 0
     fi
@@ -105,10 +105,10 @@ cmd_edit() {
         if dpx_meta_exists "$project_name"; then
             if confirm "Remove all metadata project '$project_name'?"; then
                 dpx_meta_delete "$project_name"
-                print_success "Metadata delets"
+                print_success "Metadata deleted"
             fi
         else
-            print_warning "Metadata not founds"
+            print_warning "No metadata found"
         fi
         return 0
     fi
@@ -229,14 +229,14 @@ cmd_edit() {
             ;;
         3)
             echo ""
-            dpx_meta_get_all "$project_name" | jq -r 'to_entries[] | "  \(.key): \(.value)"' 2>/dev/null || print_warning "Metadata not givens"
+            dpx_meta_get_all "$project_name" | jq -r 'to_entries[] | "  \(.key): \(.value)"' 2>/dev/null || print_warning "Metadata is empty"
             echo ""
             print_info "File: $(dpx_meta_file)"
             ;;
         4)
             if confirm "Remove all metadata project?"; then
                 dpx_meta_delete "$project_name"
-                print_success "Metadata delets"
+                print_success "Metadata deleted"
             fi
             ;;
         0|*)

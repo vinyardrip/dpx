@@ -27,7 +27,7 @@ EOF
 }
 
 cmd_ddev() {
-    # Ifs command not passed ors requested help
+    # Ifs no command passed or help requested
     if [[ -z "$1" || "$1" == "--help" || "$1" == "-h" ]]; then
         show_ddev_help
         return 0
@@ -61,7 +61,7 @@ cmd_ddev() {
     project_path=$(projects_get_path "$project_name")
 
     if [[ ! -d "$project_path" ]]; then
-        print_error "Director project not found: $project_path"
+        print_error "Project directory not found: $project_path"
         return 1
     fi
 

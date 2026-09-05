@@ -137,7 +137,7 @@ check_docker() {
     docker_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
 
     if [[ -z "$docker_version" ]]; then
-        print_error "Docker daemon not run ors unavailable!"
+        print_error "Docker daemon is not running or unavailable!"
         case "$DPX_OS_TYPE" in
             macos) print_error "Start Docker Desktop for macOS" ;;
             linux) print_error "Try: sudo systemctl start docker" ;;
@@ -203,13 +203,13 @@ check_dependencies() {
         check_dependency "$cmd" || has_errors=1
     done
 
-    # docker compose: v2 (plugin docker compose) ors v1 (binary docker-compose)
+    # docker compose: v2 (v2 plugin or v1 binary)
     if docker compose version >/dev/null 2>&1; then
         print_info "docker compose (v2) ✓"
     elif command -v docker-compose >/dev/null 2>&1; then
         print_info "docker-compose (v1) ✓"
     else
-        print_error "docker compose not found (neithers v2 plugin, neithers v1 binary)."
+        print_error "docker compose not found (neither the v2 plugin nor the v1 binary)."
         has_errors=1
     fi
 

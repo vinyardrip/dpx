@@ -267,6 +267,75 @@ test_start "tar-slip guard accepts clean archives"
 check_value "SAFE" "$(tar_slip_probe "$SLIP_DIR/good.tar.gz")"
 
 # =================================================================
+# [Stage 4 / D-5] E2E dispatch: every routed command must expose its
+# router-derived entry function (cmd_<name>) AND its help function.
+# The router executes cmd_${command//-/_}; a missing entry is the class
+# of regression that once broke `dpx restore` entirely.
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== e2e dispatch matrix (all routed commands) ===${TEST_RESET}"
+
+ROUTED_COMMANDS=(
+    list edit set-php deploy to-prod db-snap db-restore new-wp
+    new refresh migrate ddev tunnel update info backup config
+    restore clean
+)
+
+dispatch_probe() { # $1 = canonical command; echoes verdict
+    local command="$1"
+    bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        command="'"$command"'"
+        cmd_file="$DPX_ROOT/commands/${command}.sh"
+        [[ -f "$cmd_file" ]] || cmd_file="$(domain_command_file "$command")"
+        if [[ ! -f "$cmd_file" ]]; then
+            echo "NO_FILE"; exit 1
+        fi
+        if ! bash -n "$cmd_file" 2>/dev/null; then
+            echo "SYNTAX_FAIL"; exit 1
+        fi
+        # shellcheck disable=SC1090
+        source "$cmd_file" >/dev/null 2>&1
+        func_name="cmd_${command//-/_}"
+        help_func="show_${command//-/_}_help"
+        have_cmd=0; have_help=0
+        declare -f "$func_name" >/dev/null && have_cmd=1
+        declare -f "$help_func" >/dev/null && have_help=1
+        echo "CMD=$have_cmd HELP=$have_help"
+    ' </dev/null 2>/dev/null
+}
+
+all_ok=true
+bad=""
+for c in "${ROUTED_COMMANDS[@]}"; do
+    verdict="$(dispatch_probe "$c")"
+    if [[ "$verdict" != "CMD=1 HELP=1" ]]; then
+        all_ok=false
+        bad+="${c}(${verdict}) "
+    fi
+done
+test_start "all $((${#ROUTED_COMMANDS[@]})) routed commands expose cmd_* and help"
+if [[ "$all_ok" == true ]]; then
+    test_pass
+else
+    test_fail "bad: $bad"
+fi
+
+# Live dispatch smoke: the full dpx.sh chain (router -> source -> declare -f)
+# must never print "Function ... not found" for any routed command. The
+# commands exit early in non-interactive envs, which is fine — the assertion
+# is about the dispatch error specifically.
+live_dispatch_errors=0
+for c in "${ROUTED_COMMANDS[@]}"; do
+    out="$(timeout 25 bash "$DPX_ROOT/dpx.sh" "$c" </dev/null 2>&1 | grep -cF 'Function cmd_')"
+    live_dispatch_errors=$((live_dispatch_errors + out))
+done
+test_start "live dispatch: zero 'Function ... not found' across the matrix"
+check_value "0" "$live_dispatch_errors"
+
+# =================================================================
 # Update check: TTL logic + banner (mocked git)
 # =================================================================
 
@@ -294,7 +363,7 @@ check_value "0" "$(update_read_behind "$CACHE")"
 # Banner unit: isolated child process, mocked git, forced display.
 banner_probe() { # $1=behind  $2=force(0|1); rc propagated via if/capture
     export DPX_FORCE_BANNER="$2" FAKE_BEHIND="$1" \
-        FAKE_LOCAL_VERSION=1.6.0 FAKE_REMOTE_VERSION=1.7.0
+        FAKE_LOCAL_VERSION=1.6.0 FAKE_REMOTE_VERSION=1.8.0
     # Isolated HOME: user-level dpx.conf must not leak into probes
     export HOME="$PROBE_HOME"
     bash -c '
@@ -304,7 +373,7 @@ banner_probe() { # $1=behind  $2=force(0|1); rc propagated via if/capture
         git() {
             case "$*" in
                 *rev-list*)
-                    # Model the remote release explicitly: 1.7.0 is newer
+                    # Model the remote release explicitly: 1.8.0 is newer
                     # than the checked-out 1.6.0 and therefore has commits.
                     [[ "$FAKE_REMOTE_VERSION" != "$FAKE_LOCAL_VERSION" ]] \
                         && echo "$FAKE_BEHIND" || echo 0
@@ -409,21 +478,21 @@ unset -f ddev
 echo ""
 echo "${TEST_CYAN}=== Version SSOT ===${TEST_RESET}"
 
-test_start ".version equals 1.7.0"
-check_value "1.7.0" "$(cat "$DPX_ROOT/.version")"
+test_start ".version equals 1.8.0"
+check_value "1.8.0" "$(cat "$DPX_ROOT/.version")"
 
 out="$(bash "$DPX_ROOT/dpx.sh" -v </dev/null 2>&1)"
-test_start "dpx -v reports v1.7.0"
-if grep -qF "dpx v1.7.0" <<<"$out"; then
+test_start "dpx -v reports v1.8.0"
+if grep -qF "dpx v1.8.0" <<<"$out"; then
     test_pass
 else
     test_fail "got: $out"
 fi
 
 ok=true
-    grep -qF "version-1.7.0-blue" "$DPX_ROOT/README.md"    || ok=false
-    grep -qF "version-1.7.0-blue" "$DPX_ROOT/README.ru.md" || ok=false
-test_start "README badges show 1.7.0"
+    grep -qF "version-1.8.0-blue" "$DPX_ROOT/README.md"    || ok=false
+    grep -qF "version-1.8.0-blue" "$DPX_ROOT/README.ru.md" || ok=false
+test_start "README badges show 1.8.0"
 if [[ "$ok" == true ]]; then test_pass; else test_fail "badge missing"; fi
 
 print_test_summary

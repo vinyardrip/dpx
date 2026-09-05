@@ -90,7 +90,7 @@ projects_select_interactive() {
     local base_path=$(projects_get_base_path)
 
     if [[ ! -d "$base_path" ]]; then
-        print_error "Director projects not found: $base_path" >&2
+        print_error "Projects directory not found: $base_path" >&2
         return 1
     fi
 
@@ -122,7 +122,7 @@ projects_select_interactive() {
     local count=${#projects[@]}
 
     if [[ $count -eq 0 ]]; then
-        print_warning "DDEV projects not founds in: $base_path" >&2
+        print_warning "No DDEV projects found in: $base_path" >&2
         return 1
     fi
 

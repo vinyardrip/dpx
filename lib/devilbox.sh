@@ -26,7 +26,7 @@ dpx_docker_compose() {
         elif command -v docker-compose >/dev/null 2>&1; then
             _dpx_docker_compose_cmd="docker-compose"
         else
-            print_error "docker compose not found (neithers v2 plugin, neithers v1 binary)."
+            print_error "docker compose not found (neither the v2 plugin nor the v1 binary)."
             return 1
         fi
     fi
@@ -50,13 +50,13 @@ get_devilbox_data_path() {
 # CHECK STATE DEVILBOX
 # =================================================================
 
-# Check, installed whethers Devilbox
+# Check whether Devilbox is installed
 devilbox_is_installed() {
     local devilbox_path=$(get_devilbox_path)
     [[ -d "$devilbox_path" ]]
 }
 
-# Check, run whethers Devilbox
+# Check whether Devilbox is running
 devilbox_is_running() {
     local devilbox_path=$(get_devilbox_path)
 
@@ -102,7 +102,7 @@ devilbox_stop() {
         print_success "Devilbox success stopped."
         return 0
     else
-        print_warning "Not remove stop Devilbox (possible, it not run)."
+        print_warning "Failed to stop Devilbox (it may not be running)."
         return 0  # Not critical error
     fi
 }
@@ -127,7 +127,7 @@ devilbox_start() {
         print_success "Devilbox success run."
         return 0
     else
-        print_error "Not remove start Devilbox."
+        print_error "Failed to start Devilbox."
         return 1
     fi
 }
@@ -166,7 +166,7 @@ devilbox_start_services() {
             print_success "Services Devilbox runs: $services"
             exit 0
         else
-            print_error "Not remove start services Devilbox"
+            print_error "Failed to start services Devilbox"
             exit 1
         fi
     ) || return 1
@@ -203,7 +203,7 @@ devilbox_restart() {
 # EXPORT database FROM DEVILBOX
 # =================================================================
 
-# Export bases data from Devilbox
+# Export the database from Devilbox
 # Important: cd in subshell, and NOT redirect stderr in file dump!
 devilbox_export_db() {
     local devilbox_path="$1"
@@ -214,7 +214,7 @@ devilbox_export_db() {
 
     validate_safe_identifier "$db_name" "database name" || return 1
 
-    print_step "auto" "Export bases data from Devilbox"
+    print_step "auto" "Export the database from Devilbox"
 
     # Make sure, that director for output exist
     ensure_directory "$(dirname "$output_file")"
@@ -226,7 +226,7 @@ devilbox_export_db() {
         # Export via docker-compose
         # IMPORTANT: stderr NOT must hits in file dump!
         if ! dpx_docker_compose exec -T mysql mysqldump -u "$db_user" ${db_pass:+-p"$db_pass"} "$db_name" > "$output_file"; then
-            print_error "Error export bases data '$db_name'"
+            print_error "Error exporting the database '$db_name'"
             rm -f "$output_file"  # Remove bit file
             exit 1
         fi
@@ -275,7 +275,7 @@ devilbox_list_projects() {
 # CHECK CONFLICTS PORTS
 # =================================================================
 
-# Check, busies whethers ports (cross-platform: lsof ors ss)
+# Check, busies whethers ports (cross-platform: lsof or ss)
 check_port_conflicts() {
     local ports=(80 443 8025 8036)
     local conflicts=()
@@ -333,7 +333,7 @@ ddev_poweroff_for_devilbox() {
         print_success "DDEV stopped."
         return 0
     else
-        print_warning "Not remove stop DDEV."
+        print_warning "Failed to stop DDEV."
         return 1
     fi
 }

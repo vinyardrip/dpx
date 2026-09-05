@@ -37,16 +37,16 @@ show_migrate_help() {
     --db-name NAME             Name database in Devilbox
     --db-type TYPE             Type database for DDEV (mysql, mariadb)
     --db-version VERSION       Version database for DDEV (by default: 5.7)
-    --no-db                    Project without bases data
-    --keep-backup              Not remove file backup database
-    -y, --yes                  Skipp confirmation
+    --no-db                    Project without a database
+    --keep-backup              Keep the database backup file
+    -y, --yes                  Skip confirmations
     -h, --help                 Show this help
 
  ${COLOR_BOLD}Examples:${COLOR_RESET}
     ${TOOL_NAME} migrate
     ${TOOL_NAME} migrate --project-name mysite --devilbox-folder mysite-old
     ${TOOL_NAME} migrate --project-name mysite --cms-type wordpress --php-version 8.1 -y
-    ${TOOL_NAME} migrate --project-name mysite --no-db  # without bases data
+    ${TOOL_NAME} migrate --project-name mysite --no-db  # without a database
 EOF
 }
 
@@ -81,7 +81,7 @@ cmd_migrate() {
             echo "1. WordPress"
             echo "2. Joomla"
             echo "3. OpenCart"
-            echo "4. Clean PHP/HTML (without bases data)"
+            echo "4. Clean PHP/HTML (no database)"
 
             local choice
             read -r -p "Select [1]: " choice
@@ -117,13 +117,13 @@ cmd_migrate() {
     ddev_projects_path=$(get_config "ddev_projects_base_path")
     local ddev_path="${ddev_projects_path}/${project_name}"
 
-    # Check existence directors
+    # Check directory existence
     if [[ -d "$ddev_path" ]]; then
-        print_warning "Director project '$ddev_path' already exist."
+        print_warning "Project directory '$ddev_path' already exists."
         if has_arg "yes" || confirm "Remove its and ALL data DDEV for result project?"; then
             ddev delete "$project_name" -y 2>/dev/null || true
             rm -rf "$ddev_path"
-            print_success "Project and its data delets."
+            print_success "Project and its data deleted."
         else
             print_error "Migration cancel."
             return 1
@@ -235,7 +235,7 @@ cmd_migrate() {
     devilbox_path=$(get_devilbox_path)
 
     if [[ "$has_db" == true ]]; then
-        print_step "1" "Export bases data from Devilbox"
+        print_step "1" "Export the database from Devilbox"
 
         # Work with Devilbox in subshell
         (
@@ -283,7 +283,7 @@ cmd_migrate() {
         step_num=3
     fi
 
-    print_step "$step_num" "Copi files project"
+    print_step "$step_num" "Copy project files"
     mkdir -p "$ddev_path"
     cp -R "$devilbox_project_path/." "$ddev_path"
     print_success "Files copieds."
@@ -334,7 +334,7 @@ cmd_migrate() {
 
     # Step 7: Import database
     if [[ "$has_db" == true ]]; then
-        print_info "Import bases data..."
+        print_info "Importing the database..."
 
         (
             cd "$ddev_path" || exit 1

@@ -24,7 +24,7 @@ show_refresh_help() {
 
  ${COLOR_BOLD}Description:${COLOR_RESET}
     Updates local database fresh dump with production.
-    Automatics creates reserve cop current local database.
+    Automatically creates a safety backup of the current local database.
     Replaces URL with production on local.
 
  ${COLOR_BOLD}Options:${COLOR_RESET}
@@ -33,8 +33,8 @@ show_refresh_help() {
     --db-file FILE         Name file database (without .sql)
     --prod-url URL         URL production site
     --prod-tld TLD         Domain zone production (by default: by)
-    --no-backup            Not creating reserve cop
-    -y, --yes              Skipp confirmation
+    --no-backup            Skip the safety backup
+    -y, --yes              Skip confirmations
     -h, --help             Show this help
 
  ${COLOR_BOLD}Examples:${COLOR_RESET}
@@ -58,23 +58,23 @@ cmd_refresh() {
         return 0
     fi
 
-    print_header "Update local database with production"
+    print_header "$(t refresh.title)"
 
     # --- Step 1: Selection type CMS ---
     local cms_type
     cms_type=$(get_arg "cms_type" "")
 
     if [[ -z "$cms_type" ]]; then
-        cms_type=$(select_cms_type "Select type project for update") || return 1
+        cms_type=$(select_cms_type "$(t refresh.select.cms)") || return 1
     fi
-    print_success "Chosen type: $(get_cms_name "$cms_type")"
+    print_success "$(t refresh.chosen.type "$(get_cms_name "$cms_type")")"
 
     # --- Step 2: Name project ---
     local project_name
     project_name=$(get_arg "project_name" "")
 
     if [[ -z "$project_name" ]]; then
-        project_name=$(projects_select_interactive "Select project for update")
+        project_name=$(projects_select_interactive "$(t refresh.select.project)")
     fi
     [[ -z "$project_name" ]] && return 1
     validate_project_name "$project_name" || return 1
@@ -83,7 +83,7 @@ cmd_refresh() {
     local project_path
     project_path=$(projects_get_path "$project_name")
 
-    validate_directory "$project_path" "Director project" || return 1
+    validate_directory "$project_path" "Project directory" || return 1
 
     # --- Step 3: Domain zone production ---
     local prod_tld prod_url
@@ -92,7 +92,7 @@ cmd_refresh() {
 
     if [[ -z "$prod_url" ]]; then
         if ! has_arg "prod_tld"; then
-            prompt_input "    Domain zone production (.by, .com, etc)" "$prod_tld" prod_tld
+            prompt_input "$(t refresh.zone.prompt)" "$prod_tld" prod_tld
         fi
 
         local raw_domain="${project_name}.${prod_tld}"
@@ -114,17 +114,17 @@ cmd_refresh() {
     local local_url="https://${project_name}.$(get_config "project_tld")"
 
     # --- Step 4: Check status project ---
-    print_info "Verify status project '$project_name'..."
+    print_info "Verifying project status '$project_name'..."
     if ! ddev_is_project_running "$project_name"; then
-        print_warning "Project '$project_name' not run."
+        print_warning "Project '$project_name' is not running."
         if has_arg "yes" || confirm "Start its now?"; then
             safe_start_ddev_project "$project_name" "$project_path" || return 1
         else
-            print_error "Operation cancel."
+            print_error "Operation cancelled."
             return 1
         fi
     fi
-    print_success "Project run and readies to work."
+    print_success "$(t refresh.running)"
 
     # --- Step 5: Name file database ---
     local db_filename
@@ -141,12 +141,12 @@ cmd_refresh() {
 
         if [[ -z "$detected_db" ]]; then
             if [[ -t 0 ]]; then
-                prompt_input "Database name" "$project_name" detected_db
+                prompt_input "$(t refresh.db.name)" "$project_name" detected_db
             else
                 detected_db="$project_name"
             fi
         fi
-        print_info "Resolved database name: ${detected_db}"
+        print_info "$(t refresh.db.resolved "${detected_db}")"
         local picked_dump=""
         if picked_dump=$(db_pick_dump_file "$(get_db_prod_path)" "$detected_db"); then
             db_filename="$picked_dump"
@@ -161,7 +161,7 @@ cmd_refresh() {
     else
         source_db_file=$(db_get_prod_filepath "$db_filename")
     fi
-    validate_file "$source_db_file" "File bases data with production" || return 1
+    validate_file "$source_db_file" "Production database dump" || return 1
 
     # =================================================================
     #  MANDATORY RESERVE COPI
@@ -172,8 +172,8 @@ cmd_refresh() {
         backup_file=$(db_backup_local "$project_name" "$project_path")
 
         if [[ -z "$backup_file" ]]; then
-            print_warning "Not remove create reserve cop."
-            if ! confirm "Continue without reserve cops?"; then
+            print_warning "Failed to create the safety backup."
+            if ! confirm "Continue without a safety backup?"; then
                 return 1
             fi
         fi
@@ -181,16 +181,16 @@ cmd_refresh() {
 
     # --- Confirmation ---
     print_header "Verify parameters"
-    echo "Project for update:      ${COLOR_GREEN}${project_name} ($(get_cms_name "$cms_type"))${COLOR_RESET}"
-    echo "Source data (cont):     ${COLOR_GREEN}${source_db_file}${COLOR_RESET}"
+    echo "$(t refresh.verify.project "${project_name}" "$(get_cms_name "$cms_type")")"
+    echo "$(t refresh.verify.source "${source_db_file}")"
     if [[ -n "$backup_file" ]]; then
-        echo "Reserve cop:            ${COLOR_GREEN}${backup_file}${COLOR_RESET}"
+        echo "$(t refresh.verify.backup "${backup_file}")"
     fi
     print_separator
-    print_warning "Current local base data project '$project_name' will FULLY OVERWRIT!"
+    print_warning "$(t refresh.overwrite.warn "$project_name")"
 
     if ! has_arg "yes"; then
-        confirm "Continue update?" || return 1
+        confirm "$(t refresh.continue)" || return 1
     fi
 
     # [FIX] Stopping Devilbox ONLY after confirmation
@@ -260,7 +260,7 @@ cmd_refresh() {
             db_wp_clear_cache "$project_path"
         else
             # --- Joomla, OpenCart, other PHP projects ---
-            print_step "2-3" "Preparation and import bases data with replace URL"
+            print_step "2-3" "Prepare and import the database with URL replacement"
             db_import_with_replace "$source_db_file" "$prod_url" "$local_url" "$project_path" || exit 1
 
             # [ISSUE 1] CMS-aware post-processing; no WP checks for non-WP.
@@ -272,9 +272,9 @@ cmd_refresh() {
         fi
 
         # --- Completion ---
-        print_celebration "Ready!"
-        print_highlight "Local site '$project_name' success update datas with production."
-        print_highlight "It accessible by address: ${local_url}"
+        print_celebration "$(t refresh.done)"
+        print_highlight "$(t refresh.done.detail "$project_name")"
+        print_highlight "$(t refresh.done.url "${local_url}")"
 
         ddev_launch "$project_name"
     )

@@ -57,7 +57,7 @@ backup_rotate() {
             print_info "Rotation: delete old archive $(basename "${archives[$i]}")" >&2
             ((removed++))
         else
-            print_warning "Not remove remove ${archives[$i]}" >&2
+            print_warning "Failed to remove ${archives[$i]}" >&2
         fi
     done
 
@@ -98,7 +98,7 @@ project_full_backup() {
     local keep_count="${4:-$(get_config "full_backup_keep" "3")}"
 
     # --- Validation input ---
-    validate_directory "$project_path" "Director project" || return 1
+    validate_directory "$project_path" "Project directory" || return 1
     validate_non_empty "$project_name" "Name project" || return 1
 
     if ! command -v tar >/dev/null 2>&1; then
@@ -115,13 +115,13 @@ project_full_backup() {
 
     # Temporary director for dump database (removes by exit from functions)
     local tmpdir
-    tmpdir=$(create_temp_dir) || { print_error "Not remove create temporary director."; return 1; }
+    tmpdir=$(create_temp_dir) || { print_error "Failed to create temporary director."; return 1; }
     local db_dump="${tmpdir}/${project_name}_db.sql.gz"
     trap 'rm -rf "$tmpdir" 2>/dev/null' RETURN
 
     print_header "Full backup project '$project_name'"
 
-    # --- Step 1: Dump bases data ---
+    # --- Step 1: Dump the database ---
     print_step "1/3" "$(t msg.db.export)"
     if ! db_export "$db_dump" "$project_path" "true"; then
         print_warning "Dump database not create. Archive will contain ONLY files project."

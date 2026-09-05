@@ -2,10 +2,10 @@
 
 [Read in Russian](README.ru.md)
 
-> **v1.7.0 (Stable)**
+> **v1.8.0 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.7.0-blue)
-![Bash](https://img.shields.io/badge/Bash-4.4+-green)
+![Version](https://img.shields.io/badge/version-1.8.0-blue)
+![Bash](https://img.shields.io/badge/Bash-4.0+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
@@ -44,11 +44,28 @@ DPX follows a zero-trust mutation policy:
 - `/etc/hosts` edits use the Safe Sudo Protocol: snapshot, privileged edit, resolution check, cleanup on success or rollback on failure.
 - Ctrl+C during a tunnel invokes cleanup traps that restore WordPress configuration, reverse database changes, remove the Nginx override, stop the provider and remove temporary state.
 
+### Two snapshot subsystems
+
+DPX uses two distinct recovery mechanisms — they store data in different places and serve different purposes:
+
+**1. File-based SQL dumps** live in the central `DPX_DB_LOCAL_DIR` directory as `<project>_<TYPE>_<yyMMdd>_<HHMMSS>_<rand>.sql` with type tags:
+
+| Tag | Created by | Retention |
+| --- | --- | --- |
+| `SNAP` | `dpx db snap` | newest 3 (hardcoded) |
+| `LOCAL_BACKUP` | `dpx db pull` / `dpx db restore` protective dumps | newest 3, configurable via `local_backup_keep` |
+| `TO_PROD` | `dpx db push` exports | newest 3 (rotation default) |
+| `BEFORE_PHP` | `dpx set-php` | newest 3 (rotation default) |
+
+Retention uses the **timestamp embedded in the filename** (not mtime), so dumps synced without `--times` or touched by restore tooling keep their true chronological order. Rotation is scoped to the `<project>_<TYPE>_` prefix; files of other projects or manual files that do not match a DPX naming pattern are never touched.
+
+**2. DDEV container snapshots** are managed by DDEV itself in `<project>/.ddev-db-snapshots`. DPX creates them (via `ddev snapshot --name=<tag>_<HHMMSS>_<rand>`) before URL replacement passes in the tunnel, `db pull` and `db push` flows, and records the snapshot name in `<project>/.dpx/current_snapshot`. If a process dies mid-mutation, the next DPX command detects the leftover marker and offers to restore the snapshot automatically (orphan recovery). These snapshots are excluded from full site backups and can be freed with `dpx clean --snapshots`.
+
 ## Requirements
 
 | Dependency | Minimum | Purpose |
 | --- | ---: | --- |
-| Bash | 4.4+ | Associative arrays, namerefs, `mapfile`, modern shell features |
+| Bash | 4.0+ | Associative arrays, namerefs, `mapfile`, modern shell features |
 | DDEV | 1.21.0+ | Project lifecycle, database import/export, snapshots and container execution |
 | Docker | 20.10+ | DDEV container runtime |
 | jq | 1.5+ | DDEV JSON parsing and ngrok API parsing |
@@ -57,7 +74,7 @@ DPX follows a zero-trust mutation policy:
 
 ### macOS
 
-macOS ships Bash 3.2, which is not supported. Install Bash 4.4 or newer with Homebrew and ensure it precedes `/bin/bash` in `PATH`. The implementation detects macOS and uses BSD-compatible behavior for in-place `sed` operations. The test suite also simulates BSD `sed`, `stat`, `readlink` and tar behavior.
+macOS ships Bash 3.2, which is not supported. Install Bash 4.0 or newer with Homebrew and ensure it precedes `/bin/bash` in `PATH`. The implementation detects macOS and uses BSD-compatible behavior for in-place `sed` operations. The test suite also simulates BSD `sed`, `stat`, `readlink` and tar behavior.
 
 ## Installation
 
@@ -206,7 +223,7 @@ The workflow reads supported versions from `ddev debug capabilities`, falls back
 | `dpx migrate` | `--project-name`, `--devilbox-folder`, `--cms-type`, `--php-version`, `--devilbox-php`, `--db-name`, `--db-type`, `--db-version`, `--no-db`, `--keep-backup`, `-y` |
 | `dpx update` | `--check` performs a check only; `-y` skips update confirmation |
 | `dpx info` | Reports configuration, paths, versions and dependency availability |
-| `dpx clean` | `--project-name`, `--snapshots`, `--all`; `.dpx/config` is preserved |
+| `dpx clean` | `--project-name`, `--snapshots`, `--all`; `.dpx/config` and `.dpx/current_snapshot` are preserved; `--snapshots`/`--all` remove DDEV DB snapshots in `.ddev-db-snapshots` |
 
 ## Command Matrix
 
@@ -229,7 +246,7 @@ The workflow reads supported versions from `ddev debug capabilities`, falls back
 | `dpx ddev` | Run DDEV commands | Transparent inside a project; interactive selection outside |
 | `dpx info` | Diagnostics | Dependency status, versions, configuration and paths |
 | `dpx update` | Self-update | Git check, incoming commits and update application |
-| `dpx clean` | Remove stale state | Temporary files and snapshots are selectable; config is preserved |
+| `dpx clean` | Remove stale state | Temporary files are age-selected; `--snapshots` removes DDEV DB snapshots (`.ddev-db-snapshots`); config and recovery markers are preserved |
 
 ## Configuration
 
@@ -260,6 +277,7 @@ default_db_version = 5.7
 project_tld = lo
 full_backup_path = ~/projects/backups
 full_backup_keep = 3
+local_backup_keep = 3                   # *_LOCAL_BACKUP_*.sql retention (db pull / db restore)
 auto_update_check = true
 ```
 
@@ -349,7 +367,7 @@ bash tests/test_tunnel_patch.sh
 bash tests/test_macos_sim.sh
 ```
 
-The v1.7.0 repository includes Linux and Darwin-simulation coverage. Real hardware macOS, WSL2 and field-environment coverage remain separate roadmap items.
+The v1.8.0 repository includes Linux and Darwin-simulation coverage. Real hardware macOS, WSL2 and field-environment coverage remain separate roadmap items.
 
 ## Troubleshooting
 

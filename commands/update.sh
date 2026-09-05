@@ -77,7 +77,7 @@ cmd_update() {
     # Fetch for checks update
     print_info "Check update..."
     if ! git -C "$DPX_ROOT" fetch origin 2>/dev/null; then
-        print_error "Not remove get information about update."
+        print_error "Failed to get information about update."
         print_info "Verify connected to internet and access to repository."
         return 1
     fi
@@ -139,7 +139,7 @@ cmd_update() {
             bash "${DPX_ROOT}/install.sh" install 2>/dev/null || true
         fi
     else
-        print_error "Not remove install update."
+        print_error "Failed to install update."
         print_info "Possible, consumes local chang. Verify: git -C ${DPX_ROOT} status"
         return 1
     fi

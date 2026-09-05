@@ -11,7 +11,7 @@ readonly _DPX_DDEV_LOADED=1
 # CHECK STATUS PROJECTS
 # =================================================================
 
-# Check, run whethers specific project
+# Check whether a specific project is running
 # [FIX] DDEV 1.25+ prints tables with frames (│), that breaks awk '{print $1}'
 # Use grep with regular expression for search nameds project
 ddev_is_project_running() {
@@ -131,7 +131,7 @@ ddev_import_db() {
     local project_path="$2"
     local db_file="$3"
 
-    validate_file "$db_file" "Dump bases data" || return 1
+    validate_file "$db_file" "Database dump" || return 1
 
     # Specification DPX: --name + --src
     if ddev import-db \

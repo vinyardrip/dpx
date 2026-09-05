@@ -11,10 +11,11 @@ show_clean_help() {
 
  Usage:
     dpx clean              Remove .dpx/tmp files older than 7 days
-    dpx clean --snapshots  Also remove .dpx/snapshots
-    dpx clean --all        Remove all .dpx/tmp files and snapshots
+    dpx clean --snapshots  Also remove DDEV DB snapshots (.ddev-db-snapshots)
+    dpx clean --all        Remove all .dpx/tmp files and DDEV DB snapshots
 
- .dpx/config is always preserved.
+ .dpx/config and .dpx/current_snapshot are always preserved.
+ DDEV snapshots can be restored with: ddev snapshot restore <name>
 EOF
 }
 
@@ -69,8 +70,19 @@ cmd_clean() {
     fi
 
     if has_arg snapshots || has_arg all; then
-        if [[ -d "${dpx_dir}/snapshots" ]]; then
-            rm -rf "${dpx_dir}/snapshots" 2>/dev/null || return 1
+        # [FIX D-3] The old code removed .dpx/snapshots — a directory
+        # nothing in DPX ever creates. Real DDEV DB snapshots live in
+        # <project>/.ddev-db-snapshots (bind-mounted into the db
+        # container). Removing them frees disk space; the safety copy
+        # recorded in .dpx/current_snapshot (if any) is preserved so
+        # orphan recovery keeps working.
+        local ddev_snap_dir="${project_path}/.ddev-db-snapshots"
+        if [[ -d "$ddev_snap_dir" ]]; then
+            if ! rm -rf "$ddev_snap_dir" 2>/dev/null; then
+                print_error "Failed to remove DDEV DB snapshots: $ddev_snap_dir"
+                return 1
+            fi
+            print_info "Removed DDEV DB snapshots: $ddev_snap_dir"
         fi
     fi
 
