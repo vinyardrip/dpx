@@ -111,7 +111,8 @@ cmd_refresh() {
         esac
     fi
 
-    local local_url="https://${project_name}.$(get_config "project_tld")"
+    local local_url
+    local_url="https://${project_name}.$(get_config "project_tld")"
 
     # --- Step 4: Check status project ---
     print_info "Verifying project status '$project_name'..."
@@ -254,7 +255,8 @@ cmd_refresh() {
             db_import "$source_db_file" "$project_path" || exit 1
 
             print_step "3" "Replace URL on local value (WP-CLI)"
-            ddev_wp_search_replace "$prod_url" "$local_url" "$project_path" || exit 1
+            ddev_wp_search_replace "$prod_url" "$local_url" "$project_path" \
+                --precise --skip-plugins --skip-themes || exit 1
 
             # Full cleanup cache (handlers + transients + Redis + file cache)
             db_wp_clear_cache "$project_path"

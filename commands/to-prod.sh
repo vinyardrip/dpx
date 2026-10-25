@@ -143,7 +143,8 @@ cmd_to_prod() {
         *)     prod_url="https://${prod_url}" ;;
     esac
 
-    local local_url="https://${project_name}.$(get_config 'project_tld')"
+    local local_url
+    local_url="https://${project_name}.$(get_config 'project_tld')"
 
     # --- Step 4: Check status DDEV ---
     if ! ddev_is_project_running "$project_name"; then

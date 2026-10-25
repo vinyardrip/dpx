@@ -75,21 +75,29 @@ fi
 # =================================================================
 # STATIC ANALYSIS (shellcheck gate)
 #
-# Area: files, supported data suite (runner + tests +
-# tested modules from last refactoring).
-# Legacy module (command/*.sh, devilbox.sh and etc.) not included —
-# their cleanup extracted in separate task.
-# Durings missings shellcheck — SKIP (gate not blocks CI without linter).
+# Covers the complete shell surface: entry points, installer, runner,
+# every lib/ and commands/ module (including the nested site layout),
+# and the test suite.
+#
+# Files are analyzed one at a time. A single multi-file shellcheck run
+# triggers pathological cross-file analysis on this codebase (minutes
+# instead of seconds), so the per-file loop is intentional.
+# Missing shellcheck — SKIP (gate must not block CI without the linter).
 # =================================================================
 
 SHELLCHECK_TARGETS=(
+    "$TESTS_DIR/dpx.sh"
+    "$TESTS_DIR/install.sh"
     "$TESTS_DIR/run_tests.sh"
+    "$TESTS_DIR"/lib/*.sh
+    "$TESTS_DIR"/commands/*.sh
+    "$TESTS_DIR"/commands/site/*.sh
     "$TESTS_DIR"/tests/test_*.sh
-    "$TESTS_DIR/lib/args.sh"
 )
 
 run_shellcheck_gate() {
-    local sc_output="" sc_rc=0 issues=0
+    local target file_output file_rc issues total_issues=0
+    local -a failing_output=()
 
     if ! command -v shellcheck >/dev/null 2>&1; then
         echo "${YELLOW}>>> Static analysis: shellcheck not found - SKIPPED${RESET}"
@@ -100,19 +108,33 @@ run_shellcheck_gate() {
     echo "${CYAN}>>> Static analysis: shellcheck${RESET}"
     echo "----------------------------------------"
 
-    # -f gcc: findings in format 'file:line:col: severity: msg [SCxxxx]'
-    # Counts only actionable findings (warning/error), excluding the
-    # informational "note:" lines (SC1091/SC2329) so the gate does not
-    # fail on non-blocking lint noise.
-    sc_output="$(shellcheck -s bash -S style -f gcc "${SHELLCHECK_TARGETS[@]}")" || sc_rc=$?
+    for target in "${SHELLCHECK_TARGETS[@]}"; do
+        [[ -f "$target" ]] || continue
 
-    if [[ $sc_rc -ne 0 ]]; then
-        echo "$sc_output"
-        issues="$(grep -E '\[SC[0-9]+\]' <<<"$sc_output" | grep -vcE 'note:')" || true
+        # -f gcc: findings in format 'file:line:col: severity: msg [SCxxxx]'
+        # Count only actionable findings (warning/error), excluding the
+        # informational "note:" lines (SC1091/SC2329) so the gate does not
+        # fail on non-blocking lint noise.
+        file_rc=0
+        file_output="$(shellcheck -s bash -S style -f gcc "$target" 2>&1)" || file_rc=$?
+        issues="$(grep -E '\[SC[0-9]+\]' <<<"$file_output" | grep -vcE 'note:')" || true
         issues="${issues// /}"
         issues="${issues:-0}"
-        echo "${RED}shellcheck: $issues issue(s) found${RESET}"
-        TOTAL_FAILED=$((TOTAL_FAILED + issues))
+
+        if (( issues > 0 )); then
+            total_issues=$((total_issues + issues))
+            failing_output+=("$file_output")
+        elif (( file_rc > 1 )); then
+            # Shellcheck itself failed (not just notes): surface it.
+            total_issues=$((total_issues + 1))
+            failing_output+=("$file_output")
+        fi
+    done
+
+    if (( total_issues > 0 )); then
+        printf '%s\n' "${failing_output[@]}"
+        echo "${RED}shellcheck: $total_issues issue(s) found${RESET}"
+        TOTAL_FAILED=$((TOTAL_FAILED + total_issues))
     else
         echo "${GREEN}shellcheck: all targets clean${RESET}"
     fi

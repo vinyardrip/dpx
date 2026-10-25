@@ -310,11 +310,13 @@ _new_scaffold_wordpress() {
 
     local site_url
     site_url="https://${project_name}.$(get_config 'project_tld')"
-    local locale admin_user admin_pass admin_email
+    local locale admin_user admin_pass admin_email db_user db_password
     locale=$(get_arg "locale" "ru_RU")
     admin_user=$(get_arg "admin_user" "$(get_config 'admin_user')")
     admin_pass=$(get_arg "admin_pass" "$(get_config 'admin_pass')")
     admin_email=$(get_arg "admin_email" "$(get_config 'admin_email')")
+    db_user=$(get_config 'db_user' 'db')
+    db_password=$(get_config 'db_password' 'db')
 
     print_step "2" "Configuration and start DDEV"
     if ! ddev config --project-type wordpress --docroot "" \
@@ -331,7 +333,8 @@ _new_scaffold_wordpress() {
 
     print_step "3" "Install WordPress via WP-CLI"
     if ! ddev_wp_install "$project_path" "$site_url" \
-            "New site ${project_name}" "$admin_user" "$admin_pass" "$admin_email" "$locale"; then
+            "New site ${project_name}" "$admin_user" "$admin_pass" "$admin_email" \
+            "$locale" "$db_user" "$db_password"; then
         print_error "WordPress installation failed"
         return 1
     fi
@@ -397,8 +400,11 @@ _new_scaffold_archive_cms() {
     # Embed the path into the trap string: a local variable would already
     # be out of scope by the time the EXIT trap fires.
     printf -v tmpdir_cleanup 'rm -rf %q 2>/dev/null' "$tmpdir"
+    # shellcheck disable=SC2064
     trap "$tmpdir_cleanup" RETURN
+    # shellcheck disable=SC2064
     trap "$tmpdir_cleanup; exit 130" INT TERM
+    # shellcheck disable=SC2064
     trap "$tmpdir_cleanup" EXIT
 
     if ! _new_archive_download_unpack "$archive_url" "$tmpdir"; then

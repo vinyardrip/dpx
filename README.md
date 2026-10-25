@@ -2,9 +2,9 @@
 
 [Read in Russian](README.ru.md)
 
-> **v1.8.2 (Stable)**
+> **v1.9.0 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.8.2-blue)
+![Version](https://img.shields.io/badge/version-1.9.0-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.0+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
@@ -41,7 +41,6 @@ DPX follows a zero-trust mutation policy:
 - Non-WordPress SQL replacement uses the container-side `lib/php_helpers/dpx_serialize_safe_replace.php` helper so PHP serialized string lengths are recalculated after replacement.
 - `wp-config.php` changes use a hidden byte-for-byte snapshot, a patch, `php -l` validation through DDEV, marker verification and rollback on failure.
 - Nginx tunnel configuration is written as a host-side DDEV extension and removed during tunnel cleanup.
-- `/etc/hosts` edits use the Safe Sudo Protocol: snapshot, privileged edit, resolution check, cleanup on success or rollback on failure.
 - Ctrl+C during a tunnel invokes cleanup traps that restore WordPress configuration, reverse database changes, remove the Nginx override, stop the provider and remove temporary state.
 
 ### Two snapshot subsystems
@@ -303,9 +302,7 @@ The file protocol is:
 4. Validate the result.
 5. Remove the snapshot on success, or restore it through `cp`/`dpx_sudo` on failure.
 
-For `/etc/hosts`, `dpx_hosts_add` first checks whether the hostname already exists, snapshots `/etc/hosts`, appends the requested address, then tests resolution with platform-appropriate `ping` and `getent`/`dscacheutil`. A successful resolved hostname removes the snapshot. If the record cannot resolve, the original file is restored automatically. `dpx_hosts_remove` uses the same snapshot and rollback pattern around GNU or BSD `sed` deletion.
-
-The same protocol is used for `wp-config.php` with a hidden `.wp-config.php.dpx_bak` file. The snapshot is checked for existence, non-empty content and byte-for-byte equality with `diff -q`. After `mv -f` rollback, DPX verifies that `DPX_SMART_TUNNEL` is absent. If verification fails, the operation reports a critical error for manual inspection.
+The `wp-config.php` protocol uses a hidden `.wp-config.php.dpx_bak` file. The snapshot is checked for existence, non-empty content and byte-for-byte equality with `diff -q`. After `mv -f` rollback, DPX verifies that `DPX_SMART_TUNNEL` is absent. If verification fails, the operation reports a critical error for manual inspection.
 
 ## Architecture and Tech Stack
 
@@ -358,16 +355,17 @@ Run the complete suite with:
 ./run_tests.sh
 ```
 
-The runner performs a ShellCheck gate and then executes the suites for core behavior, configuration, domain routing, cleanup, universal project creation, i18n, tunnel patches/provider parsing, and macOS/BSD simulation. Useful focused commands are:
+The runner performs a ShellCheck gate and then executes the suites for core behavior, configuration, domain routing, cleanup, universal project creation, i18n, tunnel patches/provider parsing, macOS/BSD simulation, and hardening regressions. The gate covers `dpx.sh`, `install.sh`, `run_tests.sh`, every `lib/` and `commands/` module, and the test suites; files are analyzed individually to keep it fast. Useful focused commands are:
 
 ```bash
+bash tests/test_hardening.sh
 bash tests/test_i18n.sh
 bash tests/test_config.sh
 bash tests/test_tunnel_patch.sh
 bash tests/test_macos_sim.sh
 ```
 
-The v1.8.2 repository includes Linux and Darwin-simulation coverage. Real hardware macOS, WSL2 and field-environment coverage remain separate roadmap items.
+The v1.9.0 repository includes Linux and Darwin-simulation coverage. Real hardware macOS, WSL2 and field-environment coverage remain separate roadmap items.
 
 ## Troubleshooting
 

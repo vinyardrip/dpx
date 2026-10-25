@@ -197,6 +197,17 @@ ddev_wp_install() {
     local admin_pass="$5"
     local admin_email="$6"
     local locale="${7:-ru_RU}"
+    local db_user="${8:-}"
+    local db_password="${9:-}"
+
+    # Callers created through the config wizard pass credentials
+    # explicitly; direct callers fall back to the configured defaults.
+    if [[ -z "$db_user" ]]; then
+        db_user="$(get_config 'db_user' 'db')"
+    fi
+    if [[ -z "$db_password" ]]; then
+        db_password="$(get_config 'db_password' 'db')"
+    fi
 
     print_step "3" "Install WordPress via WP-CLI"
 
@@ -211,9 +222,14 @@ ddev_wp_install() {
             exit 1
         }
 
-        # Create wp-config.php
+        # Create wp-config.php with the configured credentials. Each
+        # value is a single quoted argument, so spaces/metacharacters in
+        # the password cannot alter the WP-CLI command line.
         print_info "Create wp-config.php..."
-        ddev wp config create --dbname=db --dbuser=db --dbpass=db --dbhost=db 2>&1 || {
+        ddev wp config create --dbname=db \
+            --dbuser="$db_user" \
+            --dbpass="$db_password" \
+            --dbhost=db 2>&1 || {
             print_error "Error create wp-config.php"
             exit 1
         }
@@ -239,11 +255,13 @@ ddev_wp_search_replace() {
     local old_url="$1"
     local new_url="$2"
     local project_path="$3"
+    shift 3
 
     print_info "Replace URL: $old_url -> $new_url"
     (
         [[ -n "$project_path" ]] && cd "$project_path" || exit 1
-        ddev exec wp search-replace "$old_url" "$new_url" --all-tables --allow-root 2>&1
+        ddev exec wp search-replace "$old_url" "$new_url" \
+            --all-tables --allow-root "$@" 2>&1
     ) || return 1
 }
 

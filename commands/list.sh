@@ -66,6 +66,8 @@ cmd_list() {
 
     local temp_file
     temp_file=$(create_temp_file)
+    # Expand now: temp_file is local and is unavailable when EXIT fires.
+    # shellcheck disable=SC2064
     trap "rm -f '$temp_file'" EXIT
 
     local count=0

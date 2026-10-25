@@ -46,7 +46,8 @@ cmd_db_snap() {
     ensure_directory "$db_dir"
 
     # db_generate_export_filename already generates .sql (without .gz)
-    local out_file="${db_dir}/$(db_generate_export_filename "$project_name" "SNAP")"
+    local out_file
+    out_file="${db_dir}/$(db_generate_export_filename "$project_name" "SNAP")"
 
     print_info "Exporting database [$project_name] (uncompressed for fast access)..."
 

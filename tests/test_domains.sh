@@ -510,21 +510,21 @@ unset -f ddev
 echo ""
 echo "${TEST_CYAN}=== Version SSOT ===${TEST_RESET}"
 
-test_start ".version equals 1.8.2"
-check_value "1.8.2" "$(cat "$DPX_ROOT/.version")"
+test_start ".version equals 1.9.0"
+check_value "1.9.0" "$(cat "$DPX_ROOT/.version")"
 
 out="$(bash "$DPX_ROOT/dpx.sh" -v </dev/null 2>&1)"
-test_start "dpx -v reports v1.8.2"
-if grep -qF "dpx v1.8.2" <<<"$out"; then
+test_start "dpx -v reports v1.9.0"
+if grep -qF "dpx v1.9.0" <<<"$out"; then
     test_pass
 else
     test_fail "got: $out"
 fi
 
 ok=true
-    grep -qF "version-1.8.2-blue" "$DPX_ROOT/README.md"    || ok=false
-    grep -qF "version-1.8.2-blue" "$DPX_ROOT/README.ru.md" || ok=false
-test_start "README badges show 1.8.2"
+    grep -qF "version-1.9.0-blue" "$DPX_ROOT/README.md"    || ok=false
+    grep -qF "version-1.9.0-blue" "$DPX_ROOT/README.ru.md" || ok=false
+test_start "README badges show 1.9.0"
 if [[ "$ok" == true ]]; then test_pass; else test_fail "badge missing"; fi
 
 print_test_summary

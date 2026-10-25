@@ -15,7 +15,8 @@ readonly TOOL_NAME="${TOOL_NAME:-dpx}"
 
 # Single source versions (Single Source of Truth) — read from .version
 if [[ -f "${DPX_ROOT}/.version" ]]; then
-    readonly DPX_VERSION="$(head -1 "${DPX_ROOT}/.version" | tr -d '[:space:]')"
+    DPX_VERSION="$(head -1 "${DPX_ROOT}/.version" | tr -d '[:space:]')"
+    readonly DPX_VERSION
 else
     readonly DPX_VERSION="0.0.0-unknown"
 fi

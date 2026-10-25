@@ -17,8 +17,6 @@ source "${DPX_ROOT}/lib/projects.sh"
 # CONSTANTS
 # =================================================================
 
-readonly TUNNEL_MARKER_START="/** DPX_SMART_TUNNEL */"
-readonly TUNNEL_MARKER_END="/** END_DPX_SMART_TUNNEL */"
 readonly TUNNEL_PROVIDER_CLOUDFLARE="cloudflare"
 readonly TUNNEL_PROVIDER_NGROK="ngrok"
 readonly WP_CONFIG_PROTECTED_TAIL=10
@@ -1008,8 +1006,9 @@ tunnel_wp_db_rollback() {
         echo "" >&2
         print_warning "$(t tunnel.db.rollback_reverse)" >&2
 
-        local tunnel_bare=$(echo "$tunnel_url" | sed 's|https\?://||;s|/$||')
-        local local_bare=$(echo "$local_url" | sed 's|https\?://||;s|/$||')
+        local tunnel_bare local_bare
+        tunnel_bare=$(echo "$tunnel_url" | sed 's|https\?://||;s|/$||')
+        local_bare=$(echo "$local_url" | sed 's|https\?://||;s|/$||')
 
         print_info "$(t tunnel.db.reverse_pass 1 "$tunnel_url" "$local_url")" >&2
         (cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting=0 \
@@ -1239,14 +1238,12 @@ cmd_tunnel() {
 
     local project_name
     local project_path
-    local auto_detected=false
 
     project_name=$(get_arg "project_name" "")
 
     if [[ -z "$project_name" ]]; then
         project_name=$(tunnel_detect_project_from_cwd)
         if [[ -n "$project_name" ]]; then
-            auto_detected=true
             project_path=$(tunnel_detect_project_path_from_cwd)
             print_success "$(t tunnel.project.detected "$project_name")"
         fi

@@ -140,8 +140,11 @@ project_full_backup() {
     local db_dump="${tmpdir}/${project_name}_db.sql.gz"
     # Embed the path: local variables are out of scope when EXIT fires.
     printf -v tmpdir_cleanup 'rm -rf %q 2>/dev/null' "$tmpdir"
+    # shellcheck disable=SC2064
     trap "$tmpdir_cleanup" RETURN
+    # shellcheck disable=SC2064
     trap "$tmpdir_cleanup; exit 130" INT TERM
+    # shellcheck disable=SC2064
     trap "$tmpdir_cleanup" EXIT
 
     print_header "Full backup project '$project_name'"

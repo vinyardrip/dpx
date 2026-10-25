@@ -319,7 +319,7 @@ cmd_set_php() {
     fi
 
     case "$works" in
-        y|Y|yes|yes)
+        y|Y|yes)
             echo ""
             local current_saved
             current_saved=$(dpx_get_php_max "$project_name")
@@ -356,7 +356,7 @@ cmd_set_php() {
             fi
             ;;
 
-        n|N|no|no)
+        n|N|no)
             echo ""
             print_warning "The site does not work on PHP $new_php"
             echo ""

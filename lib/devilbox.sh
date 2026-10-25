@@ -52,13 +52,15 @@ get_devilbox_data_path() {
 
 # Check whether Devilbox is installed
 devilbox_is_installed() {
-    local devilbox_path=$(get_devilbox_path)
+    local devilbox_path
+    devilbox_path=$(get_devilbox_path)
     [[ -d "$devilbox_path" ]]
 }
 
 # Check whether Devilbox is running
 devilbox_is_running() {
-    local devilbox_path=$(get_devilbox_path)
+    local devilbox_path
+    devilbox_path=$(get_devilbox_path)
 
     if [[ ! -d "$devilbox_path" ]]; then
         return 1
@@ -83,7 +85,8 @@ devilbox_is_running() {
 
 # Stop Devilbox
 devilbox_stop() {
-    local devilbox_path=$(get_devilbox_path)
+    local devilbox_path
+    devilbox_path=$(get_devilbox_path)
 
     if [[ ! -d "$devilbox_path" ]]; then
         print_info "Devilbox not found, skip stop."
@@ -109,7 +112,8 @@ devilbox_stop() {
 
 # Start Devilbox
 devilbox_start() {
-    local devilbox_path=$(get_devilbox_path)
+    local devilbox_path
+    devilbox_path=$(get_devilbox_path)
 
     if [[ ! -d "$devilbox_path" ]]; then
         print_error "Devilbox not found: $devilbox_path"
@@ -135,7 +139,8 @@ devilbox_start() {
 # Start specific services Devilbox
 # Important: cd in subshell, so that not "leak" in other director
 devilbox_start_services() {
-    local devilbox_path=$(get_devilbox_path)
+    local devilbox_path
+    devilbox_path=$(get_devilbox_path)
     local php_version="$1"
     local services="${2:-httpd php mysql}"
 
@@ -175,7 +180,8 @@ devilbox_start_services() {
 # Restore .env Devilbox
 # Important: cd in subshell, so that not "leak" in other director
 devilbox_restore_env() {
-    local devilbox_path=$(get_devilbox_path)
+    local devilbox_path
+    devilbox_path=$(get_devilbox_path)
     local php_version="$1"
 
     (
@@ -243,7 +249,8 @@ devilbox_export_db() {
 # Check existence project in Devilbox data
 devilbox_project_exists() {
     local project_folder="$1"
-    local data_path=$(get_devilbox_data_path)
+    local data_path
+    data_path=$(get_devilbox_data_path)
     local project_path="${data_path}/${project_folder}"
 
     [[ -d "$project_path" ]]
@@ -252,13 +259,15 @@ devilbox_project_exists() {
 # Get path to project Devilbox
 get_devilbox_project_path() {
     local project_folder="$1"
-    local data_path=$(get_devilbox_data_path)
+    local data_path
+    data_path=$(get_devilbox_data_path)
     echo "${data_path}/${project_folder}"
 }
 
 # List projects in Devilbox data
 devilbox_list_projects() {
-    local data_path=$(get_devilbox_data_path)
+    local data_path
+    data_path=$(get_devilbox_data_path)
 
     if [[ ! -d "$data_path" ]]; then
         return 1

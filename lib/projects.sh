@@ -20,7 +20,8 @@ projects_get_base_path() {
 }
 
 projects_list() {
-    local base_path=$(projects_get_base_path)
+    local base_path
+    base_path=$(projects_get_base_path)
 
     if [[ ! -d "$base_path" ]]; then
         return 1
@@ -42,26 +43,30 @@ projects_list() {
 }
 
 projects_count() {
-    local count=$(projects_list | wc -l)
+    local count
+    count=$(projects_list | wc -l)
     echo "${count// /}"
 }
 
 projects_exists() {
     local project_name="$1"
-    local base_path=$(projects_get_base_path)
+    local base_path
+    base_path=$(projects_get_base_path)
     local config_file="${base_path}/${project_name}/.ddev/config.yaml"
     [[ -f "$config_file" ]]
 }
 
 projects_get_path() {
     local project_name="$1"
-    local base_path=$(projects_get_base_path)
+    local base_path
+    base_path=$(projects_get_base_path)
     echo "${base_path}/${project_name}"
 }
 
 projects_get_php_version() {
     local project_name="$1"
-    local project_path=$(projects_get_path "$project_name")
+    local project_path
+    project_path=$(projects_get_path "$project_name")
     local config_file="${project_path}/.ddev/config.yaml"
 
     if [[ -f "$config_file" ]]; then
@@ -87,7 +92,8 @@ projects_select_interactive() {
         shift
     done
 
-    local base_path=$(projects_get_base_path)
+    local base_path
+    base_path=$(projects_get_base_path)
 
     if [[ ! -d "$base_path" ]]; then
         print_error "Projects directory not found: $base_path" >&2

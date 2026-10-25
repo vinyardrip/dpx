@@ -207,7 +207,8 @@ prompt_choice() {
     shift
     local choices=("$@")
     local default="${choices[0]}"
-    local choices_str=$(IFS=/; echo "${choices[*]}")
+    local choices_str
+    choices_str=$(IFS=/; echo "${choices[*]}")
 
     read -r -p "$prompt ($choices_str) [$default]: " response
 
@@ -356,11 +357,16 @@ dpx_exec_and_log() {
 
     local timestamp
     timestamp=$(date +'%Y-%m-%d %H:%M:%S')
+    local redacted_command
+    redacted_command="$(dpx_redact_command_line "$@")"
 
     dpx_debug_trace "command.call" "cwd=$project_path" "command=${1:-unknown}" "argc=$#"
 
-    # Writ self command in log
-    echo -e "\n[$timestamp] EXEC (cd ${project_path}): $*" >> "$log_file"
+    # Write the command with secret flag values masked. The project log is
+    # long-lived and may be shared for diagnostics, so raw argv must never
+    # include credentials.
+    printf '\n[%s] EXEC (cd %s): %s\n' \
+        "$timestamp" "$project_path" "$redacted_command" >> "$log_file"
 
     # Execute command in context project (subshell for isolations cd)
     # Save code return first process in pipeline

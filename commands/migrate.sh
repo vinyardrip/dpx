@@ -298,7 +298,8 @@ cmd_migrate() {
     # =================================================================
     #  Forming URL
     # =================================================================
-    local local_url="https://${project_name}.$(get_config "project_tld")"
+    local local_url
+    local_url="https://${project_name}.$(get_config "project_tld")"
     local old_url
     old_url=$(get_arg "old_url" "")
     if [[ -z "$old_url" ]]; then

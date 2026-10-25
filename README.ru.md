@@ -2,9 +2,9 @@
 
 [Читать на английском](README.md)
 
-> **v1.8.2 (Stable)**
+> **v1.9.0 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.8.2-blue)
+![Version](https://img.shields.io/badge/version-1.9.0-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.0+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
@@ -41,7 +41,6 @@ DPX следует политике нулевого доверия при из�
 - Для не-WordPress SQL используется PHP-помощник внутри контейнера `lib/php_helpers/dpx_serialize_safe_replace.php`, который пересчитывает длины сериализованных строк после замены.
 - Изменения `wp-config.php` используют скрытый побайтовый снимок, патч, проверку `php -l` через DDEV, проверку маркеров и откат при ошибке.
 - Конфигурация Nginx для туннеля записывается как расширение DDEV на хосте и удаляется при очистке туннеля.
-- Изменения `/etc/hosts` проходят безопасный протокол Sudo: снимок, привилегированная правка, проверка разрешения имени, удаление снимка при успехе или откат при ошибке.
 - Ctrl+C во время туннеля запускает cleanup-trap: восстанавливает конфигурацию WordPress, отменяет изменения БД, удаляет override Nginx, останавливает провайдер и временное состояние.
 
 ### Две подсистемы снимков
@@ -303,9 +302,7 @@ Cloudflare Tunnel — проверенный и рекомендуемый пр�
 4. Проверить результат.
 5. Удалить снимок при успехе или восстановить его через `cp`/`dpx_sudo` при ошибке.
 
-Для `/etc/hosts` `dpx_hosts_add` сначала проверяет наличие имени, создаёт снимок `/etc/hosts`, добавляет адрес, затем проверяет разрешение через platform-specific `ping` и `getent`/`dscacheutil`. Если имя разрешается, снимок удаляется. Если запись не разрешается, исходный файл автоматически восстанавливается. `dpx_hosts_remove` использует тот же снимок и откат вокруг удаления через GNU или BSD `sed`.
-
-Тот же протокол используется для `wp-config.php` со скрытым `.wp-config.php.dpx_bak`. Снимок проверяется на существование, непустое содержимое и побайтовое равенство через `diff -q`. После отката `mv -f` DPX проверяет отсутствие `DPX_SMART_TUNNEL`. При ошибке проверки выводится критическое сообщение для ручной проверки.
+Протокол `wp-config.php` использует скрытый файл `.wp-config.php.dpx_bak`. Снимок проверяется на существование, непустое содержимое и побайтовое равенство через `diff -q`. После отката `mv -f` DPX проверяет отсутствие `DPX_SMART_TUNNEL`. При ошибке проверки выводится критическое сообщение для ручной проверки.
 
 ## Архитектура и технологический стек
 
@@ -358,16 +355,17 @@ lib/utils.sh            prompts, валидация и portable file helpers
 ./run_tests.sh
 ```
 
-Runner сначала выполняет ShellCheck gate, затем запускает наборы core, config, domain routing, cleanup, universal project creation, i18n, tunnel patches/provider parsing и macOS/BSD simulation. Полезные отдельные команды:
+Runner сначала выполняет ShellCheck gate, затем запускает наборы core, config, domain routing, cleanup, universal project creation, i18n, tunnel patches/provider parsing, macOS/BSD simulation и hardening-регрессии. Gate покрывает `dpx.sh`, `install.sh`, `run_tests.sh`, все модули `lib/` и `commands/`, а также наборы тестов; файлы анализируются по отдельности, чтобы проверка оставалась быстрой. Полезные отдельные команды:
 
 ```bash
+bash tests/test_hardening.sh
 bash tests/test_i18n.sh
 bash tests/test_config.sh
 bash tests/test_tunnel_patch.sh
 bash tests/test_macos_sim.sh
 ```
 
-В репозитории v1.8.2 есть покрытие Linux и симуляция Darwin. Реальный macOS, WSL2 и полевое тестирование остаются отдельными пунктами roadmap.
+В репозитории v1.9.0 есть покрытие Linux и симуляция Darwin. Реальный macOS, WSL2 и полевое тестирование остаются отдельными пунктами roadmap.
 
 ## Решение проблем
 

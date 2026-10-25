@@ -81,7 +81,7 @@ version_ge() {
 }
 
 extract_version() {
-    echo "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
+    grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
 }
 
 # =================================================================
@@ -167,7 +167,6 @@ check_dependencies() {
 # Возвращает 0 если найдены, 1 если чисто
 find_old_aliases() {
     local found=0
-    local shell_configs=()
 
     # Проверяем .bashrc, .zshrc, .bash_profile, .profile
     for rc in .bashrc .zshrc .bash_profile .profile; do
@@ -244,7 +243,8 @@ get_script_dir() {
 # =================================================================
 
 install() {
-    local script_dir="$(get_script_dir)"
+    local script_dir
+    script_dir="$(get_script_dir)"
     local install_mode="${1:-local}"
     local bin_dir config_dir
 
@@ -441,15 +441,18 @@ uninstall() {
 # =================================================================
 
 update() {
-    local script_dir="$(get_script_dir)"
+    local script_dir
+    script_dir="$(get_script_dir)"
     local REAL_USER=${SUDO_USER:-$USER}
 
     print_header "Обновление ${TOOL_NAME^^}"
 
     if [[ -d "${script_dir}/.git" ]]; then
         print_info "Обновление исходного кода через Git..."
-        sudo -u "$REAL_USER" git -C "$script_dir" pull origin main 2>/dev/null || \
-        sudo -u "$REAL_USER" git -C "$script_dir" pull origin main 2>/dev/null
+        if ! sudo -u "$REAL_USER" git -C "$script_dir" pull origin main; then
+            print_error "Не удалось обновить репозиторий через Git."
+            return 1
+        fi
         print_success "Репозиторий обновлен"
     else
         print_warning "Папка не является Git-репозиторием. Используется текущий код."

@@ -3,6 +3,10 @@
 # DPX Config Module - management configuration
 # =================================================================
 
+# Quoted tildes in DEFAULT_CONFIG are literal defaults expanded later by
+# the config path resolver; they must not expand at parse time.
+# shellcheck disable=SC2088
+
 [[ -n "${_DPX_CONFIG_LOADED:-}" ]] && return 0
 readonly _DPX_CONFIG_LOADED=1
 

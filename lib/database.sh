@@ -647,7 +647,8 @@ db_create_snapshot() {
     # Append a short random suffix; ddev accepts [a-zA-Z0-9_-] names.
     local rand_suffix
     rand_suffix="$(printf '%s' "$RANDOM$RANDOM" | tr -d '[:space:]')"
-    local snapshot_name="${tag}_$(date +%H%M%S)_${rand_suffix}"
+    local snapshot_name
+    snapshot_name="${tag}_$(date +%H%M%S)_${rand_suffix}"
     print_step "auto" "Safety Snapshot: $snapshot_name..." >&2
 
     # Create snapshot, suppress interactive.
@@ -916,7 +917,8 @@ db_wp_smart_replace() {
     # Safety Snapshot. This is the ONLY rollback point for the three
     # destructive replace passes below: if it cannot be created, the
     # mutation must not run at all.
-    local snapshot_name="pre_replace_$(date +%s)"
+    local snapshot_name
+    snapshot_name="pre_replace_$(date +%s)"
     print_step "auto" "Safety Snapshot: $snapshot_name..."
     local snapshot_rc=0
     (
@@ -1096,20 +1098,23 @@ db_wp_export_safe() {
 
 db_get_prod_filepath() {
     local filename="$1"
-    local base_path=$(get_db_prod_path)
+    local base_path
+    base_path=$(get_db_prod_path)
     echo "${base_path}/${filename}.sql"
 }
 
 db_generate_export_filename() {
     local project_name="$1"
     local suffix="${2:-FROM_LOCAL}"
-    local tag=$(echo "$suffix" | tr '[:lower:]' '[:upper:]')
+    local tag
+    tag=$(echo "$suffix" | tr '[:lower:]' '[:upper:]')
     # [FIX P-9] Second resolution + random suffix: the old minute-level
     # timestamp let a SNAP and a LOCAL_BACKUP created in the same minute
     # collide in the same directory, silently overwriting the protective
     # dump. The trailing field stays sort-compatible with the rotation
     # contract (<proj>_<TYPE>_<yyMMdd>_<HHMMSS>_<rand>.sql).
-    local ts=$(date +"%y%m%d_%H%M%S")
+    local ts
+    ts=$(date +"%y%m%d_%H%M%S")
     local rand_suffix
     rand_suffix="$(printf '%s' "$RANDOM$RANDOM" | tr -d '[:space:]')"
     echo "${project_name}_${tag}_${ts}_${rand_suffix}.sql"

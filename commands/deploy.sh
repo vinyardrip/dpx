@@ -145,7 +145,8 @@ cmd_deploy() {
         prompt_input "6. Version database (e.g., 5.7)" "$db_version" db_version
     fi
 
-    local local_url="https://${project_name}.$(get_config "project_tld")"
+    local local_url
+    local_url="https://${project_name}.$(get_config "project_tld")"
     local ddev_project_type
     ddev_project_type=$(get_ddev_project_type "$cms_type")
 
@@ -190,7 +191,8 @@ cmd_deploy() {
             db_import "$source_db_file" "$project_path" || exit 1
 
             print_step "5" "Replace URL in base data (WP-CLI)"
-            ddev_wp_search_replace "$prod_url" "$local_url" "$project_path" || exit 1
+            ddev_wp_search_replace "$prod_url" "$local_url" "$project_path" \
+                --precise --skip-plugins --skip-themes || exit 1
 
             # Full cleanup cache (handlers + transients + Redis + file cache)
             db_wp_clear_cache "$project_path"

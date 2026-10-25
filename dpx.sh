@@ -180,6 +180,12 @@ run_command() {
     case "$command" in
         db|site)
             local sub="${1:-}"
+            case "$sub" in
+                help|-h|--help)
+                    domain_usage "$command"
+                    return 0
+                    ;;
+            esac
             [[ $# -gt 0 ]] && shift
             # [FIX P-2] Capture the resolution WITHOUT clobbering $command:
             # on failure it is already blank, and domain_usage needs the
@@ -267,6 +273,12 @@ main() {
         db|site)
             local _dsub="${1:-}"
             local _mapped=""
+            case "$_dsub" in
+                help|-h|--help)
+                    domain_usage "$command"
+                    exit 0
+                    ;;
+            esac
             if _mapped="$(domain_resolve "$command" "$_dsub" 2>/dev/null)"; then
                 command="$_mapped"
                 shift
@@ -299,22 +311,48 @@ main() {
 
     if [[ "$help_requested" == true ]]; then
         case "$command" in
+            ""|help|-h|--help)
+                show_help
+                exit 0
+                ;;
+            version|-v|--version)
+                show_version
+                exit 0
+                ;;
+            commands)
+                show_commands
+                exit 0
+                ;;
             list|edit|set-php|deploy|to-prod|db-snap|db-restore|new-wp|new|refresh|migrate|ddev|tunnel|update|info|backup|config|restore|clean)
-                local cmd_file="${DPX_ROOT}/commands/${command}.sh"
+                local cmd_file help_func
+                cmd_file="${DPX_ROOT}/commands/${command}.sh"
                 [[ -f "$cmd_file" ]] || cmd_file="$(domain_command_file "$command")"
-                if [[ -f "$cmd_file" ]]; then
-                    # Safe source with check syntax
-                    if bash -n "$cmd_file" 2>/dev/null; then
-                        # Dynamic download helps — architecture DPX
-                        # shellcheck disable=SC1090
-                        source "$cmd_file"
-                        local help_func="show_${command//-/_}_help"
-                        if declare -f "$help_func" >/dev/null; then
-                            $help_func
-                            exit 0
-                        fi
-                    fi
+
+                if [[ ! -f "$cmd_file" ]]; then
+                    print_error "Help source not found for command: $command"
+                    print_error "Checked: $cmd_file"
+                    exit 64
                 fi
+                if ! bash -n "$cmd_file" 2>/dev/null; then
+                    print_error "Syntax error in help source: $cmd_file"
+                    exit 64
+                fi
+
+                # Dynamic command/help loading — architecture DPX
+                # shellcheck disable=SC1090
+                source "$cmd_file"
+                help_func="show_${command//-/_}_help"
+                if ! declare -f "$help_func" >/dev/null; then
+                    print_error "Help function $help_func not found in $cmd_file"
+                    exit 64
+                fi
+
+                "$help_func"
+                exit 0
+                ;;
+            *)
+                print_error "No help available for command: $command"
+                exit 64
                 ;;
         esac
     fi

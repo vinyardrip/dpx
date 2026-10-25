@@ -35,7 +35,8 @@ cmd_db_restore() {
     project_path=$(projects_get_path "$project_name")
 
     # 2. Search available backups in db_local
-    local backup_dir=$(get_db_local_path)
+    local backup_dir
+    backup_dir=$(get_db_local_path)
     if [[ ! -d "$backup_dir" ]]; then
         print_error "Backups directory not found: $backup_dir"
         return 1
