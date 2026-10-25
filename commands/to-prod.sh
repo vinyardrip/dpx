@@ -56,8 +56,13 @@ cmd_to_prod() {
 
     # --- Step 1: Selection project ---
     local project_name
-    project_name=$(projects_select_interactive "$(t toprod.select.project)")
+    project_name="$(get_arg "project_name" "")"
+    [[ -z "$project_name" ]] && project_name="$(get_positional_arg 1 "")"
+    if [[ -z "$project_name" ]]; then
+        project_name=$(projects_select_interactive "$(t toprod.select.project)")
+    fi
     [[ -z "$project_name" ]] && return 1
+    validate_project_name "$project_name" || return 1
 
     local project_path
     project_path=$(projects_get_path "$project_name")
@@ -69,13 +74,28 @@ cmd_to_prod() {
     if [[ -z "$cms_type" ]]; then
         print_header "$(t toprod.cms.header "$project_name")"
         echo "1. WordPress | 2. Joomla | 3. OpenCart | 4. PHP"
-        local choice
-        read -r -p "Select [1]: " choice
-        case "${choice:-1}" in
+        local choice=""
+        if ! read -r -p "Select [1]: " choice; then
+            # TTY EOF is an aborted prompt; do not silently mutate the DB.
+            if [[ -t 0 ]]; then
+                print_error "CMS selection aborted. Use --cms-type wordpress|joomla|opencart|php."
+                return 1
+            fi
+            # Non-TTY without input: preserve the historical WordPress
+            # default, but announce it instead of hiding the decision.
+            print_info "Non-interactive input: defaulting CMS type to WordPress (use --cms-type to override)."
+            choice="1"
+        fi
+        choice="${choice:-1}"
+        case "$choice" in
             1) cms_type="wordpress" ;;
             2) cms_type="joomla" ;;
             3) cms_type="opencart" ;;
-            *) cms_type="php" ;;
+            4) cms_type="php" ;;
+            *)
+                print_error "Invalid CMS selection: $choice"
+                return 1
+                ;;
         esac
     fi
     print_success "$(t refresh.chosen.type "$(get_cms_name "$cms_type")")"

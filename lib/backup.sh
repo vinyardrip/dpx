@@ -38,15 +38,31 @@ backup_rotate() {
 
     [[ ! -d "$backup_dir" ]] && return 0
 
+    # Retention is an index/count, never an arithmetic expression: reject
+    # negative or non-numeric input instead of letting `tail -n +$((...))`
+    # or array slicing silently delete the wrong number of archives.
+    if [[ ! "$keep" =~ ^[0-9]+$ ]]; then
+        print_error "backup_rotate: invalid keep count '${keep}' (expected a non-negative integer)." >&2
+        return 1
+    fi
+
     local archives=()
-    # [FIX P-7] Filename-timestamp ordering instead of mtime: FULL
-    # archives embed <YYYY-MM-DD>_<HHMMSS>, so sorting the BASENAME's
-    # date field (3) with time (4) as tie-break is immune to mtime
-    # perturbations from sync/touch tooling. The awk+cut pairing keeps
-    # the sort fields anchored to the basename even when the directory
-    # path contains underscores. mapfile is whitespace-safe.
-    mapfile -t archives < <(ls -1 "${backup_dir}/${prefix}"*.tar.gz 2>/dev/null \
-        | awk -F/ '{print $NF "\t" $0}' | sort -t_ -k3,3r -k4,4r | cut -f2-)
+    # [FIX P-7] Filename-timestamp ordering instead of mtime. Extract the
+    # embedded FULL archive timestamp from the BASENAME only and sort that
+    # normalized key, so directory prefixes and multi-underscore paths
+    # cannot shift positional sort fields. Files that do not match the
+    # canonical timestamp pattern are left untouched.
+    mapfile -t archives < <(
+        while IFS= read -r path; do
+            [[ -f "$path" ]] || continue
+            local base="${path##*/}" ts=""
+            [[ "$base" =~ _([0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6})\.tar\.gz$ ]] \
+                && ts="${BASH_REMATCH[1]}"
+            [[ -n "$ts" ]] || continue
+            printf '%s\t%s\n' "$ts" "$path"
+        done < <(ls -1 "${backup_dir}/${prefix}"*.tar.gz 2>/dev/null) \
+            | sort -r | cut -f2-
+    )
 
     local total=${#archives[@]}
     (( total <= keep )) && return 0
@@ -101,6 +117,11 @@ project_full_backup() {
     validate_directory "$project_path" "Project directory" || return 1
     validate_non_empty "$project_name" "Name project" || return 1
 
+    if [[ ! "$keep_count" =~ ^[0-9]+$ ]]; then
+        print_warning "Invalid full_backup_keep '${keep_count}'; using 3." >&2
+        keep_count=3
+    fi
+
     if ! command -v tar >/dev/null 2>&1; then
         print_error "tar not found in PATH — create archive impossible."
         return 1
@@ -113,11 +134,15 @@ project_full_backup() {
     timestamp=$(date +"%Y-%m-%d_%H%M%S")
     local archive_file="${backup_dir}/FULL_${project_name}_${timestamp}.tar.gz"
 
-    # Temporary director for dump database (removes by exit from functions)
-    local tmpdir
+    # Temporary director for dump database (removes on return or signal).
+    local tmpdir tmpdir_cleanup
     tmpdir=$(create_temp_dir) || { print_error "Failed to create temporary director."; return 1; }
     local db_dump="${tmpdir}/${project_name}_db.sql.gz"
-    trap 'rm -rf "$tmpdir" 2>/dev/null' RETURN
+    # Embed the path: local variables are out of scope when EXIT fires.
+    printf -v tmpdir_cleanup 'rm -rf %q 2>/dev/null' "$tmpdir"
+    trap "$tmpdir_cleanup" RETURN
+    trap "$tmpdir_cleanup; exit 130" INT TERM
+    trap "$tmpdir_cleanup" EXIT
 
     print_header "Full backup project '$project_name'"
 

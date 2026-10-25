@@ -2,9 +2,9 @@
 
 [Read in Russian](README.ru.md)
 
-> **v1.8.1 (Stable)**
+> **v1.8.2 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.8.1-blue)
+![Version](https://img.shields.io/badge/version-1.8.2-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.0+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
@@ -145,7 +145,7 @@ After a successful archive, automatic pruning removes older `FULL_<project>_` ar
 | `--project-name NAME` | Parsed from `FULL_<project>_<timestamp>.tar.gz`, otherwise prompted | Target DDEV project |
 | `-y`, `--yes` | Off | Skips overwrite confirmation |
 
-Restore order is safety snapshot, archive validation, merge extraction into the projects base, embedded dump import, CMS-aware cache cleanup and DDEV launch. Archived files overwrite matching project files; extra existing files are preserved. The legacy spelling `dpx restore` remains supported.
+Restore order is safety snapshot, archive validation, merge extraction into the projects base, embedded dump import, CMS-aware cache cleanup and DDEV launch. The pre-restore snapshot is registered in `.dpx/current_snapshot`; `INT`/`TERM`/`EXIT` traps attempt rollback and preserve the marker for orphan recovery if rollback fails. Archive validation rejects `..`/absolute members and symlink or hardlink targets escaping the extraction root. Archived files overwrite matching project files; extra existing files are preserved. The legacy spelling `dpx restore` remains supported.
 
 ### `dpx tunnel`
 
@@ -223,7 +223,7 @@ The workflow reads supported versions from `ddev debug capabilities`, falls back
 | `dpx migrate` | `--project-name`, `--devilbox-folder`, `--cms-type`, `--php-version`, `--devilbox-php`, `--db-name`, `--db-type`, `--db-version`, `--no-db`, `--keep-backup`, `-y` |
 | `dpx update` | `--check` performs a check only; `-y` skips update confirmation |
 | `dpx info` | Reports configuration, paths, versions and dependency availability |
-| `dpx clean` | `--project-name`, `--snapshots`, `--all`; `.dpx/config` and `.dpx/current_snapshot` are preserved; `--snapshots`/`--all` remove DDEV DB snapshots in `.ddev-db-snapshots` |
+| `dpx clean` | `--project-name`, `--snapshots`, `--all`, `-y`; `.dpx/config` and `.dpx/current_snapshot` are preserved; `--snapshots`/`--all` inventory and confirm DDEV DB snapshot removal, and require `-y` in non-interactive mode |
 
 ## Command Matrix
 
@@ -246,7 +246,7 @@ The workflow reads supported versions from `ddev debug capabilities`, falls back
 | `dpx ddev` | Run DDEV commands | Transparent inside a project; interactive selection outside |
 | `dpx info` | Diagnostics | Dependency status, versions, configuration and paths |
 | `dpx update` | Self-update | Git check, incoming commits and update application |
-| `dpx clean` | Remove stale state | Temporary files are age-selected; `--snapshots` removes DDEV DB snapshots (`.ddev-db-snapshots`); config and recovery markers are preserved |
+| `dpx clean` | Remove stale state | Temporary files are age-selected; `--snapshots` inventories and confirms DDEV DB snapshot removal (`.ddev-db-snapshots`); non-interactive removal requires `-y`; config and recovery markers are preserved |
 
 ## Configuration
 
@@ -367,7 +367,7 @@ bash tests/test_tunnel_patch.sh
 bash tests/test_macos_sim.sh
 ```
 
-The v1.8.1 repository includes Linux and Darwin-simulation coverage. Real hardware macOS, WSL2 and field-environment coverage remain separate roadmap items.
+The v1.8.2 repository includes Linux and Darwin-simulation coverage. Real hardware macOS, WSL2 and field-environment coverage remain separate roadmap items.
 
 ## Troubleshooting
 

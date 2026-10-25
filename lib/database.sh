@@ -913,26 +913,33 @@ db_wp_smart_replace() {
         return 0
     fi
 
-    # Safety Snapshot
+    # Safety Snapshot. This is the ONLY rollback point for the three
+    # destructive replace passes below: if it cannot be created, the
+    # mutation must not run at all.
     local snapshot_name="pre_replace_$(date +%s)"
     print_step "auto" "Safety Snapshot: $snapshot_name..."
+    local snapshot_rc=0
     (
         cd "$project_path" || exit 1
         ddev snapshot --name="$snapshot_name" --yes >/dev/null 2>&1
-    )
-    if [[ $? -eq 0 ]]; then
-        print_success "Safety Snapshot create: $snapshot_name"
-        # Register the marker so boot-time orphan recovery can find and
-        # restore this snapshot if the process dies mid-replace (Ctrl+C,
-        # kill, terminal loss). When a keep_marker override is supplied,
-        # that snapshot represents the state a crash must roll back to.
-        mkdir -p "${project_path}/.dpx" 2>/dev/null
-        local marker_name="$snapshot_name"
-        [[ -n "$keep_marker" ]] && marker_name="$keep_marker"
-        printf '%s\n' "$marker_name" > "${project_path}/.dpx/current_snapshot" 2>/dev/null
-    else
-        print_warning "Failed to create snapshot. Continue without insurances."
-        snapshot_name=""
+    ) || snapshot_rc=$?
+    if (( snapshot_rc != 0 )); then
+        print_error "CRITICAL: Failed to create safety snapshot (rc=${snapshot_rc}). Database mutation BLOCKED."
+        return 1
+    fi
+    print_success "Safety Snapshot create: $snapshot_name"
+
+    # Register the marker so boot-time orphan recovery can find and
+    # restore this snapshot if the process dies mid-replace (Ctrl+C,
+    # kill, terminal loss). When a keep_marker override is supplied,
+    # that snapshot represents the state a crash must roll back to.
+    local marker_name="$snapshot_name"
+    [[ -n "$keep_marker" ]] && marker_name="$keep_marker"
+    if ! mkdir -p "${project_path}/.dpx" 2>/dev/null \
+       || ! printf '%s\n' "$marker_name" > "${project_path}/.dpx/current_snapshot" 2>/dev/null; then
+        rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
+        print_error "CRITICAL: Failed to register safety snapshot marker. Database mutation BLOCKED."
+        return 1
     fi
 
     # Warning
@@ -1066,12 +1073,19 @@ db_wp_export_safe() {
         print_error "Error export bases."
         print_warning "Attempting to restore URLs after the export error..."
         # Best-effort reverse with the same rollback-marker contract.
-        db_wp_smart_replace "$prod_url" "$local_url" "$project_path" "$rollback_marker" || true
+        local reverse_rc=0
+        db_wp_smart_replace "$prod_url" "$local_url" "$project_path" "$rollback_marker" || reverse_rc=$?
         db_wp_clear_cache "$project_path" 2>/dev/null || true
-        # The reverse pass either restored local URLs or left the marker
-        # pointing at the local-state snapshot; if it fully succeeded the
-        # marker refers to a state identical to live — drop it.
-        rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
+        if (( reverse_rc == 0 )); then
+            # The reverse pass restored local URLs; the marker points at
+            # a state identical to live and is no longer needed.
+            rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
+        else
+            # Reverse failed: leave the marker intact so boot-time orphan
+            # recovery can restore the original local state.
+            print_error "URL rollback failed. Marker preserved for orphan recovery:"
+            print_error "  ${project_path}/.dpx/current_snapshot"
+        fi
         return 1
     fi
 }

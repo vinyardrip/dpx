@@ -158,20 +158,30 @@ core_rotate_backups() {
 
     if [[ "$keep_count" == "default" ]]; then
         keep_count="$(get_config "local_backup_keep" "3")"
-        [[ "$keep_count" =~ ^[0-9]+$ ]] || keep_count=3
+    fi
+    if [[ ! "$keep_count" =~ ^[0-9]+$ ]]; then
+        print_warning "core_rotate_backups: invalid keep count '${keep_count}'; using 3."
+        keep_count=3
     fi
 
     local files_to_delete
-    # Sort by filename timestamp (descending), then delete beyond keep N.
-    # The filename tail after <TYPE>_ is yyMMdd_HHMMSS, so sorting the
-    # whole basename descending approximates newest-first deterministically.
-    # awk+cut pairs basenames for ordering so directory components with
-    # underscores cannot shift the sort fields (paths here are basenames
-    # already, but the pipeline stays prefix-robust by construction).
-    files_to_delete=$(cd "$backup_dir" 2>/dev/null \
-        && command ls -1 "${project_name}_${type_prefix}_"*.sql 2>/dev/null \
-        | awk -F/ '{print $NF "\t" $0}' | sort -t_ -k3,3r -k4,4r | cut -f2- \
-        | tail -n +"$((keep_count + 1))")
+    # Extract the embedded yyMMdd_HHMMSS timestamp from each BASENAME and
+    # sort that normalized key descending. This stays correct regardless
+    # of how many underscores the project/type prefix contains, and leaves
+    # non-canonical filenames untouched.
+    files_to_delete=$(
+        cd "$backup_dir" 2>/dev/null || exit 0
+        while IFS= read -r path; do
+            [[ -f "$path" ]] || continue
+            base="${path##*/}"
+            ts=""
+            [[ "$base" =~ _([0-9]{6}_[0-9]{6})(_[0-9]+)?\.sql$ ]] \
+                && ts="${BASH_REMATCH[1]}"
+            [[ -n "$ts" ]] || continue
+            printf '%s\t%s\n' "$ts" "$path"
+        done < <(command ls -1 "${project_name}_${type_prefix}_"*.sql 2>/dev/null) \
+            | sort -r | cut -f2- | tail -n +"$((keep_count + 1))"
+    )
 
     [[ -z "$files_to_delete" ]] && return 0
 

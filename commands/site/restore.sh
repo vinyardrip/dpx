@@ -92,15 +92,19 @@ _restore_project_from_filename() {
 }
 
 # Tar-slip guard: reject archives containing members that would escape
-# the extraction root ($projects_base) — absolute paths, `..` components
-# or device-special members. STDOUT: nothing; rc 1 on unsafe members.
+# the extraction root ($projects_base) — absolute paths, `..` components,
+# device-special members, or symlink/hardlink targets pointing outside
+# the payload. STDOUT: nothing; rc 1 on unsafe members.
 _restore_archive_is_safe() {
     local archive="$1"
-    local members
-    members="$(tar -tzf "$archive" 2>/dev/null)" || return 1
+    local members links
+    # LC_ALL=C keeps the verbose link markers stable ("->", "link to")
+    # across localized GNU/BSD tar installations.
+    members="$(LC_ALL=C tar -tzf "$archive" 2>/dev/null)" || return 1
+    links="$(LC_ALL=C tar -tvzf "$archive" 2>/dev/null)" || return 1
 
     local -a unsafe=()
-    local m
+    local m target
     while IFS= read -r m; do
         [[ -z "$m" ]] && continue
         case "$m" in
@@ -108,14 +112,29 @@ _restore_archive_is_safe() {
                 unsafe+=("$m")
                 ;;
         esac
+    done <<< "$members"
+
+    # Plain tar listings show member names only. The verbose listing is
+    # required to catch a link member whose NAME is harmless but whose
+    # TARGET escapes the extraction root.
+    while IFS= read -r m; do
+        [[ -z "$m" ]] && continue
+        target=""
         case "$m" in
-            *)
-                case "$m" in
-                    /dev/*|/proc/*|/sys/*) unsafe+=("$m") ;;
-                esac
+            c*|b*)
+                unsafe+=("device node: $m")
+                continue
+                ;;
+            l*" -> "*)     target="${m##* -> }" ;;
+            h*" link to "*) target="${m##* link to }" ;;
+        esac
+        [[ -z "$target" ]] && continue
+        case "$target" in
+            /*|../*|*/../*|*/..|..)
+                unsafe+=("$m")
                 ;;
         esac
-    done <<< "$members"
+    done <<< "$links"
 
     if (( ${#unsafe[@]} > 0 )); then
         print_error "$(t cfg.err.archive.corrupt) $archive"
@@ -188,18 +207,71 @@ cmd_restore() {
 
     # --- Safety snapshot BEFORE touching anything ---
     print_step "2" "$(t restore.snapshot)"
-    local snap_name
-    snap_name=$(db_create_snapshot "$project_path" "pre_restore") || {
+    local pre_restore
+    pre_restore=$(db_create_snapshot "$project_path" "pre_restore") || {
         print_error "$(t restore.snapshot) failed."
         return 1
     }
+
+    # Register the rollback point immediately: a kill -9 / reboot during
+    # unpack/import leaves this marker for boot-time orphan recovery.
+    mkdir -p "${project_path}/.dpx" 2>/dev/null
+    if ! printf '%s\n' "$pre_restore" > "${project_path}/.dpx/current_snapshot" 2>/dev/null; then
+        print_error "Failed to register pre-restore snapshot marker."
+        return 1
+    fi
+
+    # Globals (not locals): the EXIT trap fires after cmd_restore's local
+    # scope has been unwound, so the recovery handler must not rely on
+    # dynamically scoped local variables.
+    _DPX_RESTORE_PROJECT_PATH="$project_path"
+    _DPX_RESTORE_RECOVERING=0
+    _restore_clear_marker() {
+        rm -f "${_DPX_RESTORE_PROJECT_PATH}/.dpx/current_snapshot" 2>/dev/null
+        trap - INT TERM EXIT
+    }
+    _restore_interrupted() {
+        local sig="$1"
+        # The EXIT trap fires after an INT/TERM handler calls exit; do
+        # not attempt a second restore in that nested invocation.
+        [[ "${_DPX_RESTORE_RECOVERING:-0}" == "1" ]] && return 0
+        _DPX_RESTORE_RECOVERING=1
+
+        local project_path="${_DPX_RESTORE_PROJECT_PATH:-}"
+        echo "" >&2
+        if [[ -z "$project_path" ]]; then
+            print_error "Interrupted (${sig}); restore target path is unavailable." >&2
+        else
+            print_warning "Interrupted (${sig}) — restoring pre-restore database snapshot..." >&2
+            local snap_name
+            snap_name="$(head -1 "${project_path}/.dpx/current_snapshot" 2>/dev/null | tr -d '[:space:]')"
+            if [[ -n "$snap_name" ]] \
+               && (cd "$project_path" && ddev snapshot restore "$snap_name" 2>&1); then
+                print_success "Database restored from snapshot: $snap_name" >&2
+                _restore_clear_marker
+            else
+                print_error "Snapshot restore failed; marker preserved for orphan recovery." >&2
+            fi
+        fi
+
+        if [[ "$sig" != "EXIT" ]]; then
+            exit 130
+        fi
+    }
+    trap '_restore_interrupted INT' INT
+    trap '_restore_interrupted TERM' TERM
+    trap '_restore_interrupted EXIT' EXIT
 
     # --- Confirmation ---
     echo "$(t restore.target):      ${COLOR_GREEN}${project_name}${COLOR_RESET}"
     echo "$(t restore.dump.found): $(tar -tzf "$archive" | grep -E '\.sql(\.gz)?$' | head -1)"
     print_warning "$(t restore.overwrite.warn)"
     if ! has_arg "yes"; then
-        confirm "$(t q.proceed)" || { print_info "Cancelled."; return 0; }
+        confirm "$(t q.proceed)" || {
+            _restore_clear_marker
+            print_info "Cancelled."
+            return 0
+        }
     fi
 
     # --- Unpack (merge into project dir; dump lands beside it) ---
@@ -226,9 +298,13 @@ cmd_restore() {
     print_step "5" "CMS cache..."
     db_post_import_cms "$project_path"
 
+    # Restore completed: drop the rollback marker so orphan recovery does
+    # not offer to roll back a successful restore on the next boot.
+    _restore_clear_marker
+
     print_celebration "$(t restore.done)"
     print_highlight "$(t restore.target): ${project_path}"
-    print_highlight "$(t restore.snapshot): $snap_name"
+    print_highlight "$(t restore.snapshot): $pre_restore"
 
     ddev_launch "$project_name"
     return 0

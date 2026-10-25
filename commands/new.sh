@@ -146,7 +146,9 @@ _new_env_set_kv() {
     local env_file="$1" key="$2" value="$3"
 
     if grep -qE "^${key}=" "$env_file" 2>/dev/null; then
-        safe_sed_inplace "s|^${key}=.*|${key}=${value}|g" "$env_file"
+        local escaped
+        escaped="$(_sed_escape_replacement "$value")"
+        safe_sed_inplace "s|^${key}=.*|${key}=${escaped}|g" "$env_file"
     else
         printf '%s=%s\n' "$key" "$value" >> "$env_file"
     fi
@@ -289,7 +291,9 @@ _new_provision_db() {
     validate_safe_identifier "$db_name" "database name" || return 1
 
     print_step "auto" "Create the database '${db_name}'..."
-    if ddev mysql -e "CREATE database IF NOT EXISTS \`${db_name}\`;" >/dev/null 2>&1; then
+    # Run DDEV from the project root: the caller may still be in the
+    # workspace parent after scaffolding the CMS.
+    if (cd "$project_path" && ddev mysql -e "CREATE database IF NOT EXISTS \`${db_name}\`;") >/dev/null 2>&1; then
         print_success "database '${db_name}' ready."
     else
         print_warning "Failed to create database (container database could yet initialize)."
@@ -339,7 +343,14 @@ _new_scaffold_wordpress() {
         print_step "4" "Copy and activate the starter theme '${project_name}'"
 
         local theme_dir="wp-content/themes/${project_name}"
-        cp -r "${starter_theme_path}/." "$theme_dir"
+        mkdir -p "$theme_dir" || {
+            print_error "Failed to create theme directory: $theme_dir"
+            return 1
+        }
+        cp -r "${starter_theme_path}/." "$theme_dir" || {
+            print_error "Failed to copy starter theme: $starter_theme_path"
+            return 1
+        }
 
         if [[ ! -f "${theme_dir}/style.css" ]]; then
             cat > "${theme_dir}/style.css" << EOF
@@ -381,9 +392,14 @@ _new_scaffold_archive_cms() {
     fi
     print_info "Release: $archive_url"
 
-    local tmpdir
+    local tmpdir tmpdir_cleanup
     tmpdir=$(create_temp_dir) || { print_error "Failed to create a temporary directory."; return 1; }
-    trap 'rm -rf "$tmpdir" 2>/dev/null' RETURN
+    # Embed the path into the trap string: a local variable would already
+    # be out of scope by the time the EXIT trap fires.
+    printf -v tmpdir_cleanup 'rm -rf %q 2>/dev/null' "$tmpdir"
+    trap "$tmpdir_cleanup" RETURN
+    trap "$tmpdir_cleanup; exit 130" INT TERM
+    trap "$tmpdir_cleanup" EXIT
 
     if ! _new_archive_download_unpack "$archive_url" "$tmpdir"; then
         print_error "Download/unpack of ${cms_type} failed."

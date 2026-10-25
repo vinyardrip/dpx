@@ -283,6 +283,16 @@ else
     test_fail "append failed"
 fi
 
+test_start "_new_env_set_kv escapes sed replacement metacharacters"
+env_f="$TEST_TEMP_DIR/env_meta"; make_env_fixture "$env_f"
+meta_value='https://shop.test/path?x=1&y=2|part\slug'
+_new_env_set_kv "$env_f" "APP_URL" "$meta_value"
+if grep -qxF "APP_URL=${meta_value}" "$env_f"; then
+    test_pass
+else
+    test_fail "sed metacharacters corrupted .env: $(grep -F 'APP_URL=' "$env_f")"
+fi
+
 test_start "full Laravel rewrite: DB_* -> DDEV + APP_URL"
 env_f="$TEST_TEMP_DIR/env3"; make_env_fixture "$env_f"
 _new_laravel_env_rewrite "$env_f" "https://shop.lo"

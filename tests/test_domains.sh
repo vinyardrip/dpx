@@ -254,6 +254,24 @@ with tarfile.open(tmp + "/slip.tar.gz", "w:gz") as tf:
     ti = tarfile.TarInfo("../../../dpx_slip_target/pwned.txt")
     ti.size = len(data)
     tf.addfile(ti, io.BytesIO(data))
+
+# Link NAME is harmless; TARGET escapes the extraction root.
+with tarfile.open(tmp + "/symlink-escape.tar.gz", "w:gz") as tf:
+    ti = tarfile.TarInfo("project/link")
+    ti.type = tarfile.SYMTYPE
+    ti.linkname = "../../etc/passwd"
+    tf.addfile(ti)
+
+# Internal symlink must remain accepted.
+with tarfile.open(tmp + "/symlink-safe.tar.gz", "w:gz") as tf:
+    ti = tarfile.TarInfo("project/uploads/file.txt")
+    data = b"ok"
+    ti.size = len(data)
+    tf.addfile(ti, io.BytesIO(data))
+    link = tarfile.TarInfo("project/link")
+    link.type = tarfile.SYMTYPE
+    link.linkname = "uploads/file.txt"
+    tf.addfile(link)
 PYEOF
 
 test_start "tar-slip guard rejects ../ members"
@@ -261,6 +279,20 @@ if [[ -f "$SLIP_DIR/slip.tar.gz" ]]; then
     check_value "UNSAFE" "$(tar_slip_probe "$SLIP_DIR/slip.tar.gz")"
 else
     test_fail "python3 unavailable to craft slip archive"
+fi
+
+test_start "tar-slip guard rejects symlink targets outside root"
+if [[ -f "$SLIP_DIR/symlink-escape.tar.gz" ]]; then
+    check_value "UNSAFE" "$(tar_slip_probe "$SLIP_DIR/symlink-escape.tar.gz")"
+else
+    test_fail "python3 unavailable to craft symlink archive"
+fi
+
+test_start "tar-slip guard accepts internal symlinks"
+if [[ -f "$SLIP_DIR/symlink-safe.tar.gz" ]]; then
+    check_value "SAFE" "$(tar_slip_probe "$SLIP_DIR/symlink-safe.tar.gz")"
+else
+    test_fail "python3 unavailable to craft symlink archive"
 fi
 
 test_start "tar-slip guard accepts clean archives"
@@ -478,21 +510,21 @@ unset -f ddev
 echo ""
 echo "${TEST_CYAN}=== Version SSOT ===${TEST_RESET}"
 
-test_start ".version equals 1.8.1"
-check_value "1.8.1" "$(cat "$DPX_ROOT/.version")"
+test_start ".version equals 1.8.2"
+check_value "1.8.2" "$(cat "$DPX_ROOT/.version")"
 
 out="$(bash "$DPX_ROOT/dpx.sh" -v </dev/null 2>&1)"
-test_start "dpx -v reports v1.8.1"
-if grep -qF "dpx v1.8.1" <<<"$out"; then
+test_start "dpx -v reports v1.8.2"
+if grep -qF "dpx v1.8.2" <<<"$out"; then
     test_pass
 else
     test_fail "got: $out"
 fi
 
 ok=true
-    grep -qF "version-1.8.1-blue" "$DPX_ROOT/README.md"    || ok=false
-    grep -qF "version-1.8.1-blue" "$DPX_ROOT/README.ru.md" || ok=false
-test_start "README badges show 1.8.1"
+    grep -qF "version-1.8.2-blue" "$DPX_ROOT/README.md"    || ok=false
+    grep -qF "version-1.8.2-blue" "$DPX_ROOT/README.ru.md" || ok=false
+test_start "README badges show 1.8.2"
 if [[ "$ok" == true ]]; then test_pass; else test_fail "badge missing"; fi
 
 print_test_summary

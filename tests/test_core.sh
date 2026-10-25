@@ -573,6 +573,67 @@ else
     test_fail "expected rc=0 with marker present, got: $out"
 fi
 
+test_start "smart replace blocks mutation when safety snapshot fails"
+out="$(HOME="$HOME_PROBE" bash -c '
+    export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+    source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+    source "$DPX_ROOT/lib/database.sh" >/dev/null 2>&1
+    proj="'"$SR_PROJ"'"
+    rm -f "$proj/.dpx/current_snapshot"
+    ddev() {
+        case "$1" in
+            snapshot) return 1 ;;
+            exec)     echo "EXEC_CALLED"; return 0 ;;
+            *)        return 0 ;;
+        esac
+    }
+    db_wp_smart_replace "https://old.lo" "https://new.example.com" "$proj" </dev/null >/dev/null 2>&1
+    echo "SR_RC=$?"
+    if [[ -f "$proj/.dpx/current_snapshot" ]]; then
+        echo "MARKER=$(tr -d "[:space:]" < "$proj/.dpx/current_snapshot")"
+    else
+        echo "MARKER=none"
+    fi
+' _ </dev/null 2>/dev/null)"
+if grep -qF "SR_RC=1" <<<"$out" \
+   && grep -qF "MARKER=none" <<<"$out" \
+   && ! grep -qF "EXEC_CALLED" <<<"$out"; then
+    test_pass
+else
+    test_fail "snapshot failure must abort before ddev exec, got: $out"
+fi
+
+test_start "db_wp_export_safe preserves marker when rollback reverse fails"
+out="$(HOME="$HOME_PROBE" bash -c '
+    export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+    source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+    source "$DPX_ROOT/lib/database.sh" >/dev/null 2>&1
+    proj="'"$SR_PROJ"'"
+    rm -f "$proj/.dpx/current_snapshot"
+    db_wp_smart_replace() {
+        if [[ "$1" == "https://local.test" ]]; then
+            printf "pre_replace_original\n" > "$proj/.dpx/current_snapshot"
+            return 0
+        fi
+        return 1
+    }
+    db_wp_clear_cache() { return 0; }
+    ddev() { [[ "$1" == "export-db" ]] && return 1; return 0; }
+    db_wp_export_safe "$proj/export.sql" "https://local.test" "https://prod.test" "$proj" >/dev/null 2>&1
+    echo "EXPORT_RC=$?"
+    if [[ -f "$proj/.dpx/current_snapshot" ]]; then
+        echo "MARKER=$(tr -d "[:space:]" < "$proj/.dpx/current_snapshot")"
+    else
+        echo "MARKER=none"
+    fi
+' _ </dev/null 2>/dev/null)"
+if grep -qF "EXPORT_RC=1" <<<"$out" \
+   && grep -qF "MARKER=pre_replace_original" <<<"$out"; then
+    test_pass
+else
+    test_fail "failed rollback must preserve marker, got: $out"
+fi
+
 rm -rf "$STAGE_TMP"
 
 # =================================================================
@@ -668,6 +729,46 @@ if [[ "$remaining" == "2" ]]; then
     test_pass
 else
     test_fail "expected 2 survivors, got $remaining"
+fi
+
+test_start "backup_rotate rejects invalid keep counts without deleting"
+BAD_ROT="$S3_TMP/bad_rotate"
+mkdir -p "$BAD_ROT"
+for ts in 2026-01-01_000001 2026-01-02_000002 2026-01-03_000003; do
+    echo old > "$BAD_ROT/FULL_shop_${ts}.tar.gz"
+done
+bad_out="$(HOME="$S3_TMP" bash -c '
+    export DPX_ROOT="'"$DPX_ROOT"'"
+    source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+    source "$DPX_ROOT/lib/backup.sh" >/dev/null 2>&1
+    backup_rotate "$1" "FULL_shop_" "abc"
+    echo "BAD_RC=$?"
+' _ "$BAD_ROT" </dev/null 2>&1)"
+bad_count="$(command ls -1 "$BAD_ROT"/FULL_shop_*.tar.gz 2>/dev/null | wc -l | tr -d ' ')"
+if grep -qF "BAD_RC=1" <<<"$bad_out" && [[ "$bad_count" == "3" ]]; then
+    test_pass
+else
+    test_fail "invalid keep must fail without deleting, rc/count: $bad_out / $bad_count"
+fi
+
+test_start "backup_rotate sorts by basename timestamp in underscored paths"
+UND_ROT="$S3_TMP/full_backup_dir_with_underscores"
+mkdir -p "$UND_ROT"
+for ts in 2026-01-01_000001 2026-01-03_000003 2026-01-02_000002; do
+    echo old > "$UND_ROT/FULL_my_site_${ts}.tar.gz"
+done
+HOME="$S3_TMP" bash -c '
+    export DPX_ROOT="'"$DPX_ROOT"'"
+    source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+    source "$DPX_ROOT/lib/backup.sh" >/dev/null 2>&1
+    backup_rotate "$1" "FULL_my_site_" 1
+' _ "$UND_ROT" </dev/null >/dev/null 2>&1
+if [[ -f "$UND_ROT/FULL_my_site_2026-01-03_000003.tar.gz" ]] \
+   && [[ ! -e "$UND_ROT/FULL_my_site_2026-01-01_000001.tar.gz" ]] \
+   && [[ ! -e "$UND_ROT/FULL_my_site_2026-01-02_000002.tar.gz" ]]; then
+    test_pass
+else
+    test_fail "newest underscored archive was not retained"
 fi
 
 echo ""
