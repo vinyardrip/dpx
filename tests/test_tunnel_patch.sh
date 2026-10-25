@@ -641,6 +641,92 @@ else
 fi
 
 # =================================================================
+# R-03: TUNNEL SNAPSHOT MARKER + FAIL-CLOSED ROLLBACK
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== Tunnel rollback safety ===${TEST_RESET}"
+
+R03_PROJECT="$TEST_TEMP_DIR/r03_project"
+R03_LOG="$TEST_TEMP_DIR/r03.log"
+mkdir -p "$R03_PROJECT/.dpx"
+: > "$R03_LOG"
+
+db_get_prefix() { printf 'wp_\n'; }
+db_create_snapshot() { printf 'snap_r03\n'; }
+db_restore_snapshot() {
+    printf 'RESTORE:%s\n' "$2" >> "$R03_LOG"
+    return 0
+}
+ddev() {
+    if [[ -f "$R03_PROJECT/.dpx/current_snapshot" ]]; then
+        printf 'MARKER_BEFORE_MUTATION\n' >> "$R03_LOG"
+    else
+        printf 'NO_MARKER\n' >> "$R03_LOG"
+    fi
+    return 1
+}
+
+test_start "db_smart_replace_tunnel registers marker before mutation"
+out="$(db_smart_replace_tunnel "https://old.test" "https://new.test" "$R03_PROJECT" 2>&1)"
+r03_rc=$?
+if [[ $r03_rc -ne 0 ]] \
+    && grep -qxF 'snap_r03' "$R03_PROJECT/.dpx/current_snapshot" 2>/dev/null \
+    && grep -qF 'MARKER_BEFORE_MUTATION' "$R03_LOG" \
+    && grep -qF 'RESTORE:snap_r03' "$R03_LOG" \
+    && ! grep -qF 'NO_MARKER' "$R03_LOG"; then
+    test_pass
+else
+    test_fail "marker/rollback ordering incorrect (rc=$r03_rc): $out"
+fi
+
+db_wp_clear_cache() { return 0; }
+tunnel_wp_exec() { return 0; }
+ddev_wp_search_replace() {
+    printf 'REVERSE\n' >> "$R03_LOG"
+    return 0
+}
+db_restore_snapshot() {
+    printf 'RESTORE_OK\n' >> "$R03_LOG"
+    return 0
+}
+printf 'snap_r03\n' > "$R03_PROJECT/.dpx/current_snapshot"
+: > "$R03_LOG"
+
+test_start "successful snapshot restore removes the marker"
+tunnel_wp_db_rollback "$R03_PROJECT" "https://tunnel.test" "https://local.test" >/dev/null 2>&1
+r03_rc=$?
+if [[ $r03_rc -eq 0 && ! -e "$R03_PROJECT/.dpx/current_snapshot" ]] \
+    && grep -qF 'RESTORE_OK' "$R03_LOG" \
+    && ! grep -qF 'REVERSE' "$R03_LOG"; then
+    test_pass
+else
+    test_fail "marker was not cleared after verified restore (rc=$r03_rc)"
+fi
+
+db_restore_snapshot() { return 1; }
+ddev_wp_search_replace() { return 1; }
+printf 'snap_r03\n' > "$R03_PROJECT/.dpx/current_snapshot"
+: > "$R03_LOG"
+
+test_start "failed restore and reverse passes preserve the marker"
+tunnel_wp_db_rollback "$R03_PROJECT" "https://tunnel.test" "https://local.test" >/dev/null 2>&1
+r03_rc=$?
+if [[ $r03_rc -ne 0 && -e "$R03_PROJECT/.dpx/current_snapshot" ]]; then
+    test_pass
+else
+    test_fail "failed rollback lost its recovery marker (rc=$r03_rc)"
+fi
+
+test_start "tunnel cleanup propagates a rollback failure"
+if grep -qF 'rollback_rc=$?' "$DPX_ROOT/commands/tunnel.sh" \
+    && grep -qF 'Database rollback failed; recovery marker preserved.' "$DPX_ROOT/commands/tunnel.sh"; then
+    test_pass
+else
+    test_fail "cleanup does not surface rollback failure"
+fi
+
+# =================================================================
 # SUMMARIES
 # =================================================================
 

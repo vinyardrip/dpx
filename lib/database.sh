@@ -393,12 +393,20 @@ db_export() {
     # [FIX P-10] CWD isolation: run inside a subshell so the caller's
     # working directory is preserved on return.
     (
+        # [R-05] Exports contain the full database, including credentials
+        # and user data. Never inherit a permissive caller umask.
+        umask 077
+
         [[ -n "$project_path" ]] && cd "$project_path" || exit 1
         ensure_directory "$(dirname "$output_file")"
 
         print_step "auto" "$(t msg.db.export)"
 
         if ddev export-db --gzip="$gzip" --file="$output_file" >/dev/null 2>&1; then
+            if ! chmod 600 "$output_file" 2>/dev/null; then
+                print_error "Failed to secure permissions on database export: $output_file"
+                exit 1
+            fi
             print_success "Export completion: $(basename "$output_file")"
             exit 0
         else
@@ -418,7 +426,11 @@ db_backup_local() {
     local backup_dir="${3:-$(get_db_local_path)}"
     local tag="${4:-LOCAL_BACKUP}"
 
-    ensure_directory "$backup_dir"
+    ensure_directory "$backup_dir" || return 1
+    if ! chmod 700 "$backup_dir" 2>/dev/null; then
+        print_error "Failed to secure permissions on backup directory: $backup_dir" >&2
+        return 1
+    fi
 
     local filename
     filename=$(db_generate_export_filename "$project_name" "$tag")
@@ -728,6 +740,31 @@ db_restore_snapshot() {
 #   (include count replace) in debug.log.
 # =================================================================
 
+# [R-03] Fail-closed rollback for an interrupted tunnel replacement.
+# The snapshot marker is deliberately preserved even when the restore
+# succeeds: the enclosing tunnel cleanup will retry, and the marker must
+# never disappear before recovery has been verified end-to-end.
+_db_smart_replace_rollback_after_failure() {
+    local project_path="$1"
+    local snapshot_name="$2"
+    local reason="${3:-database replace}"
+
+    print_error "Tunnel replacement failed (${reason})." >&2
+    if [[ -z "$snapshot_name" ]]; then
+        print_error "No safety snapshot is available; database state must be checked manually." >&2
+        return 1
+    fi
+
+    local restore_rc=0
+    db_restore_snapshot "$project_path" "$snapshot_name" || restore_rc=$?
+    if (( restore_rc == 0 )); then
+        print_warning "Database restored from snapshot; recovery marker preserved for final cleanup." >&2
+    else
+        print_error "Automatic snapshot restore failed (rc=${restore_rc}); recovery marker preserved." >&2
+    fi
+    return 1
+}
+
 db_smart_replace_tunnel() {
     local old_url="$1"
     local new_url="$2"
@@ -749,6 +786,15 @@ db_smart_replace_tunnel() {
 
     if [[ $snap_rc -ne 0 || -z "$snapshot_name" ]]; then
         print_error "Failed to create Safety Snapshot. Stop!" >&2
+        return 1
+    fi
+
+    # [R-03] Register the recovery marker BEFORE the first mutation. A
+    # crash or failed replace must always leave the snapshot discoverable.
+    local marker_file="${project_path}/.dpx/current_snapshot"
+    if ! mkdir -p "${project_path}/.dpx" 2>/dev/null \
+        || ! printf '%s\n' "$snapshot_name" > "$marker_file" 2>/dev/null; then
+        print_error "Failed to register the recovery snapshot marker: $marker_file" >&2
         return 1
     fi
 
@@ -783,8 +829,7 @@ db_smart_replace_tunnel() {
     fi
 
     if [[ $replace_rc -ne 0 ]]; then
-        print_error "Error replaces HTTPS (pass 1)." >&2
-        [[ -n "$snapshot_name" ]] && db_restore_snapshot "$project_path" "$snapshot_name"
+        _db_smart_replace_rollback_after_failure "$project_path" "$snapshot_name" "HTTPS pass"
         return 1
     fi
 
@@ -810,6 +855,10 @@ db_smart_replace_tunnel() {
         if [[ -n "$replace_output" ]]; then
             print_info "  → $replace_output" >&2
         fi
+        if [[ $replace_rc -ne 0 ]]; then
+            _db_smart_replace_rollback_after_failure "$project_path" "$snapshot_name" "HTTP pass"
+            return 1
+        fi
         sleep 1; sync 2>/dev/null || true
     else
         print_info "[2/3] Skipped (old_url not HTTPS)" >&2
@@ -831,6 +880,10 @@ db_smart_replace_tunnel() {
         echo "[DEBUG] Pass 3 (Bare): rc=$replace_rc output=${replace_output:-'(empty)'}" >> "${project_path}/.dpx/debug.log" 2>/dev/null
         if [[ -n "$replace_output" ]]; then
             print_info "  → $replace_output" >&2
+        fi
+        if [[ $replace_rc -ne 0 ]]; then
+            _db_smart_replace_rollback_after_failure "$project_path" "$snapshot_name" "bare-domain pass"
+            return 1
         fi
         sleep 1; sync 2>/dev/null || true
     fi
@@ -872,7 +925,7 @@ db_smart_replace_tunnel() {
         print_error "FATAL ERROR: SQL-validation fail!" >&2
         print_error "Expected: *$new_bare*, received from database: $actual_url" >&2
         print_error "SQL: SELECT option_value FROM ${db_prefix}options WHERE option_name='home';" >&2
-        [[ -n "$snapshot_name" ]] && db_restore_snapshot "$project_path" "$snapshot_name"
+        _db_smart_replace_rollback_after_failure "$project_path" "$snapshot_name" "SQL validation"
         return 1
     fi
 
@@ -1049,7 +1102,19 @@ db_wp_export_safe() {
 
     db_wp_clear_cache "$project_path"
 
-    if (cd "$project_path" && ddev export-db --file="$output_file" >/dev/null 2>&1); then
+    local export_ok=false
+    if (
+        umask 077
+        cd "$project_path" || exit 1
+        ddev export-db --file="$output_file" >/dev/null 2>&1
+    ); then
+        export_ok=true
+    fi
+    if [[ "$export_ok" == true ]] && ! chmod 600 "$output_file" 2>/dev/null; then
+        export_ok=false
+    fi
+
+    if [[ "$export_ok" == true ]]; then
         print_success "Base export: $(basename "$output_file")"
 
         # Reverse pass: hand it the rollback marker so any failure rolls
@@ -1128,6 +1193,7 @@ export -f get_db_prod_path get_db_local_path db_import db_export
 export -f db_backup_local db_import_with_replace db_wp_export_safe
 export -f db_wp_smart_replace db_wp_clear_cache db_post_import_cms
 export -f db_create_snapshot db_restore_snapshot db_smart_replace_tunnel
+export -f _db_smart_replace_rollback_after_failure
 export -f db_get_prod_filepath db_generate_export_filename
 export -f db_validate_identifier db_escape_sql_literal db_get_prefix db_sql_get_option db_sql_delete_transients
 export -f db_sql_count_old_url db_get_db_name

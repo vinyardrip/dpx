@@ -51,6 +51,32 @@ show_migrate_help() {
 EOF
 }
 
+# Validate a URL before it is used by WP-CLI. Only absolute HTTP(S)
+# values are accepted; values that could be parsed as options are
+# rejected explicitly, and the caller must also ensure old != new.
+_migrate_validate_url() {
+    local value="$1"
+    local label="${2:-URL}"
+
+    if [[ -z "$value" ]]; then
+        print_error "${label} cannot be empty."
+        return 1
+    fi
+    if [[ "$value" == -* ]]; then
+        print_error "${label} must not start with '-': ${value}"
+        return 1
+    fi
+    if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+        print_error "${label} must not contain control characters: ${value}"
+        return 1
+    fi
+    if [[ ! "$value" =~ ^https?://[^/?#[:space:]]+([/?#][^[:space:]]*)?$ ]]; then
+        print_error "${label} must be an absolute http(s) URL: ${value}"
+        return 1
+    fi
+    return 0
+}
+
 # =================================================================
 # OLD URL DETECTION (CMS configuration, no hardcoded TLD)
 # =================================================================
@@ -226,19 +252,6 @@ cmd_migrate() {
     ddev_projects_path=$(get_config "ddev_projects_base_path")
     local ddev_path="${ddev_projects_path}/${project_name}"
 
-    # Check directory existence
-    if [[ -d "$ddev_path" ]]; then
-        print_warning "Project directory '$ddev_path' already exists."
-        if has_arg "yes" || confirm "Remove its and ALL data DDEV for result project?"; then
-            ddev delete "$project_name" -y 2>/dev/null || true
-            rm -rf "$ddev_path"
-            print_success "Project and its data deleted."
-        else
-            print_error "Migration cancel."
-            return 1
-        fi
-    fi
-
     # Folder project in Devilbox
     local devilbox_folder
     devilbox_folder=$(get_arg "devilbox_folder" "")
@@ -257,6 +270,40 @@ cmd_migrate() {
 
     if ! validate_directory "$devilbox_project_path" "Source director Devilbox"; then
         return 1
+    fi
+
+    # =================================================================
+    #  Forming and validating URLs BEFORE any destructive work
+    # =================================================================
+    local local_url
+    local_url="https://${project_name}.$(get_config "project_tld")"
+    local old_url
+    old_url=$(get_arg "old_url" "")
+    if [[ -z "$old_url" ]]; then
+        # No hardcoded .loc: read the source CMS configuration first.
+        old_url="$(_migrate_detect_old_url "$devilbox_project_path" "$devilbox_folder" "$cms_type")"
+    fi
+    old_url="${old_url%/}"
+
+    # [R-02] Validate before any destructive work or shell/WP-CLI call.
+    _migrate_validate_url "$old_url" "Old URL" || return 1
+    _migrate_validate_url "$local_url" "New URL" || return 1
+    if [[ "$old_url" == "$local_url" ]]; then
+        print_error "Old URL and new URL must differ: ${old_url}"
+        return 1
+    fi
+
+    # Only now is it safe to remove an existing DDEV target.
+    if [[ -d "$ddev_path" ]]; then
+        print_warning "Project directory '$ddev_path' already exists."
+        if has_arg "yes" || confirm "Remove its and ALL data DDEV for result project?"; then
+            ddev delete "$project_name" -y 2>/dev/null || true
+            rm -rf "$ddev_path"
+            print_success "Project and its data deleted."
+        else
+            print_error "Migration cancel."
+            return 1
+        fi
     fi
 
     # Version PHP
@@ -294,19 +341,6 @@ cmd_migrate() {
 
         print_success "Use standard account data: user: root, password: (empty)"
     fi
-
-    # =================================================================
-    #  Forming URL
-    # =================================================================
-    local local_url
-    local_url="https://${project_name}.$(get_config "project_tld")"
-    local old_url
-    old_url=$(get_arg "old_url" "")
-    if [[ -z "$old_url" ]]; then
-        # No hardcoded .loc: read the source CMS configuration first.
-        old_url="$(_migrate_detect_old_url "$devilbox_project_path" "$devilbox_folder" "$cms_type")"
-    fi
-    old_url="${old_url%/}"
 
     # [FIX] Paths already expandeds in core.sh durings load_config
     local db_backup_path
@@ -369,6 +403,7 @@ cmd_migrate() {
 
         # Work with Devilbox in subshell
         (
+            umask 077
             cd "$devilbox_path" || exit 1
 
             # Switch on need version PHP
@@ -391,6 +426,10 @@ cmd_migrate() {
             # mysqldump warnings would corrupt the SQL artifact.
             ensure_directory "$db_backup_path" || {
                 print_error "Cannot create backup directory: $db_backup_path"
+                exit 1
+            }
+            chmod 700 "$db_backup_path" 2>/dev/null || {
+                print_error "Failed to secure permissions on backup directory: $db_backup_path"
                 exit 1
             }
 
@@ -428,6 +467,11 @@ cmd_migrate() {
             if ! mv -f "$dump_tmp" "$backup_file"; then
                 print_error "Cannot move the database dump into place: $backup_file"
                 rm -f "$dump_tmp" "$dump_err_file"
+                exit 1
+            fi
+            if ! chmod 600 "$backup_file" 2>/dev/null; then
+                print_error "Failed to secure permissions on database dump: $backup_file"
+                rm -f "$backup_file" "$dump_err_file"
                 exit 1
             fi
 
@@ -519,10 +563,9 @@ cmd_migrate() {
             ((step_num++))
             print_step "$step_num" "Automatic replace URL (WP-CLI)"
 
-            (
-                cd "$ddev_path" || exit 1
-                ddev exec "wp search-replace '$old_url' '$local_url' --all-tables --allow-root" 2>&1
-            ) || return 1
+            # [R-02] Pass each value as an argv element through the shared
+            # wrapper; never build a shell command string from user input.
+            ddev_wp_search_replace "$old_url" "$local_url" "$ddev_path" --precise --skip-plugins --skip-themes || return 1
 
             print_success "URL success replacs."
         fi

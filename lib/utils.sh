@@ -247,15 +247,18 @@ prompt_choice() {
 # ARGUMENTS: full command line of the session (optional)
 # =================================================================
 
-# Flags whose VALUE must never reach the log.
+# Flags whose VALUE must never reach the log. Comparison is normalized:
+# underscores are folded to hyphens, so --db_password is covered by the
+# canonical --db-password entry (and vice versa).
 _DPX_LOG_SECRET_FLAGS=(
-    "--db-password" "--admin-pass" "--dbpass" "--password" "--token"
+    "--db-password" "--admin-pass" "--admin-password" "--dbpass"
+    "--db-pass" "--password" "--token" "--secret" "--api-key"
 )
 
 # Rebuild a command line with secret values masked.
 dpx_redact_command_line() {
     local -a out=()
-    local arg flag redact_next=false
+    local arg flag normalized redact_next=false
 
     for arg in "$@"; do
         if [[ "$redact_next" == true ]]; then
@@ -264,17 +267,20 @@ dpx_redact_command_line() {
             continue
         fi
 
+        normalized="${arg%%=*}"
+        normalized="${normalized//_/-}"
+        normalized="${normalized,,}"
+
         for flag in "${_DPX_LOG_SECRET_FLAGS[@]}"; do
-            # --flag=value form: mask in place.
-            if [[ "$arg" == "${flag}="* ]]; then
-                arg="${flag}=***"
-                break
-            fi
-            # --flag value form: mask the next argument.
-            if [[ "$arg" == "$flag" ]]; then
+            [[ "$normalized" == "$flag" ]] || continue
+            if [[ "$arg" == *=* ]]; then
+                # --flag=value form: mask in place, preserving the spelling.
+                arg="${arg%%=*}=***"
+            else
+                # --flag value form: mask the next argument.
                 redact_next=true
-                break
             fi
+            break
         done
 
         out+=("$arg")

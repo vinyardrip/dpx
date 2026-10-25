@@ -332,6 +332,13 @@ _DPX_LANG="en"
 load_config
 check_value "Шаг" "$(t lbl.step)"
 
+test_start "load_config re-secures a legacy 0644 user config"
+printf 'db_password = legacy-secret\n' >> "$(config_user_file)"
+chmod 644 "$(config_user_file)"
+load_config
+mode="$(stat -c '%a' "$(config_user_file)" 2>/dev/null || stat -f '%Lp' "$(config_user_file)" 2>/dev/null)"
+check_value "600" "$mode"
+
 test_start "[en] explicit DPX_LANG still beats config"
 out="$(bash -c "
     export HOME=\"$FAKE_HOME\" DPX_LANG=en

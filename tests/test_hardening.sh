@@ -24,7 +24,7 @@ export DPX_ROOT
 # shellcheck source=test_framework.sh
 source "$TESTS_DIR/test_framework.sh"
 
-print_test_header "Unit Tests: Phase 2 hardening" "1.9.0"
+print_test_header "Unit Tests: Phase 2 hardening" "1.9.1"
 setup_temp_dir >/dev/null
 
 run_cli() {
@@ -85,6 +85,121 @@ if [[ -f "$redact_log" ]] \
     test_pass
 else
     test_fail "secret argv leaked into $redact_log"
+fi
+
+test_start "redaction covers hyphen and underscore secret flags"
+out="$(bash -c '
+    export DPX_ROOT="$1"
+    source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+    dpx_redact_command_line --db_password=UnderScore \
+        --db-password Hyphen --admin_pass=AdminSecret \
+        --api_key ApiSecret --token TokenSecret
+' _ "$DPX_ROOT" 2>&1 </dev/null)"
+if grep -qF -- '--db_password=***' <<<"$out" \
+    && grep -qF -- '--db-password ***' <<<"$out" \
+    && grep -qF -- '--admin_pass=***' <<<"$out" \
+    && grep -qF -- '--api_key ***' <<<"$out" \
+    && grep -qF -- '--token ***' <<<"$out" \
+    && ! grep -qE 'UnderScore|Hyphen|AdminSecret|ApiSecret|TokenSecret' <<<"$out"; then
+    test_pass
+else
+    test_fail "underscore/hyphen secret leaked: $out"
+fi
+
+test_start "dpx_exec_and_log masks underscore secret flag values"
+redact_underscore_project="$TEST_TEMP_DIR/redact_underscore"
+mkdir -p "$redact_underscore_project"
+bash -c '
+    export DPX_ROOT="$1"
+    source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+    dpx_exec_and_log "$2" bash -c "exit 0" --db_password "underscore-secret" >/dev/null 2>&1
+' _ "$DPX_ROOT" "$redact_underscore_project" </dev/null
+redact_underscore_log="$redact_underscore_project/.dpx/debug.log"
+if [[ -f "$redact_underscore_log" ]] \
+    && grep -qF -- '--db_password ***' "$redact_underscore_log" \
+    && ! grep -qF 'underscore-secret' "$redact_underscore_log"; then
+    test_pass
+else
+    test_fail "underscore secret leaked into $redact_underscore_log"
+fi
+
+# =================================================================
+# R-02 / R-05: MIGRATION ARGV + EXPORT PERMISSIONS
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== Migration and export hardening ===${TEST_RESET}"
+
+url_probe() {
+    bash -c '
+        export DPX_ROOT="$1" DPX_LANG=en NO_COLOR=1
+        source "$DPX_ROOT/commands/migrate.sh" >/dev/null 2>&1
+        _migrate_validate_url "$2" "URL" >/dev/null 2>&1
+    ' _ "$DPX_ROOT" "$1" </dev/null 2>/dev/null
+}
+
+test_start "migration accepts absolute http(s) URLs"
+if url_probe "https://old.example.test" && url_probe "http://old.example.test/path?x=1"; then
+    test_pass
+else
+    test_fail "valid absolute URL was rejected"
+fi
+
+test_start "migration rejects non-absolute, option-like and empty URLs"
+if ! url_probe "old.example.test" \
+    && ! url_probe "ftp://old.example.test" \
+    && ! url_probe "-https://old.example.test" \
+    && ! url_probe ""; then
+    test_pass
+else
+    test_fail "invalid URL passed validation"
+fi
+
+test_start "migration uses the argv-safe wrapper with parity flags"
+if grep -qF 'ddev_wp_search_replace "$old_url" "$local_url" "$ddev_path"' \
+        "$DPX_ROOT/commands/migrate.sh" \
+    && grep -qF -- '--precise --skip-plugins --skip-themes' "$DPX_ROOT/commands/migrate.sh" \
+    && ! grep -qF 'ddev exec "wp search-replace' "$DPX_ROOT/commands/migrate.sh" \
+    && grep -qF 'Old URL and new URL must differ' "$DPX_ROOT/commands/migrate.sh"; then
+    test_pass
+else
+    test_fail "migration still builds a shell command or misses validation"
+fi
+
+test_start "database exports are 0600 and their directory is 0700"
+export_project="$TEST_TEMP_DIR/export_project"
+export_dir="$TEST_TEMP_DIR/export_dir"
+mkdir -p "$export_project"
+bash -c '
+    export DPX_ROOT="$1"
+    source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+    source "$DPX_ROOT/lib/database.sh" >/dev/null 2>&1
+    ddev() {
+        local a
+        for a in "$@"; do
+            case "$a" in
+                --file=*) printf "dump\n" > "${a#--file=}" ;;
+            esac
+        done
+    }
+    umask 022
+    db_export "$2" "$3" false >/dev/null 2>&1
+' _ "$DPX_ROOT" "$export_dir/dump.sql" "$export_project" </dev/null
+export_mode="$(stat -c '%a' "$export_dir/dump.sql" 2>/dev/null || stat -f '%Lp' "$export_dir/dump.sql" 2>/dev/null)"
+export_dir_mode="$(stat -c '%a' "$export_dir" 2>/dev/null || stat -f '%Lp' "$export_dir" 2>/dev/null)"
+if [[ "$export_mode" == "600" && "$export_dir_mode" == "700" ]]; then
+    test_pass
+else
+    test_fail "export mode=$export_mode dir_mode=$export_dir_mode"
+fi
+
+test_start "full backups enforce secure directory and archive modes"
+if grep -qF 'chmod 700 "$backup_dir"' "$DPX_ROOT/lib/backup.sh" \
+    && grep -qF 'chmod 600 "$archive_file"' "$DPX_ROOT/lib/backup.sh" \
+    && grep -qF 'umask 077' "$DPX_ROOT/lib/backup.sh"; then
+    test_pass
+else
+    test_fail "backup permission hardening missing"
 fi
 
 # =================================================================

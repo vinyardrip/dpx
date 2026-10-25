@@ -63,6 +63,10 @@ parse_args() {
                 DPX_ARGS["yes"]=1
                 shift
                 ;;
+            --force)
+                DPX_ARGS["force"]=1
+                shift
+                ;;
             --debug)
                 DPX_ARGS["debug"]=1
                 DPX_DEBUG=1

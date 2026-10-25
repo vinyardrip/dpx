@@ -43,7 +43,11 @@ cmd_db_snap() {
     # [OPTIMIZATION] Save path in variable (avoid repeat calls)
     local db_dir
     db_dir=$(get_db_local_path)
-    ensure_directory "$db_dir"
+    ensure_directory "$db_dir" || return 1
+    if ! chmod 700 "$db_dir" 2>/dev/null; then
+        print_error "Failed to secure permissions on snapshot directory: $db_dir"
+        return 1
+    fi
 
     # db_generate_export_filename already generates .sql (without .gz)
     local out_file
@@ -53,11 +57,16 @@ cmd_db_snap() {
 
     # Execute in subshell for isolations cd
     (
+        umask 077
         cd "$project_path" || exit 1
 
         # [FIX] Removed 2>&1 - leave stderr visible for diagnostics errors
         # Backups criticals, errors shoulds was visibles!
         if ddev export-db --gzip=false --file="$out_file" >/dev/null; then
+            if ! chmod 600 "$out_file" 2>/dev/null; then
+                print_error "Failed to secure permissions on snapshot: $out_file"
+                exit 1
+            fi
             print_success "Snapshot created: $(basename "$out_file")"
             print_info "Size: $(du -h "$out_file" | awk '{print $1}')"
         else

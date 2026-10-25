@@ -91,54 +91,135 @@ _restore_project_from_filename() {
         && printf '%s\n' "${BASH_REMATCH[1]}"
 }
 
-# Tar-slip guard: reject archives containing members that would escape
-# the extraction root ($projects_base) — absolute paths, `..` components,
-# device-special members, or symlink/hardlink targets pointing outside
-# the payload. STDOUT: nothing; rc 1 on unsafe members.
+# Lexically normalize a relative path without touching the filesystem.
+# Used to decide whether a link target can escape the restore root.
+_restore_normalize_relpath() {
+    local path="$1"
+    local -a parts=() out=()
+    local part last
+
+    IFS='/' read -r -a parts <<< "$path"
+    for part in "${parts[@]}"; do
+        case "$part" in
+            ""|.) ;;
+            ..)
+                if (( ${#out[@]} > 0 )); then
+                    last=$(( ${#out[@]} - 1 ))
+                    unset "out[$last]"
+                else
+                    out+=("..")
+                fi
+                ;;
+            *) out+=("$part") ;;
+        esac
+    done
+
+    local IFS='/'
+    printf '%s\n' "${out[*]}"
+}
+
+# Resolve a SYMLINK target relative to the directory containing its
+# archive member (tar symlink semantics).
+_restore_symlink_target_path() {
+    local member="$1" target="$2" dir=""
+    [[ "$member" == */* ]] && dir="${member%/*}"
+    _restore_normalize_relpath "${dir:+${dir}/}${target}"
+}
+
+# Tar-slip/scope guard. With a project name, every member must belong to
+# ${project_name}/... or be the single ${project_name}_db.sql.gz dump;
+# every symlink/hardlink target must resolve inside ${project_name}.
+# STDOUT: nothing; rc 1 on unsafe members.
 _restore_archive_is_safe() {
     local archive="$1"
+    local project_name="${2:-}"
     local members links
+    local -a member_list=() link_list=() unsafe=()
+    local i m line target resolved
+
     # LC_ALL=C keeps the verbose link markers stable ("->", "link to")
     # across localized GNU/BSD tar installations.
     members="$(LC_ALL=C tar -tzf "$archive" 2>/dev/null)" || return 1
     links="$(LC_ALL=C tar -tvzf "$archive" 2>/dev/null)" || return 1
 
-    local -a unsafe=()
-    local m target
-    while IFS= read -r m; do
-        [[ -z "$m" ]] && continue
-        case "$m" in
-            /*|../*|*/../*|*/..|..)
-                unsafe+=("$m")
-                ;;
-        esac
-    done <<< "$members"
+    if [[ -z "$members" ]]; then
+        print_error "$(t cfg.err.archive.corrupt) $archive"
+        return 1
+    fi
 
-    # Plain tar listings show member names only. The verbose listing is
-    # required to catch a link member whose NAME is harmless but whose
-    # TARGET escapes the extraction root.
-    while IFS= read -r m; do
+    mapfile -t member_list <<< "$members"
+    mapfile -t link_list <<< "$links"
+    if (( ${#member_list[@]} != ${#link_list[@]} )); then
+        print_error "Archive listing is inconsistent: $archive"
+        return 1
+    fi
+
+    for i in "${!member_list[@]}"; do
+        m="${member_list[$i]}"
+        line="${link_list[$i]}"
         [[ -z "$m" ]] && continue
-        target=""
+
+        # Absolute paths, traversal components, and dot components are
+        # never valid inside a DPX full-backup archive.
         case "$m" in
-            c*|b*)
-                unsafe+=("device node: $m")
+            /*|..|../*|*/../*|*/..|./*|*/./*|*/.)
+                unsafe+=("$m")
                 continue
                 ;;
-            l*" -> "*)     target="${m##* -> }" ;;
-            h*" link to "*) target="${m##* link to }" ;;
         esac
-        [[ -z "$target" ]] && continue
+
+        if [[ -n "$project_name" ]]; then
+            case "$m" in
+                "$project_name"|"$project_name/"*) ;;
+                "${project_name}_db.sql.gz") ;;
+                *)
+                    unsafe+=("outside project scope: $m")
+                    continue
+                    ;;
+            esac
+        fi
+
+        target=""
+        case "$line" in
+            c*|b*|p*|s*)
+                unsafe+=("device/special member: $m")
+                continue
+                ;;
+            l*" -> "*)      target="${line##* -> }" ;;
+            h*" link to "*) target="${line##* link to }" ;;
+            *) continue ;;
+        esac
+
         case "$target" in
-            /*|../*|*/../*|*/..|..)
-                unsafe+=("$m")
+            ""|/*)
+                unsafe+=("link target escapes: $m -> $target")
+                continue
                 ;;
         esac
-    done <<< "$links"
+
+        if [[ -n "$project_name" ]]; then
+            if [[ "$line" == l* ]]; then
+                resolved="$(_restore_symlink_target_path "$m" "$target")"
+            else
+                # Tar hardlink targets are relative to the archive root.
+                resolved="$(_restore_normalize_relpath "$target")"
+            fi
+            case "$resolved" in
+                "$project_name"|"$project_name/"*) ;;
+                *) unsafe+=("link target escapes: $m -> $target") ;;
+            esac
+        else
+            case "$target" in
+                ..|../*|*/../*|*/..)
+                    unsafe+=("link target escapes: $m -> $target")
+                    ;;
+            esac
+        fi
+    done
 
     if (( ${#unsafe[@]} > 0 )); then
         print_error "$(t cfg.err.archive.corrupt) $archive"
-        print_error "Unsafe path members detected (tar-slip):"
+        print_error "Unsafe path members detected:"
         for m in "${unsafe[@]:0:10}"; do
             print_error "  $m"
         done
@@ -147,8 +228,149 @@ _restore_archive_is_safe() {
     return 0
 }
 
+# Re-validate the extracted staging tree, not just the tar listing. This
+# catches symlinks whose target only becomes dangerous after extraction.
+_restore_staged_is_safe() {
+    local staging="$1" project_name="$2"
+    local project_root="${staging}/${project_name}"
+    local dump_file="${staging}/${project_name}_db.sql.gz"
+    local entry base link target rel dir resolved
+
+    if [[ ! -d "$project_root" || -L "$project_root" ]]; then
+        print_error "Archive does not contain a real '${project_name}/' directory."
+        return 1
+    fi
+
+    if [[ -e "$dump_file" || -L "$dump_file" ]]; then
+        if [[ ! -f "$dump_file" || -L "$dump_file" ]]; then
+            print_error "Archive database dump is not a regular file: $dump_file"
+            return 1
+        fi
+    fi
+
+    # Defense in depth: the archive validator already enforces the two
+    # allowed top-level names, but extraction can create implicit parents.
+    while IFS= read -r -d '' entry; do
+        [[ "$entry" == "$staging" ]] && continue
+        [[ "${entry%/*}" == "$staging" ]] || continue
+        base="${entry##*/}"
+        case "$base" in
+            "$project_name"|"${project_name}_db.sql.gz") ;;
+            *)
+                print_error "Unexpected staging entry: $base"
+                return 1
+                ;;
+        esac
+    done < <(find "$staging" -print0 2>/dev/null)
+
+    while IFS= read -r -d '' link; do
+        target="$(readlink "$link" 2>/dev/null)" || {
+            print_error "Cannot read symlink target: $link"
+            return 1
+        }
+        case "$target" in
+            ""|/*)
+                print_error "Symlink target escapes staging root: $link -> $target"
+                return 1
+                ;;
+        esac
+        rel="${link#"${staging}/"}"
+        dir=""
+        [[ "$rel" == */* ]] && dir="${rel%/*}"
+        resolved="$(_restore_normalize_relpath "${dir:+${dir}/}${target}")"
+        case "$resolved" in
+            "$project_name"|"$project_name/"*) ;;
+            *)
+                print_error "Symlink target escapes project scope: $link -> $target"
+                return 1
+                ;;
+        esac
+    done < <(find "$project_root" -type l -print0 2>/dev/null)
+
+    return 0
+}
+
+# Ensure every existing ancestor of a merge destination is a real
+# directory. This prevents the staging merge from writing through a
+# pre-existing symlink in the target project.
+_restore_merge_parent_safe() {
+    local root="$1" rel="$2"
+    local parent="${rel%/*}"
+    local cursor="$root" part
+    local -a parts=()
+
+    [[ "$parent" == "$rel" ]] && return 0
+    IFS='/' read -r -a parts <<< "$parent"
+    for part in "${parts[@]}"; do
+        [[ -n "$part" ]] || continue
+        cursor="${cursor}/${part}"
+        if [[ -L "$cursor" ]]; then
+            print_error "Refusing to merge through symlinked directory: $cursor"
+            return 1
+        fi
+        if [[ ! -e "$cursor" ]]; then
+            mkdir "$cursor" || return 1
+        fi
+        if [[ ! -d "$cursor" ]]; then
+            print_error "Cannot create directory over non-directory: $cursor"
+            return 1
+        fi
+    done
+    return 0
+}
+
+# Merge the validated staging payload into the live project. Regular files
+# and links are moved atomically (staging is created on the project's
+# filesystem); directories are merged so existing extra files survive.
+_restore_merge_staged_tree() {
+    local source="$1" destination="$2"
+    local entry rel target
+
+    while IFS= read -r -d '' entry; do
+        [[ "$entry" == "$source" ]] && continue
+        rel="${entry#"${source}/"}"
+        # Runtime recovery state belongs to the live project, not to the
+        # archive being restored. Never let an old backup overwrite the
+        # pre-restore marker or an active tunnel PID.
+        case "$rel" in
+            .dpx/current_snapshot|.dpx/tunnel.pid) continue ;;
+        esac
+        _restore_merge_parent_safe "$destination" "$rel" || return 1
+        target="${destination}/${rel}"
+
+        if [[ -d "$entry" && ! -L "$entry" ]]; then
+            if [[ -L "$target" || ( -e "$target" && ! -d "$target" ) ]]; then
+                rm -rf "$target" || return 1
+            fi
+            [[ -d "$target" ]] || mkdir "$target" || return 1
+        else
+            if [[ -d "$target" && ! -L "$target" ]]; then
+                print_error "Refusing to replace a directory with a file: $target"
+                return 1
+            fi
+            if [[ -e "$target" || -L "$target" ]]; then
+                rm -f "$target" || return 1
+            fi
+            mv -f "$entry" "$target" || return 1
+        fi
+    done < <(find "$source" -print0 2>/dev/null)
+
+    return 0
+}
+
 cmd_site_restore() {
     cmd_restore "$@"
+}
+
+# Staging path must survive cmd_restore's local-scope teardown because
+# the EXIT/INT/TERM trap can run after the function frame is gone.
+_DPX_RESTORE_STAGING=""
+_restore_cleanup_staging() {
+    local staging="${_DPX_RESTORE_STAGING:-}"
+    [[ -n "$staging" ]] || return 0
+    rm -rf "$staging" 2>/dev/null
+    _DPX_RESTORE_STAGING=""
+    return 0
 }
 
 # Router contract: dpx.sh derives the handler as cmd_${command//_/-},
@@ -181,9 +403,6 @@ cmd_restore() {
         return 1
     fi
 
-    # Tar-slip guard: validate member paths BEFORE any snapshot/unpack work
-    _restore_archive_is_safe "$archive" || return 1
-
     # --- Target project ---
     local project_name
     project_name="$(get_arg "project_name" "")"
@@ -204,6 +423,10 @@ cmd_restore() {
         return 1
     fi
     print_info "$(t restore.target): ${project_name}"
+
+    # [R-01] Scope every archive member to this exact project. This check
+    # runs BEFORE the safety snapshot or any extraction work.
+    _restore_archive_is_safe "$archive" "$project_name" || return 1
 
     # --- Safety snapshot BEFORE touching anything ---
     print_step "2" "$(t restore.snapshot)"
@@ -227,6 +450,7 @@ cmd_restore() {
     _DPX_RESTORE_PROJECT_PATH="$project_path"
     _DPX_RESTORE_RECOVERING=0
     _restore_clear_marker() {
+        _restore_cleanup_staging
         rm -f "${_DPX_RESTORE_PROJECT_PATH}/.dpx/current_snapshot" 2>/dev/null
         trap - INT TERM EXIT
     }
@@ -254,6 +478,7 @@ cmd_restore() {
             fi
         fi
 
+        _restore_cleanup_staging
         if [[ "$sig" != "EXIT" ]]; then
             exit 130
         fi
@@ -274,16 +499,50 @@ cmd_restore() {
         }
     fi
 
-    # --- Unpack (merge into project dir; dump lands beside it) ---
+    # --- Unpack into a private staging tree, validate, then merge ---
+    # [R-01] Never extract an untrusted archive directly over $projects_base
+    # or the live project. Staging on the project's filesystem keeps the
+    # subsequent per-file moves atomic.
     print_step "3" "$(t restore.unpack)"
-    if ! tar -xzf "$archive" -C "$projects_base"; then
+    local staging_dir
+    staging_dir="$(mktemp -d "${projects_base}/.dpx_restore_XXXXXX")" || {
+        print_error "Failed to create secure restore staging directory."
+        return 1
+    }
+    _DPX_RESTORE_STAGING="$staging_dir"
+    if ! chmod 700 "$staging_dir" 2>/dev/null; then
+        print_error "Failed to secure restore staging directory: $staging_dir"
+        return 1
+    fi
+
+    if ! tar -xzf "$archive" -C "$staging_dir"; then
         print_error "$(t restore.unpack) failed."
+        return 1
+    fi
+    if ! _restore_staged_is_safe "$staging_dir" "$project_name"; then
+        print_error "Restore aborted: staged archive contents are unsafe."
+        return 1
+    fi
+    if ! _restore_merge_staged_tree "${staging_dir}/${project_name}" "$project_path"; then
+        print_error "$(t restore.unpack) failed while merging staged files."
         return 1
     fi
 
     # --- Database import ---
     local dump_file="${projects_base}/${project_name}_db.sql.gz"
-    if [[ -f "$dump_file" ]]; then
+    local staged_dump="${staging_dir}/${project_name}_db.sql.gz"
+    if [[ -f "$staged_dump" ]]; then
+        # Never follow a pre-existing sibling symlink or replace a
+        # directory via mv; both could redirect the dump outside the
+        # project namespace.
+        if [[ -L "$dump_file" || ( -e "$dump_file" && ! -f "$dump_file" ) ]]; then
+            print_error "Refusing unsafe database dump destination: $dump_file"
+            return 1
+        fi
+        if ! rm -f "$dump_file" 2>/dev/null || ! mv -f "$staged_dump" "$dump_file"; then
+            print_error "Failed to move the embedded database dump into place."
+            return 1
+        fi
         print_step "4" "$(t restore.import)"
         db_import "$dump_file" "$project_path" || {
             print_error "$(t restore.import) failed."

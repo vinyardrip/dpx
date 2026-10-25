@@ -223,10 +223,15 @@ devilbox_export_db() {
     print_step "auto" "Export the database from Devilbox"
 
     # Make sure, that director for output exist
-    ensure_directory "$(dirname "$output_file")"
+    ensure_directory "$(dirname "$output_file")" || return 1
+    chmod 700 "$(dirname "$output_file")" 2>/dev/null || {
+        print_error "Failed to secure permissions on export directory: $(dirname "$output_file")"
+        return 1
+    }
 
     # Weight code in subshell for isolations cd
     (
+        umask 077
         cd "$devilbox_path" || exit 1
 
         # Export via docker-compose
@@ -234,6 +239,11 @@ devilbox_export_db() {
         if ! dpx_docker_compose exec -T mysql mysqldump -u "$db_user" ${db_pass:+-p"$db_pass"} "$db_name" > "$output_file"; then
             print_error "Error exporting the database '$db_name'"
             rm -f "$output_file"  # Remove bit file
+            exit 1
+        fi
+        if ! chmod 600 "$output_file" 2>/dev/null; then
+            print_error "Failed to secure permissions on database export: $output_file"
+            rm -f "$output_file"
             exit 1
         fi
 

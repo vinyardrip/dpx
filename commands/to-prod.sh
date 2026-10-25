@@ -175,7 +175,13 @@ cmd_to_prod() {
 
     devilbox_stop
 
-    ensure_directory "$(get_db_prod_path)"
+    local db_prod_dir
+    db_prod_dir="$(get_db_prod_path)"
+    ensure_directory "$db_prod_dir" || return 1
+    if ! chmod 700 "$db_prod_dir" 2>/dev/null; then
+        print_error "Failed to secure permissions on export directory: $db_prod_dir"
+        return 1
+    fi
 
     # =================================================================
     #  [C-3] INTERRUPT SAFETY: trap + snapshot marker
@@ -218,7 +224,12 @@ cmd_to_prod() {
             db_wp_export_safe "$out_file" "$local_url" "$prod_url" "$project_path"
         else
             # [FIX] stderr remains visible for diagnostics (only >/dev/null)
+            umask 077
             if ddev export-db --file="$out_file" >/dev/null; then
+                if ! chmod 600 "$out_file" 2>/dev/null; then
+                    print_error "Failed to secure permissions on export: $out_file"
+                    exit 1
+                fi
                 print_success "Base export: $(basename "$out_file")"
             else
                 print_error "Error export bases."

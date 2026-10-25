@@ -78,8 +78,20 @@ load_config() {
 
     [[ -f "$global_config" ]] && _parse_config_file "$global_config"
     [[ -f "$local_config" ]]  && _parse_config_file "$local_config"
-    [[ -f "$user_config" ]]   && _parse_config_file "$user_config"
-    [[ -f "$canonical_config" ]] && _parse_config_file "$canonical_config"
+
+    # User-owned files may contain credentials. Re-secure legacy 0644
+    # files on every load; a chmod failure is reported but does not make
+    # the whole CLI unusable.
+    if [[ -f "$user_config" ]]; then
+        _config_secure_file "$user_config" \
+            || print_warning "Failed to secure permissions on $user_config (expected 0600)." >&2
+        _parse_config_file "$user_config"
+    fi
+    if [[ -f "$canonical_config" ]]; then
+        _config_secure_file "$canonical_config" \
+            || print_warning "Failed to secure permissions on $canonical_config (expected 0600)." >&2
+        _parse_config_file "$canonical_config"
+    fi
     _sync_global_path_config
 
     if declare -F dpx_detect_lang >/dev/null; then

@@ -19,9 +19,68 @@ show_clean_help() {
     dpx clean --snapshots -y
     dpx clean --all -y
 
- .dpx/config and .dpx/current_snapshot are always preserved.
+ Live recovery state is protected. If .dpx/current_snapshot exists or
+ .dpx/tunnel.pid points at a running tunnel, snapshot removal is refused
+ unless --force is also supplied. With --force, the recovery marker and
+ the snapshots are removed together; a dead marker is never left behind:
+    dpx clean --snapshots -y --force
+
+ .dpx/config is always preserved.
  DDEV snapshots can be restored with: ddev snapshot restore <name>
 EOF
+}
+
+# True when .dpx/tunnel.pid identifies a live tunnel process. A stale or
+# malformed PID file is treated as active (fail closed); only a valid PID
+# that is no longer running is considered stale.
+_clean_tunnel_is_active() {
+    local project_path="$1"
+    local pid_file="${project_path}/.dpx/tunnel.pid"
+    local pid=""
+
+    [[ -f "$pid_file" ]] || return 1
+    IFS= read -r pid < "$pid_file" || pid=""
+    # Trim outer whitespace only. Internal junk stays malformed and is
+    # treated as active rather than being compacted into an unrelated PID.
+    pid="${pid#"${pid%%[![:space:]]*}"}"
+    pid="${pid%"${pid##*[![:space:]]}"}"
+    [[ -n "$pid" ]] || return 0
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+    kill -0 "$pid" 2>/dev/null
+}
+
+# Remove the snapshot directory and the recovery marker as one logical
+# transaction. The marker is renamed aside first so a failed rm restores
+# it; on success the hidden copy is discarded, never leaving a marker that
+# points at a deleted snapshot.
+_clean_remove_snapshots() {
+    local snap_dir="$1"
+    local marker_file="$2"
+    local marker_backup=""
+
+    if [[ -e "$marker_file" || -L "$marker_file" ]]; then
+        marker_backup="${marker_file}.clean.$$"
+        rm -rf "$marker_backup" 2>/dev/null
+        if ! mv -f "$marker_file" "$marker_backup" 2>/dev/null; then
+            print_error "Failed to detach recovery marker: $marker_file"
+            return 1
+        fi
+    fi
+
+    if ! rm -rf "$snap_dir" 2>/dev/null; then
+        if [[ -n "$marker_backup" && ( -e "$marker_backup" || -L "$marker_backup" ) ]]; then
+            mv -f "$marker_backup" "$marker_file" 2>/dev/null \
+                || print_warning "Failed to restore recovery marker: $marker_file"
+        fi
+        print_error "Failed to remove DDEV DB snapshots: $snap_dir"
+        return 1
+    fi
+
+    if [[ -n "$marker_backup" ]]; then
+        rm -rf "$marker_backup" 2>/dev/null \
+            || print_warning "Snapshot marker backup could not be removed: $marker_backup"
+    fi
+    return 0
 }
 
 clean_project_path() {
@@ -55,6 +114,7 @@ cmd_clean() {
     local dpx_dir="${project_path}/.dpx"
     local tmp_dir="${dpx_dir}/tmp"
     local ddev_snap_dir="${project_path}/.ddev-db-snapshots"
+    local marker_file="${dpx_dir}/current_snapshot"
     local removed=0
     local remove_snapshots=false
 
@@ -68,6 +128,30 @@ cmd_clean() {
             snap_size="$(du -sh "$ddev_snap_dir" 2>/dev/null | awk '{print $1}')"
             [[ -n "$snap_size" ]] || snap_size="unknown"
             print_info "DDEV DB snapshots: ${snap_count} item(s), ${snap_size}: ${ddev_snap_dir}"
+
+            # [R-04] Never destroy a live recovery point silently. A
+            # marker is enough to require --force even if its named
+            # snapshot is already missing (that would already be a dead
+            # marker, not a reason to delete more state).
+            local protect_reason=""
+            if [[ -e "$marker_file" || -L "$marker_file" ]]; then
+                protect_reason=".dpx/current_snapshot recovery marker"
+            fi
+            if _clean_tunnel_is_active "$project_path"; then
+                if [[ -n "$protect_reason" ]]; then
+                    protect_reason="${protect_reason} and active tunnel"
+                else
+                    protect_reason="active tunnel (.dpx/tunnel.pid)"
+                fi
+            fi
+            if [[ -n "$protect_reason" ]] && ! has_arg force; then
+                print_error "Refusing to remove DDEV DB snapshots: ${protect_reason} is live."
+                print_info "Re-run with --force to delete the snapshots and the recovery marker together."
+                return 1
+            fi
+            if [[ -n "$protect_reason" ]]; then
+                print_warning "Force enabled: removing protected DB snapshots (${protect_reason})."
+            fi
 
             if (( snap_count > 0 )); then
                 if has_arg yes; then
@@ -108,11 +192,11 @@ cmd_clean() {
     # [FIX D-3] The old code removed .dpx/snapshots — a directory
     # nothing in DPX ever creates. Real DDEV DB snapshots live in
     # <project>/.ddev-db-snapshots (bind-mounted into the db container).
-    # The safety copy recorded in .dpx/current_snapshot (if any) is
-    # preserved so orphan recovery keeps working.
+    # [R-04] Deletion now also detaches .dpx/current_snapshot first, so
+    # an interrupted rm can never leave a marker pointing at a snapshot
+    # that was already deleted.
     if [[ "$remove_snapshots" == true && -d "$ddev_snap_dir" ]]; then
-        if ! rm -rf "$ddev_snap_dir" 2>/dev/null; then
-            print_error "Failed to remove DDEV DB snapshots: $ddev_snap_dir"
+        if ! _clean_remove_snapshots "$ddev_snap_dir" "$marker_file"; then
             return 1
         fi
         print_info "Removed DDEV DB snapshots: $ddev_snap_dir"

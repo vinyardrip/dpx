@@ -950,10 +950,26 @@ tunnel_wp_db_replace() {
 
     _DPX_DB_MUTATING=0
 
-    # Save name snapshot for tunnel_cleanup rollback
+    # db_smart_replace_tunnel registered this marker before its first
+    # mutation. Re-assert it atomically so a failed write can never
+    # truncate the existing rollback pointer.
     if [[ -n "$snapshot_name" ]]; then
-        mkdir -p "${project_path}/.dpx" 2>/dev/null
-        echo "$snapshot_name" > "${project_path}/.dpx/current_snapshot"
+        local marker_file="${project_path}/.dpx/current_snapshot"
+        local marker_tmp=""
+        if ! mkdir -p "${project_path}/.dpx" 2>/dev/null; then
+            _DPX_DB_MUTATING=0
+            print_error "Failed to persist the tunnel recovery marker."
+            return 1
+        fi
+        marker_tmp="$(mktemp "${marker_file}.tmp.XXXXXX" 2>/dev/null)" || marker_tmp=""
+        if [[ -z "$marker_tmp" ]] \
+            || ! (umask 077; printf '%s\n' "$snapshot_name" > "$marker_tmp" 2>/dev/null) \
+            || ! mv -f "$marker_tmp" "$marker_file" 2>/dev/null; then
+            rm -f "$marker_tmp" 2>/dev/null
+            _DPX_DB_MUTATING=0
+            print_error "Failed to persist the tunnel recovery marker."
+            return 1
+        fi
     fi
 
     # db_smart_replace_tunnel already did db_wp_clear_cache internals.
@@ -964,6 +980,11 @@ tunnel_wp_db_replace() {
 }
 
 # Rollback database via ddev snapshot restore (v1.4.21)
+#
+# [R-03] Fail-closed contract:
+#   - every restore/reverse-replace return code is checked;
+#   - .dpx/current_snapshot survives every failure path;
+#   - the marker is removed only after a verified full recovery.
 tunnel_wp_db_rollback() {
     local project_path="$1"
     local tunnel_url="${2:-$_DPX_TUNNEL_URL}"
@@ -974,27 +995,27 @@ tunnel_wp_db_rollback() {
     local snapshot_available=false
 
     if [[ -f "$snap_file" ]]; then
-        saved_snap_name=$(cat "$snap_file")
-        saved_snap_name="${saved_snap_name// /}"
+        saved_snap_name=$(head -1 "$snap_file" 2>/dev/null | tr -d '[:space:]')
         if [[ -n "$saved_snap_name" ]]; then
             snapshot_available=true
         fi
     fi
 
     local rollback_ok=false
+    local snapshot_failed=false
 
     if [[ "$snapshot_available" == "true" ]]; then
         echo "" >&2
         print_info "$(t tunnel.db.rollback_snapshot "$saved_snap_name")" >&2
 
-        if dpx_exec_and_log "$project_path" ddev snapshot restore "$saved_snap_name"; then
+        if db_restore_snapshot "$project_path" "$saved_snap_name"; then
             rollback_ok=true
             print_success "$(t tunnel.db.snapshot_restored)" >&2
         else
+            snapshot_failed=true
             print_error "$(t tunnel.db.snapshot_failed "$saved_snap_name")" >&2
             print_warning "$(t tunnel.db.plan_b)" >&2
         fi
-        rm -f "$snap_file"
     fi
 
     if [[ "$rollback_ok" == "false" ]]; then
@@ -1010,26 +1031,44 @@ tunnel_wp_db_rollback() {
         tunnel_bare=$(echo "$tunnel_url" | sed 's|https\?://||;s|/$||')
         local_bare=$(echo "$local_url" | sed 's|https\?://||;s|/$||')
 
+        local reverse_ok=true
+
         print_info "$(t tunnel.db.reverse_pass 1 "$tunnel_url" "$local_url")" >&2
-        (cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting=0 \
-            /usr/local/bin/wp search-replace "$tunnel_url" "$local_url" \
-            --all-tables --precise --allow-root --quiet) >/dev/null 2>&1
+        if ! ddev_wp_search_replace "$tunnel_url" "$local_url" "$project_path" \
+            --precise --quiet; then
+            reverse_ok=false
+        fi
         sleep 1; sync 2>/dev/null || true
 
         if [[ -n "$tunnel_bare" ]]; then
             print_info "$(t tunnel.db.reverse_pass 2 "http://$tunnel_bare" "$local_url")" >&2
-            (cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting=0 \
-                /usr/local/bin/wp search-replace "http://${tunnel_bare}" "$local_url" \
-                --all-tables --precise --allow-root --quiet) >/dev/null 2>&1
+            if ! ddev_wp_search_replace "http://${tunnel_bare}" "$local_url" "$project_path" \
+                --precise --quiet; then
+                reverse_ok=false
+            fi
             sleep 1; sync 2>/dev/null || true
         fi
 
         if [[ -n "$tunnel_bare" && "$tunnel_bare" != "$local_bare" ]]; then
             print_info "$(t tunnel.db.reverse_pass 3 "$tunnel_bare" "$local_bare")" >&2
-            (cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting=0 \
-                /usr/local/bin/wp search-replace "$tunnel_bare" "$local_bare" \
-                --all-tables --precise --allow-root --quiet) >/dev/null 2>&1
+            if ! ddev_wp_search_replace "$tunnel_bare" "$local_bare" "$project_path" \
+                --precise --quiet; then
+                reverse_ok=false
+            fi
             sleep 1; sync 2>/dev/null || true
+        fi
+
+        if [[ "$reverse_ok" != "true" ]]; then
+            print_error "Reverse search-replace failed; recovery marker preserved." >&2
+            return 1
+        fi
+
+        # A failed snapshot restore is a recovery failure even when the
+        # reverse passes happen to succeed: keep the marker for manual
+        # verification instead of reporting a clean rollback.
+        if [[ "$snapshot_failed" == "true" ]]; then
+            print_error "Snapshot restore failed; reverse replaces completed, but the recovery marker is preserved." >&2
+            return 1
         fi
 
         rollback_ok=true
@@ -1038,11 +1077,16 @@ tunnel_wp_db_rollback() {
 
     print_info "$(t tunnel.db.cleanup)" >&2
 
-    # Universal cleanup
-    db_wp_clear_cache "$project_path"
-
+    # Universal cleanup after the database is verified.
+    db_wp_clear_cache "$project_path" || true
     tunnel_wp_exec "$project_path" rewrite flush --allow-root --quiet 2>/dev/null || true
-    rm -f "$snap_file"
+
+    # Only a verified recovery may clear the marker. If removal fails the
+    # marker still points at a valid snapshot, so preserving it is safe.
+    if [[ -f "$snap_file" ]] && ! rm -f "$snap_file" 2>/dev/null; then
+        print_error "Failed to remove the recovery marker: $snap_file" >&2
+        return 1
+    fi
 
     print_success "$(t tunnel.db.rollback_done)" >&2
     return 0
@@ -1066,6 +1110,7 @@ _DPX_ACTUAL_HOME=""
 
 tunnel_cleanup() {
     local exit_code=$?
+    local rollback_rc=0
 
     dpx_debug_trace "trap.cleanup" "handler=tunnel_cleanup" "exit_code=$exit_code"
 
@@ -1095,9 +1140,12 @@ tunnel_cleanup() {
     # ==============================================================
     # 2. ROLLBACK database
     # ==============================================================
-    if [[ -n "$_DPX_TUNNEL_PROJECT_PATH" && -n "$_DPX_TUNNEL_URL" && -n "$_DPX_TUNNEL_LOCAL_URL" ]]; then
-        if [[ "$_DPX_TUNNEL_CMS_TYPE" == "wordpress" ]]; then
-            tunnel_wp_db_rollback "$_DPX_TUNNEL_PROJECT_PATH"
+    if [[ -n "$_DPX_TUNNEL_PROJECT_PATH" && "$_DPX_TUNNEL_CMS_TYPE" == "wordpress" ]]; then
+        # A recovery marker is sufficient to attempt a snapshot restore,
+        # even if the tunnel URL was never captured.
+        if [[ -s "${_DPX_TUNNEL_PROJECT_PATH}/.dpx/current_snapshot" ]] \
+            || [[ -n "$_DPX_TUNNEL_URL" && -n "$_DPX_TUNNEL_LOCAL_URL" ]]; then
+            tunnel_wp_db_rollback "$_DPX_TUNNEL_PROJECT_PATH" || rollback_rc=$?
         fi
     fi
 
@@ -1132,6 +1180,13 @@ tunnel_cleanup() {
     # ==============================================================
     [[ -n "$_DPX_TUNNEL_PID" ]] && tunnel_provider_stop "$_DPX_TUNNEL_PROVIDER" "$_DPX_TUNNEL_PID"
     [[ -n "$_DPX_TUNNEL_LOG_FILE" && -f "$_DPX_TUNNEL_LOG_FILE" ]] && rm -f "$_DPX_TUNNEL_LOG_FILE"
+
+    if (( rollback_rc != 0 )); then
+        print_error "Database rollback failed; recovery marker preserved." >&2
+        if (( exit_code == 0 )); then
+            exit_code=1
+        fi
+    fi
 
     print_celebration "$(t tunnel.cleanup.done)"
     exit "$exit_code"

@@ -18,6 +18,10 @@ source "$TESTS_DIR/test_framework.sh"
 print_test_header "Unit Tests: dpx site restore transactions" "1.0.0"
 setup_temp_dir >/dev/null
 
+check_value() {
+    if [[ "$1" == "$2" ]]; then test_pass; else test_fail "expected '$1', got '$2'"; fi
+}
+
 BASE="$TEST_TEMP_DIR/ws"
 PROJECT="$BASE/proj"
 PAYLOAD="$TEST_TEMP_DIR/payload"
@@ -67,10 +71,14 @@ exit 0
 SCENARIO
 chmod +x "$SCEN"
 
-run_case() {
-    local import_rc="$1" recovery_rc="$2"
+run_archive_case() {
+    local archive="$1" import_rc="$2" recovery_rc="$3"
     rm -f "$DDEV_LOG" "$MARKER"
-    CASE_OUT="$(bash "$SCEN" "$DPX_ROOT" "$BASE" "$ARCHIVE" "$import_rc" "$recovery_rc" "$DDEV_LOG" </dev/null 2>&1)"
+    CASE_OUT="$(bash "$SCEN" "$DPX_ROOT" "$BASE" "$archive" "$import_rc" "$recovery_rc" "$DDEV_LOG" </dev/null 2>&1)"
+}
+
+run_case() {
+    run_archive_case "$ARCHIVE" "$1" "$2"
 }
 
 test_start "successful restore clears the pre-restore marker"
@@ -99,6 +107,63 @@ if grep -qF "CMD_RC=1" <<<"$CASE_OUT" \
     test_pass
 else
     test_fail "marker not preserved after failed recovery: $CASE_OUT"
+fi
+
+# =================================================================
+# R-01: archive scope, link resolution, and staging
+# =================================================================
+
+scope_probe() { # $1 archive, $2 project; echoes SAFE/UNSAFE
+    bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        source "$DPX_ROOT/commands/site/restore.sh" >/dev/null 2>&1
+        if _restore_archive_is_safe "$1" "$2" >/dev/null 2>&1; then
+            echo SAFE
+        else
+            echo UNSAFE
+        fi
+    ' _ "$1" "$2" </dev/null 2>/dev/null
+}
+
+SCOPE_ROOT="$TEST_TEMP_DIR/scope"
+mkdir -p "$SCOPE_ROOT/sibling/proj" "$SCOPE_ROOT/sibling/victim"
+printf 'ok\n' > "$SCOPE_ROOT/sibling/proj/file.txt"
+printf 'dump\n' > "$SCOPE_ROOT/sibling/proj_db.sql.gz"
+printf 'pwned\n' > "$SCOPE_ROOT/sibling/victim/evil.txt"
+SIBLING_ARCHIVE="$TEST_TEMP_DIR/FULL_proj_2026-01-02_120000.tar.gz"
+tar -czf "$SIBLING_ARCHIVE" -C "$SCOPE_ROOT/sibling" proj proj_db.sql.gz victim
+
+test_start "scoped restore rejects sibling top-level members"
+check_value "UNSAFE" "$(scope_probe "$SIBLING_ARCHIVE" proj)"
+
+mkdir -p "$SCOPE_ROOT/badlink/proj"
+printf 'dump\n' > "$SCOPE_ROOT/badlink/proj_db.sql.gz"
+ln -s ../../victim "$SCOPE_ROOT/badlink/proj/link"
+BADLINK_ARCHIVE="$TEST_TEMP_DIR/FULL_proj_2026-01-03_120000.tar.gz"
+tar -czf "$BADLINK_ARCHIVE" -C "$SCOPE_ROOT/badlink" proj proj_db.sql.gz
+
+test_start "scoped restore rejects symlink targets outside the project"
+check_value "UNSAFE" "$(scope_probe "$BADLINK_ARCHIVE" proj)"
+
+mkdir -p "$SCOPE_ROOT/goodlink/proj/uploads"
+printf 'dump\n' > "$SCOPE_ROOT/goodlink/proj_db.sql.gz"
+printf 'asset\n' > "$SCOPE_ROOT/goodlink/proj/uploads/file.txt"
+ln -s uploads/file.txt "$SCOPE_ROOT/goodlink/proj/link"
+GOODLINK_ARCHIVE="$TEST_TEMP_DIR/FULL_proj_2026-01-04_120000.tar.gz"
+tar -czf "$GOODLINK_ARCHIVE" -C "$SCOPE_ROOT/goodlink" proj proj_db.sql.gz
+
+test_start "scoped restore accepts symlinks that stay inside the project"
+check_value "SAFE" "$(scope_probe "$GOODLINK_ARCHIVE" proj)"
+
+test_start "sibling archive aborts before extracting outside the project"
+rm -rf "$BASE/victim"
+run_archive_case "$SIBLING_ARCHIVE" 0 0
+if grep -qF "CMD_RC=1" <<<"$CASE_OUT" \
+   && [[ ! -e "$BASE/victim" ]] && [[ ! -e "$MARKER" ]]; then
+    test_pass
+else
+    test_fail "sibling archive touched restore root or created marker: $CASE_OUT"
 fi
 
 print_test_summary

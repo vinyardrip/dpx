@@ -127,7 +127,11 @@ project_full_backup() {
         return 1
     fi
 
-    ensure_directory "$backup_dir"
+    ensure_directory "$backup_dir" || return 1
+    if ! chmod 700 "$backup_dir" 2>/dev/null; then
+        print_error "Failed to secure permissions on backup directory: $backup_dir"
+        return 1
+    fi
 
     # --- Preparation named ---
     local timestamp
@@ -186,11 +190,13 @@ project_full_backup() {
 
     if [[ -n "$db_dump" ]]; then
         (
+            umask 077
             cd "$projects_base" || exit 1
             tar "${tar_args[@]}" "$project_name" -C "$tmpdir" "$(basename "$db_dump")"
         ) >/dev/null 2>&1
     else
         (
+            umask 077
             cd "$projects_base" || exit 1
             tar "${tar_args[@]}" "$project_name"
         ) >/dev/null 2>&1
@@ -198,6 +204,11 @@ project_full_backup() {
 
     if [[ $? -ne 0 || ! -f "$archive_file" ]]; then
         print_error "Error create archive: $archive_file"
+        rm -f "$archive_file" 2>/dev/null
+        return 1
+    fi
+    if ! chmod 600 "$archive_file" 2>/dev/null; then
+        print_error "Failed to secure permissions on backup archive: $archive_file"
         rm -f "$archive_file" 2>/dev/null
         return 1
     fi

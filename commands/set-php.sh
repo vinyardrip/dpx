@@ -208,11 +208,16 @@ cmd_set_php() {
 
     if confirm "Switch ${project_name} on PHP ${new_php}?"; then
         (
+            umask 077
             cd "$project_path" 2>/dev/null || exit 1
 
             # --- [BACKUP] ---
             backup_dir=$(get_config "db_local_path")
-            mkdir -p "$backup_dir"
+            mkdir -p "$backup_dir" || exit 1
+            chmod 700 "$backup_dir" 2>/dev/null || {
+                print_error "Failed to secure permissions on backup directory: $backup_dir"
+                exit 1
+            }
 
             local ts rand_suffix type_tag snap_path
             ts=$(date +"%y%m%d_%H%M%S")
@@ -230,6 +235,11 @@ cmd_set_php() {
             print_info "Create backup: ${snap_name}"
 
             if ddev export-db --gzip=false --file="$snap_path" >/dev/null 2>&1; then
+                if ! chmod 600 "$snap_path" 2>/dev/null; then
+                    print_error "Failed to secure permissions on backup: $snap_path"
+                    rm -f "$snap_path" "$marker_file"
+                    exit 1
+                fi
                 print_success "Backup create: $(du -h "$snap_path" | awk '{print $1}')"
             else
                 print_warning "Failed to create backup (possible base empty)"
