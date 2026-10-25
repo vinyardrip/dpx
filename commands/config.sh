@@ -115,9 +115,13 @@ cmd_config() {
     if (( ${#updates[@]} > 0 )); then
         if ! has_arg "yes"; then
             echo "$(t cfg.apply.header)"
-            local i
+            local i shown
             for ((i = 0; i < ${#updates[@]}; i += 2)); do
-                printf '  %s = %s\n' "${updates[i]}" "${updates[i + 1]}"
+                shown="${updates[i + 1]}"
+                if [[ -n "$shown" ]] && _is_secret_config_key "${updates[i]}"; then
+                    shown="********"
+                fi
+                printf '  %s = %s\n' "${updates[i]}" "$shown"
             done
             confirm "$(t cfg.apply.confirm)" || { print_info "Cancelled."; return 0; }
         fi

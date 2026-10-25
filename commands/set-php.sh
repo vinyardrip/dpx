@@ -78,6 +78,23 @@ _open_in_browser() {
     fi
 }
 
+# Restore the previous PHP version from inside the project directory.
+# Used by the automatic rollback paths; reports a failed rollback instead
+# of hiding it behind `|| true`.
+_set_php_rollback() {
+    local php_version="$1"
+
+    if ! ddev config --php-version="$php_version" >/dev/null 2>&1; then
+        print_warning "Rollback: failed to restore PHP ${php_version} in DDEV config." >&2
+        return 1
+    fi
+    if ! ddev restart >/dev/null 2>&1; then
+        print_warning "Rollback: DDEV restart failed after restoring PHP ${php_version}." >&2
+        return 1
+    fi
+    return 0
+}
+
 # =================================================================
 # MAIN FUNCTION
 # =================================================================
@@ -112,7 +129,19 @@ cmd_set_php() {
     local saved_php_max
     saved_php_max=$(dpx_get_php_max "$project_name")
 
-    local versions=($(ddev debug capabilities 2>/dev/null | grep "Supported PHP versions" | cut -d: -f2 | tr ',' ' ' | tr -d '[]'))
+    local raw_versions=""
+    raw_versions="$(ddev debug capabilities 2>/dev/null \
+        | grep -m1 "Supported PHP versions" \
+        | cut -d: -f2 | tr ',' ' ' | tr -d '[]' || true)"
+
+    # Parse defensively: only x.y tokens become selectable versions.
+    local -a versions=()
+    local -a raw_tokens=()
+    local token
+    read -r -a raw_tokens <<< "$raw_versions" || true
+    for token in "${raw_tokens[@]}"; do
+        [[ "$token" =~ ^[0-9]+\.[0-9]+$ ]] && versions+=("$token")
+    done
 
     if [[ ${#versions[@]} -eq 0 ]]; then
         versions=("5.6" "7.0" "7.1" "7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
@@ -146,6 +175,19 @@ cmd_set_php() {
 
     [[ -z "$new_php" ]] && return 1
 
+    # Reject unsupported input BEFORE ddev touches the project config.
+    local supported=false v_opt
+    for v_opt in "${versions[@]}"; do
+        if [[ "$v_opt" == "$new_php" ]]; then
+            supported=true
+            break
+        fi
+    done
+    if [[ "$supported" != true ]]; then
+        print_error "PHP ${new_php} is not in the supported version list for this DDEV installation."
+        return 1
+    fi
+
     if [[ "$new_php" == "$current_php" ]]; then
         print_warning "Project already uses PHP $new_php"
         return 0
@@ -161,6 +203,8 @@ cmd_set_php() {
     # --- 3. EXECUT ---
     local backup_dir=""
     local snap_name=""
+    local marker_file=""
+    marker_file="$(mktemp "${TMPDIR:-/tmp}/dpx_setphp_snap.XXXXXX" 2>/dev/null)" || marker_file=""
 
     if confirm "Switch ${project_name} on PHP ${new_php}?"; then
         (
@@ -170,12 +214,18 @@ cmd_set_php() {
             backup_dir=$(get_config "db_local_path")
             mkdir -p "$backup_dir"
 
-            local ts=$(date +"%y%m%d_%H%M%S")
-            local rand_suffix
+            local ts rand_suffix type_tag snap_path
+            ts=$(date +"%y%m%d_%H%M%S")
             rand_suffix="$(printf '%s' "$RANDOM$RANDOM" | tr -d '[:space:]')"
-            local type_tag="BEFORE_PHP"
+            type_tag="BEFORE_PHP"
             snap_name="${project_name}_${type_tag}_${ts}_${rand_suffix}.sql"
-            local snap_path="${backup_dir}/${snap_name}"
+            snap_path="${backup_dir}/${snap_name}"
+
+            # Subshell assignments never reach the parent scope: persist
+            # the snapshot pointer so the rollback UI can report it.
+            if [[ -n "$marker_file" ]]; then
+                printf '%s\n%s\n' "$backup_dir" "$snap_name" > "$marker_file"
+            fi
 
             print_info "Create backup: ${snap_name}"
 
@@ -183,17 +233,32 @@ cmd_set_php() {
                 print_success "Backup create: $(du -h "$snap_path" | awk '{print $1}')"
             else
                 print_warning "Failed to create backup (possible base empty)"
+                rm -f "$snap_path" "$marker_file"
             fi
 
             core_rotate_backups "$project_name" "$backup_dir" "$type_tag"
 
             # --- [ACTION] ---
             print_info "Install PHP $new_php..."
-            ddev config --php-version="$new_php" 2>&1 | grep -v "^Project config" || true
+            ddev config --php-version="$new_php" 2>&1 | grep -v "^Project config"
+            local config_rc=${PIPESTATUS[0]}
+
+            if [[ $config_rc -ne 0 ]]; then
+                print_error "ddev config failed (rc=$config_rc); rolling back to PHP ${current_php}..."
+                _set_php_rollback "$current_php"
+                exit 1
+            fi
 
             # --- [RESTART] ---
             print_info "Restart container..."
             ddev restart 2>&1 | tail -5
+            local restart_rc=${PIPESTATUS[0]}
+
+            if [[ $restart_rc -ne 0 ]]; then
+                print_error "ddev restart failed (rc=$restart_rc); rolling back to PHP ${current_php}..."
+                _set_php_rollback "$current_php"
+                exit 1
+            fi
 
             # --- [CACHE] ---
             if ddev exec wp core is-installed >/dev/null 2>&1; then
@@ -203,14 +268,30 @@ cmd_set_php() {
 
             print_success "PHP $new_php applied"
 
-        ) || print_error "Error: $project_path"
+        ) || {
+            rm -f "$marker_file"
+            print_error "Error: $project_path"
+            return 1
+        }
     else
+        rm -f "$marker_file"
         return 0
+    fi
+
+    # Pull the snapshot pointer written inside the subshell.
+    if [[ -n "$marker_file" && -f "$marker_file" ]]; then
+        {
+            IFS= read -r backup_dir || true
+            IFS= read -r snap_name || true
+        } < "$marker_file"
+        rm -f "$marker_file"
     fi
 
     # --- 4. CHECK OPERABILITIES ---
     echo ""
     print_header "Check operabilities"
+
+    local works="" save_it="" rollback_choice=""
 
     local project_url
     project_url=$(_get_project_url "$project_path")
@@ -258,13 +339,17 @@ cmd_set_php() {
                     local project_type
                     project_type=$(grep -E "^type:" "${project_path}/.ddev/config.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"' || echo "unknown")
 
-                    dpx_meta_set "$project_name" "type" "$project_type"
-                    dpx_meta_set "$project_name" "php_max" "$new_php"
-                    dpx_meta_set "$project_name" "tested" "$(date +%Y-%m-%d)"
-
-                    print_success "php_max = $new_php saved"
-                    echo ""
-                    print_info "Storage: $(dpx_meta_file)"
+                    # One atomic write instead of three sequential rewrites.
+                    if dpx_meta_set_many "$project_name" \
+                        "type" "$project_type" \
+                        "php_max" "$new_php" \
+                        "tested" "$(date +%Y-%m-%d)"; then
+                        print_success "php_max = $new_php saved"
+                        echo ""
+                        print_info "Storage: $(dpx_meta_file)"
+                    else
+                        print_error "Failed to save metadata for $project_name"
+                    fi
                 fi
             else
                 print_success "This version already written as php_max"
@@ -285,19 +370,25 @@ cmd_set_php() {
             case "$rollback_choice" in
                 1)
                     print_info "Rollback on PHP $current_php..."
+                    local rollback_rc=0
                     (
                         cd "$project_path" 2>/dev/null || exit 1
-                        ddev config --php-version="$current_php" 2>&1 | grep -v "^Project config" || true
-                        ddev restart 2>&1 | tail -3
-                    )
-                    print_success "Rollback execut on PHP $current_php"
+                        ddev config --php-version="$current_php" >/dev/null 2>&1 || exit 1
+                        ddev restart >/dev/null 2>&1 || exit 1
+                    ) || rollback_rc=1
+
+                    if [[ $rollback_rc -eq 0 ]]; then
+                        print_success "Rollback completed on PHP $current_php"
+                    else
+                        print_error "Rollback failed; switch PHP ${current_php} manually."
+                    fi
                     ;;
                 2)
                     print_info "Start dpx set-php again for selection other versions"
                     ;;
                 0|*)
                     print_info "PHP version $new_php left unchanged"
-                    if [[ -n "$snap_name" ]] && [[ -n "$backup_dir" ]]; then
+                    if [[ -n "$snap_name" && -f "${backup_dir}/${snap_name}" ]]; then
                         print_info "Backup accessible: ${backup_dir}/${snap_name}"
                     fi
                     ;;

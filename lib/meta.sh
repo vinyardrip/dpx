@@ -17,14 +17,16 @@ dpx_meta_file() {
     echo "${HOME}/.config/${TOOL_NAME}/projects.json"
 }
 
-# Initialization storage (creates empty file ifs no)
+# Initialization storage (creates the file when missing or empty)
 dpx_meta_init() {
     local meta_file
     meta_file=$(dpx_meta_file)
 
-    if [[ ! -f "$meta_file" ]]; then
+    # An empty file is treated as "absent": jq cannot parse it and the
+    # atomic writer below would otherwise refuse every update.
+    if [[ ! -s "$meta_file" ]]; then
         mkdir -p "$(dirname "$meta_file")" 2>/dev/null
-        echo '{"projects":{}}' > "$meta_file"
+        printf '{"projects":{}}\n' > "$meta_file"
     fi
 }
 
@@ -79,6 +81,61 @@ dpx_meta_exists() {
 # RECORD METADATA
 # =================================================================
 
+# Atomic JSON mutation of the metadata store.
+#   $1 = metadata file
+#   $2 = jq filter
+#   rest = jq options (--arg ...)
+# The original file is left untouched on ANY failure: corrupt input,
+# jq error, empty/invalid output, or a failed atomic rename.
+_dpx_meta_write() {
+    local meta_file="$1"
+    local filter="$2"
+    shift 2
+
+    if ! command -v jq >/dev/null 2>&1; then
+        print_error "dpx_meta: jq is required for metadata updates" >&2
+        return 1
+    fi
+
+    # Refuse to rewrite a corrupt document: jq would emit nothing and
+    # the rename below would replace the store with garbage.
+    if [[ -s "$meta_file" ]] && ! jq -e . "$meta_file" >/dev/null 2>&1; then
+        print_error "dpx_meta: refusing to rewrite invalid JSON: $meta_file" >&2
+        return 1
+    fi
+
+    local meta_dir meta_base temp_file
+    meta_dir="$(dirname "$meta_file")"
+    meta_base="$(basename "$meta_file")"
+    ensure_directory "$meta_dir" || return 1
+
+    # Same directory => same filesystem => atomic rename.
+    temp_file="$(mktemp "${meta_dir}/${meta_base}.tmp.XXXXXX")" || {
+        print_error "dpx_meta: cannot create temporary file in $meta_dir" >&2
+        return 1
+    }
+
+    if ! jq "$@" "$filter" "$meta_file" > "$temp_file" 2>/dev/null; then
+        rm -f "$temp_file"
+        print_error "dpx_meta: jq failed; $meta_file left untouched" >&2
+        return 1
+    fi
+
+    if [[ ! -s "$temp_file" ]] || ! jq -e . "$temp_file" >/dev/null 2>&1; then
+        rm -f "$temp_file"
+        print_error "dpx_meta: empty/invalid result; $meta_file left untouched" >&2
+        return 1
+    fi
+
+    if ! mv -f "$temp_file" "$meta_file"; then
+        rm -f "$temp_file"
+        print_error "dpx_meta: failed to replace $meta_file" >&2
+        return 1
+    fi
+
+    return 0
+}
+
 # Install value for project
 # dpx_meta_set <project_name> <key> <value>
 dpx_meta_set() {
@@ -90,13 +147,46 @@ dpx_meta_set() {
     local meta_file
     meta_file=$(dpx_meta_file)
 
-    local temp_file
-    temp_file=$(create_temp_file)
+    _dpx_meta_write "$meta_file" \
+        '.projects[$name][$k] = $v' \
+        --arg name "$project_name" --arg k "$key" --arg v "$value"
+}
 
-    jq --arg name "$project_name" --arg k "$key" --arg v "$value" \
-        '.projects[$name][$k] = $v' "$meta_file" > "$temp_file" 2>/dev/null
+# Batch set (single atomic rewrite):
+# dpx_meta_set_many <project_name> <key> <value> [<key> <value> ...]
+# Used by `dpx set-php` to save type/php_max/tested in one transaction.
+dpx_meta_set_many() {
+    local project_name="$1"
+    shift
 
-    mv "$temp_file" "$meta_file"
+    if (( $# == 0 )) || (( $# % 2 != 0 )); then
+        print_error "dpx_meta_set_many: expected key/value pairs" >&2
+        return 1
+    fi
+
+    dpx_meta_init
+    local meta_file
+    meta_file=$(dpx_meta_file)
+
+    local filter='.projects[$name] = ((.projects[$name] // {}) + {'
+    local -a jq_args=(--arg name "$project_name")
+    local idx=0
+
+    while (( $# >= 2 )); do
+        # Keys are internal constants; reject anything that could break
+        # the emitted jq object literal.
+        if [[ ! "$1" =~ ^[A-Za-z0-9_]+$ ]]; then
+            print_error "dpx_meta_set_many: invalid key: $1" >&2
+            return 1
+        fi
+        filter+="\"${1}\": \$v${idx},"
+        jq_args+=(--arg "v${idx}" "$2")
+        shift 2
+        idx=$((idx + 1))
+    done
+    filter="${filter%,}})"
+
+    _dpx_meta_write "$meta_file" "$filter" "${jq_args[@]}"
 }
 
 # Remove key from project
@@ -109,13 +199,9 @@ dpx_meta_unset() {
     local meta_file
     meta_file=$(dpx_meta_file)
 
-    local temp_file
-    temp_file=$(create_temp_file)
-
-    jq --arg name "$project_name" --arg k "$key" \
-        'del(.projects[$name][$k])' "$meta_file" > "$temp_file" 2>/dev/null
-
-    mv "$temp_file" "$meta_file"
+    _dpx_meta_write "$meta_file" \
+        'del(.projects[$name][$k])' \
+        --arg name "$project_name" --arg k "$key"
 }
 
 # Remove all metadata project
@@ -127,13 +213,9 @@ dpx_meta_delete() {
     local meta_file
     meta_file=$(dpx_meta_file)
 
-    local temp_file
-    temp_file=$(create_temp_file)
-
-    jq --arg name "$project_name" \
-        'del(.projects[$name])' "$meta_file" > "$temp_file" 2>/dev/null
-
-    mv "$temp_file" "$meta_file"
+    _dpx_meta_write "$meta_file" \
+        'del(.projects[$name])' \
+        --arg name "$project_name"
 }
 
 # =================================================================

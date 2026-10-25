@@ -160,6 +160,11 @@ parse_args() {
                 DPX_ARGS["devilbox_php"]="$2"
                 shift 2
                 ;;
+            --old-url)
+                [[ -n "${2:-}" ]] || { print_error "--old-url requires an argument"; return 1; }
+                DPX_ARGS["old_url"]="$2"
+                shift 2
+                ;;
             --db-name)
                 [[ -n "${2:-}" ]] || { print_error "--db-name $(t err.requires.arg)"; return 1; }
                 DPX_ARGS["db_name"]="$2"

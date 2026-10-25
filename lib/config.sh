@@ -291,6 +291,15 @@ config_display_file() {
     config_global_file
 }
 
+# Files managed below may contain credentials (db_password, tokens):
+# keep them readable by the owner only. A failed chmod is fatal because
+# silently leaving the file at 0644 would defeat the protection.
+_config_secure_file() {
+    local file="$1"
+    [[ -f "$file" ]] || return 0
+    chmod 600 "$file" 2>/dev/null
+}
+
 config_needs_first_run() {
     [[ ! -f "$(config_user_file)" && ! -f "$(config_global_file)" ]]
 }
@@ -313,11 +322,20 @@ config_upsert_kv() {
     file="$(config_user_file)"
     ensure_directory "$(dirname "$file")"
 
+    # Create new files owner-only from the very first byte.
+    if [[ ! -e "$file" ]]; then
+        (umask 077 && : > "$file") || return 1
+    fi
+
     if [[ -f "$file" ]] && grep -qE "^${key}[[:space:]]*=" "$file"; then
         safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = $(_sed_escape_replacement "$value")|" "$file" \
             || return 1
     else
         printf '%s = %s\n' "$key" "$value" >> "$file" || return 1
+    fi
+    if ! _config_secure_file "$file"; then
+        print_error "Failed to secure permissions on $file (expected 0600)" >&2
+        return 1
     fi
     return 0
 }
@@ -327,11 +345,20 @@ config_upsert_global_kv() {
     local file
     file="$(config_global_file)"
     ensure_directory "$(dirname "$file")"
+
+    if [[ ! -e "$file" ]]; then
+        (umask 077 && : > "$file") || return 1
+    fi
+
     if [[ -f "$file" ]] && grep -qE "^${key}[[:space:]]*=" "$file"; then
         safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = $(_sed_escape_replacement "$value")|" "$file" \
             || return 1
     else
         printf '%s = %s\n' "$key" "$value" >> "$file" || return 1
+    fi
+    if ! _config_secure_file "$file"; then
+        print_error "Failed to secure permissions on $file (expected 0600)" >&2
+        return 1
     fi
     return 0
 }
@@ -389,7 +416,13 @@ config_run_wizard() {
     prompt_input "$(t cfg.q.db_user)" "$db_user" db_user
 
     db_password="$(get_config 'db_password' 'db')"
-    prompt_input "$(t cfg.q.db_password)" "$db_password" db_password
+    # Never echo the credential and never print the stored secret as a
+    # prompt default (including non-TTY/forced wizard runs). Empty input
+    # keeps the current/default value.
+    local db_password_input=""
+    IFS= read -r -s -p "$(t cfg.q.db_password): " db_password_input || true
+    printf '\n' >&2
+    [[ -n "$db_password_input" ]] && db_password="$db_password_input"
 
     lang="$(get_config 'cli_lang' 'auto')"
     while :; do

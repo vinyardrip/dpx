@@ -34,6 +34,7 @@ show_migrate_help() {
     --cms-type TYPE            Type CMS (wordpress, joomla, opencart, php)
     --php-version VERSION      Version PHP for DDEV (by default: 7.4)
     --devilbox-php VERSION     Version PHP Devilbox for export (by default: 7)
+    --old-url URL              Old site URL (auto-detected from CMS if omitted)
     --db-name NAME             Name database in Devilbox
     --db-type TYPE             Type database for DDEV (mysql, mariadb)
     --db-version VERSION       Version database for DDEV (by default: 5.7)
@@ -48,6 +49,114 @@ show_migrate_help() {
     ${TOOL_NAME} migrate --project-name mysite --cms-type wordpress --php-version 8.1 -y
     ${TOOL_NAME} migrate --project-name mysite --no-db  # without a database
 EOF
+}
+
+# =================================================================
+# OLD URL DETECTION (CMS configuration, no hardcoded TLD)
+# =================================================================
+
+# Print the last capture group of the first matching line in a file.
+# $1 = file, $2 = bash regex (the URL must be the last capture).
+_migrate_first_url() {
+    local file="$1"
+    local regex="$2"
+    local line last
+
+    [[ -f "$file" ]] || return 0
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ $regex ]]; then
+            last=$(( ${#BASH_REMATCH[@]} - 1 ))
+            printf '%s\n' "${BASH_REMATCH[$last]}"
+            return 0
+        fi
+    done < "$file"
+    return 0
+}
+
+# Detect the public URL of the source project from its CMS config.
+# Falls back to the Devilbox naming convention only when nothing can be
+# read (Devilbox default TLD is configurable via `devilbox_tld`).
+_migrate_detect_old_url() {
+    local project_path="$1"
+    local folder="$2"
+    local cms_type="$3"
+    local url=""
+    local sq="'" dq='"'
+    local q="[${sq}${dq}]"
+    local file
+
+    case "$cms_type" in
+        wordpress)
+            for file in "${project_path}/wp-config.php" \
+                        "${project_path}/public/wp-config.php" \
+                        "${project_path}/web/wp-config.php"; do
+                url="$(_migrate_first_url "$file" \
+                    "(WP_HOME|WP_SITEURL)[^,]*,[[:space:]]*${q}([^${sq}${dq}]+)${q}")"
+                [[ -n "$url" ]] && break
+            done
+            ;;
+        joomla)
+            url="$(_migrate_first_url "${project_path}/configuration.php" \
+                "\\\$live_site[[:space:]]*=[[:space:]]*${q}([^${sq}${dq}]+)${q}")"
+            ;;
+        opencart)
+            for file in "${project_path}/config.php" \
+                        "${project_path}/upload/config.php"; do
+                url="$(_migrate_first_url "$file" \
+                    "(HTTP_SERVER|HTTPS_SERVER)[^,]*,[[:space:]]*${q}([^${sq}${dq}]+)${q}")"
+                [[ -n "$url" ]] && break
+            done
+            ;;
+    esac
+
+    if [[ -z "$url" ]]; then
+        url="http://${folder}.$(get_config "devilbox_tld" "loc")"
+    fi
+
+    printf '%s\n' "${url%/}"
+}
+
+# =================================================================
+# DEVILBOX .env ROLLBACK STATE
+#
+# The migration swaps Devilbox .env variants for the export window.
+# A signal (Ctrl+C) or an early return must restore the original file,
+# otherwise Devilbox is left pinned to the export PHP version.
+# State lives at file scope because the EXIT trap outlives cmd_migrate.
+# =================================================================
+
+_DPX_MIGRATE_ENV_DIR=""
+_DPX_MIGRATE_ENV_PHP=""
+_DPX_MIGRATE_ENV_SWAPPED=0
+
+_migrate_env_rollback() {
+    [[ "${_DPX_MIGRATE_ENV_SWAPPED:-0}" == "1" ]] || return 0
+    _DPX_MIGRATE_ENV_SWAPPED=0
+
+    local env_dir="${_DPX_MIGRATE_ENV_DIR:-}"
+    local env_php="${_DPX_MIGRATE_ENV_PHP:-}"
+    local restore_rc=0
+
+    if [[ -z "$env_dir" || ! -f "${env_dir}/env.bak" ]]; then
+        return 0
+    fi
+
+    (
+        cd "$env_dir" || exit 1
+        if [[ -f .env && -n "$env_php" ]]; then
+            mv .env ".env-${env_php}" 2>/dev/null || exit 1
+        fi
+        mv env.bak .env 2>/dev/null || exit 1
+    ) || restore_rc=1
+
+    if [[ $restore_rc -eq 0 ]]; then
+        print_warning "Devilbox .env restored." >&2
+    else
+        print_error "Failed to restore Devilbox .env from ${env_dir}/env.bak" >&2
+    fi
+
+    return $restore_rc
 }
 
 # =================================================================
@@ -190,7 +299,13 @@ cmd_migrate() {
     #  Forming URL
     # =================================================================
     local local_url="https://${project_name}.$(get_config "project_tld")"
-    local old_url="https://${devilbox_folder}.loc"
+    local old_url
+    old_url=$(get_arg "old_url" "")
+    if [[ -z "$old_url" ]]; then
+        # No hardcoded .loc: read the source CMS configuration first.
+        old_url="$(_migrate_detect_old_url "$devilbox_project_path" "$devilbox_folder" "$cms_type")"
+    fi
+    old_url="${old_url%/}"
 
     # [FIX] Paths already expandeds in core.sh durings load_config
     local db_backup_path
@@ -237,17 +352,31 @@ cmd_migrate() {
     if [[ "$has_db" == true ]]; then
         print_step "1" "Export the database from Devilbox"
 
+        # A leftover env.bak means a previous run was interrupted. Never
+        # overwrite it: it is the only copy of the original .env.
+        if [[ -f "${devilbox_path}/env.bak" ]]; then
+            print_error "Devilbox already contains env.bak; refusing to overwrite it."
+            print_info "Restore it manually first: mv '${devilbox_path}/env.bak' '${devilbox_path}/.env'"
+            return 1
+        fi
+
+        # Arm rollback for the whole export/import window.
+        _DPX_MIGRATE_ENV_DIR="$devilbox_path"
+        _DPX_MIGRATE_ENV_PHP="$devilbox_php_version"
+        _DPX_MIGRATE_ENV_SWAPPED=1
+        trap '_migrate_env_rollback' INT TERM EXIT
+
         # Work with Devilbox in subshell
         (
             cd "$devilbox_path" || exit 1
 
             # Switch on need version PHP
             if [[ -f ".env" ]]; then
-                mv .env env.bak 2>/dev/null || true
+                mv .env env.bak || exit 1
             fi
 
             if [[ -f ".env-${devilbox_php_version}" ]]; then
-                mv ".env-${devilbox_php_version}" .env
+                mv ".env-${devilbox_php_version}" .env || exit 1
             else
                 print_warning "File .env-${devilbox_php_version} not found"
             fi
@@ -257,30 +386,66 @@ cmd_migrate() {
             print_info "Expect start services..."
             sleep 15
 
-            # Export database
-            ensure_directory "$db_backup_path"
-            dpx_docker_compose exec -T mysql mysqldump -u root "$db_name" > "$backup_file" 2>&1
-            print_success "Base data success export."
+            # Export database. stderr MUST NOT go into the dump file:
+            # mysqldump warnings would corrupt the SQL artifact.
+            ensure_directory "$db_backup_path" || {
+                print_error "Cannot create backup directory: $db_backup_path"
+                exit 1
+            }
 
-            # Replace URL for non-WordPress (WordPress replace via WP-CLI)
-            if [[ "$cms_type" != "wordpress" ]]; then
-                print_step "2" "Replace URL in SQL-file"
-                safe_sed_inplace "s|${old_url}|${local_url}|g" "$backup_file"
-                # Remove backup file from BSD sed
-                rm -f "${backup_file}${DPX_SED_INPLACE_EXT}" 2>/dev/null || true
-                print_success "URL replacs."
+            local dump_err_file="" dump_tmp="" dump_rc=0
+            if ! dump_err_file="$(mktemp "${TMPDIR:-/tmp}/dpx_migrate_dump.XXXXXX")"; then
+                print_error "Cannot create temporary file for mysqldump stderr."
+                exit 1
             fi
+
+            # Dump to a sibling temp file and publish atomically only on
+            # success: a failed/empty export must never destroy a valid
+            # backup already present at $backup_file.
+            if ! dump_tmp="$(mktemp "${backup_file}.tmp.XXXXXX")"; then
+                print_error "Cannot create temporary file for the database dump."
+                rm -f "$dump_err_file"
+                exit 1
+            fi
+
+            dpx_docker_compose exec -T mysql mysqldump -u root "$db_name" \
+                > "$dump_tmp" 2> "$dump_err_file" || dump_rc=$?
+
+            if [[ $dump_rc -ne 0 ]]; then
+                print_error "mysqldump failed (rc=$dump_rc); new dump discarded (existing backup preserved)."
+                [[ -s "$dump_err_file" ]] && tail -n 5 "$dump_err_file" >&2
+                rm -f "$dump_tmp" "$dump_err_file"
+                exit 1
+            fi
+
+            if [[ ! -s "$dump_tmp" ]]; then
+                print_error "mysqldump produced an empty dump; new dump discarded (existing backup preserved)."
+                rm -f "$dump_tmp" "$dump_err_file"
+                exit 1
+            fi
+
+            if ! mv -f "$dump_tmp" "$backup_file"; then
+                print_error "Cannot move the database dump into place: $backup_file"
+                rm -f "$dump_tmp" "$dump_err_file"
+                exit 1
+            fi
+
+            if [[ -s "$dump_err_file" ]]; then
+                print_warning "mysqldump reported warnings:"
+                tail -n 5 "$dump_err_file" >&2
+            fi
+            rm -f "$dump_err_file"
+
+            print_success "Base data success export."
+            # URL replacement is deferred to the serialization-safe
+            # import (db_import_with_replace) once DDEV is running.
         ) || return 1
     fi
 
-    # Step 3: Copi files
-    local step_num=3
+    # Step 2: Copy files (URL replace happens during the DB import)
+    local step_num=2
     if [[ "$has_db" != true ]]; then
         step_num=1
-    elif [[ "$cms_type" == "wordpress" ]]; then
-        step_num=3
-    else
-        step_num=3
     fi
 
     print_step "$step_num" "Copy project files"
@@ -336,12 +501,17 @@ cmd_migrate() {
     if [[ "$has_db" == true ]]; then
         print_info "Importing the database..."
 
-        (
-            cd "$ddev_path" || exit 1
-            ddev import-db --file="$backup_file" 2>&1
-        ) || return 1
-
-        print_success "Base data imported."
+        if [[ "$cms_type" == "wordpress" ]]; then
+            # WordPress URLs are rewritten after import via WP-CLI.
+            (
+                cd "$ddev_path" || exit 1
+                ddev import-db --file="$backup_file" 2>&1
+            ) || return 1
+            print_success "Base data imported."
+        else
+            # Non-WP: byte-length aware replacement during import.
+            db_import_with_replace "$backup_file" "$old_url" "$local_url" "$ddev_path" || return 1
+        fi
 
         # Step 8: Replace URL for WordPress
         if [[ "$cms_type" == "wordpress" ]]; then
@@ -368,13 +538,16 @@ cmd_migrate() {
         fi
     fi
 
-    # Restore configurations Devilbox (in subshell)
-    if [[ "$has_db" == true ]] && [[ -f "${devilbox_path}/env.bak" ]]; then
-        (
-            cd "$devilbox_path" || exit 1
-            mv .env ".env-${devilbox_php_version}" 2>/dev/null || true
-            mv env.bak .env
-        )
+    # Restore Devilbox configuration and disarm the rollback trap.
+    local migrate_restore_rc=0
+    if [[ "$has_db" == true ]]; then
+        _migrate_env_rollback || migrate_restore_rc=1
+        trap - INT TERM EXIT
+    fi
+
+    if [[ $migrate_restore_rc -ne 0 ]]; then
+        print_error "Migration finished, but Devilbox .env was not restored (see above)."
+        return 1
     fi
 
     # --- Completion ---

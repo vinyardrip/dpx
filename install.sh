@@ -324,11 +324,13 @@ install() {
         if [[ -f "${script_dir}/config/${TOOL_NAME}.conf" ]]; then
             cp "${script_dir}/config/${TOOL_NAME}.conf" "${config_dir}/${TOOL_NAME}.conf"
             chown "$REAL_USER:$REAL_GROUP" "${config_dir}/${TOOL_NAME}.conf" 2>/dev/null || true
+            chmod 600 "${config_dir}/${TOOL_NAME}.conf" 2>/dev/null || true
             print_success "Конфигурация создана: ${config_dir}/${TOOL_NAME}.conf"
         else
             print_warning "Шаблон конфигурации не найден в ${script_dir}/config/"
         fi
     else
+        chmod 600 "${config_dir}/${TOOL_NAME}.conf" 2>/dev/null || true
         print_warning "Конфигурация уже существует: ${config_dir}/${TOOL_NAME}.conf"
     fi
 

@@ -2,9 +2,9 @@
 
 [Read in Russian](README.ru.md)
 
-> **v1.8.0 (Stable)**
+> **v1.8.1 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.8.0-blue)
+![Version](https://img.shields.io/badge/version-1.8.1-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.0+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
@@ -367,7 +367,7 @@ bash tests/test_tunnel_patch.sh
 bash tests/test_macos_sim.sh
 ```
 
-The v1.8.0 repository includes Linux and Darwin-simulation coverage. Real hardware macOS, WSL2 and field-environment coverage remain separate roadmap items.
+The v1.8.1 repository includes Linux and Darwin-simulation coverage. Real hardware macOS, WSL2 and field-environment coverage remain separate roadmap items.
 
 ## Troubleshooting
 
