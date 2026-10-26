@@ -86,6 +86,18 @@ fi
 echo ""
 echo "${TEST_CYAN}=== upsert semantics ===${TEST_RESET}"
 
+test_start "upsert creates a newline-terminated owner-only file"
+rm -f "$(config_user_file)"
+if config_upsert_kv "cli_lang" "en" \
+   && [[ -z "$(tail -c 1 "$(config_user_file)")" ]] \
+   && [[ "$(stat -c '%a' "$(config_user_file)" 2>/dev/null || stat -f '%Lp' "$(config_user_file)" 2>/dev/null)" == "600" ]] \
+   && _parse_config_file "$(config_user_file)" \
+   && [[ "$(get_config cli_lang)" == "en" ]]; then
+    test_pass
+else
+    test_fail "new config file was not newline-terminated or is not 0600"
+fi
+
 test_start "upsert appends new key and preserves comments"
 cat > "$(config_user_file)" << 'CONF'
 # my manual comment
@@ -93,7 +105,8 @@ project_tld = lo
 CONF
 config_upsert_kv "default_tunnel_provider" "cloudflare"
 if grep -qF "# my manual comment" "$(config_user_file)" \
-   && grep -qF "default_tunnel_provider = cloudflare" "$(config_user_file)"; then
+   && grep -qF "default_tunnel_provider = cloudflare" "$(config_user_file)" \
+   && [[ -z "$(tail -c 1 "$(config_user_file)")" ]]; then
     test_pass
 else
     # shellcheck disable=SC2012  # diagnostic listing of tmp config
@@ -104,6 +117,7 @@ test_start "upsert separates a new key from a file without trailing newline"
 : > "$(config_user_file)"
 printf 'project_tld = lo' > "$(config_user_file)"
 if config_upsert_kv "default_tunnel_provider" "cloudflare" \
+   && [[ -z "$(tail -c 1 "$(config_user_file)")" ]] \
    && _parse_config_file "$(config_user_file)" \
    && [[ "$(get_config project_tld)" == "lo" ]] \
    && [[ "$(get_config default_tunnel_provider)" == "cloudflare" ]]; then
@@ -123,12 +137,14 @@ else
     test_fail "updated file does not end with a newline"
 fi
 
-test_start "upsert updates existing key in place"
+test_start "upsert updates an existing key in place without duplicates"
 config_upsert_kv "project_tld" "lo2"
-if grep -qxF "project_tld = lo2" "$(config_user_file)" && ! grep -qxF "project_tld = lo" "$(config_user_file)"; then
+if grep -qxF "project_tld = lo2" "$(config_user_file)" \
+   && ! grep -qxF "project_tld = lo" "$(config_user_file)" \
+   && [[ "$(grep -cE '^[[:space:]]*project_tld[[:space:]]*=' "$(config_user_file)")" == "1" ]]; then
     test_pass
 else
-    test_fail "update failed"
+    test_fail "update failed or created a duplicate"
 fi
 
 test_start "upsert replaces an indented existing key without duplicating it"
@@ -142,11 +158,54 @@ else
     test_fail "indented key was duplicated or mangled"
 fi
 
+test_start "upsert updates a legacy compact key with no trailing newline"
+: > "$(config_user_file)"
+printf '# legacy comment\ncli_lang=de' > "$(config_user_file)"
+if config_upsert_kv "cli_lang" "en" \
+   && [[ -z "$(tail -c 1 "$(config_user_file)")" ]] \
+   && grep -qxF "cli_lang = en" "$(config_user_file)" \
+   && grep -qF "# legacy comment" "$(config_user_file)" \
+   && [[ "$(grep -cE '^[[:space:]]*cli_lang[[:space:]]*=' "$(config_user_file)")" == "1" ]]; then
+    test_pass
+else
+    test_fail "legacy compact key was duplicated or merged"
+fi
+
 test_start "no duplicate keys after repeated upserts"
 config_upsert_kv "cli_lang" "en"
 config_upsert_kv "cli_lang" "ru"
 count=$(grep -c '^cli_lang[[:space:]]*=' "$(config_user_file)")
 check_value "1" "$count"
+
+test_start "upsert collapses pre-existing duplicate keys"
+printf '# duplicate regression fixture\ncli_lang = de\nproject_tld = lo\nunrelated = keep\ncli_lang = fr' \
+    > "$(config_user_file)"
+if config_upsert_kv "cli_lang" "en" \
+   && [[ -z "$(tail -c 1 "$(config_user_file)")" ]] \
+   && _parse_config_file "$(config_user_file)" \
+   && [[ "$(get_config cli_lang)" == "en" ]] \
+   && [[ "$(get_config project_tld)" == "lo" ]] \
+   && [[ "$(get_config unrelated)" == "keep" ]] \
+   && grep -qF "# duplicate regression fixture" "$(config_user_file)" \
+   && [[ "$(grep -cE '^[[:space:]]*cli_lang[[:space:]]*=' "$(config_user_file)")" == "1" ]]; then
+    test_pass
+else
+    test_fail "duplicate key was not collapsed: $(tr '\n' '|' < "$(config_user_file)")"
+fi
+
+test_start "global upsert uses the same duplicate-safe path"
+global_file="$(config_global_file)"
+mkdir -p "$(dirname "$global_file")"
+printf 'DPX_PROJECTS_DIR = /one\nDPX_PROJECTS_DIR = /two\nother = keep\n' > "$global_file"
+if config_upsert_global_kv "DPX_PROJECTS_DIR" "/new" \
+   && grep -qxF "DPX_PROJECTS_DIR = /new" "$global_file" \
+   && grep -qxF "other = keep" "$global_file" \
+   && [[ "$(grep -cE '^[[:space:]]*DPX_PROJECTS_DIR[[:space:]]*=' "$global_file")" == "1" ]]; then
+    test_pass
+else
+    test_fail "global duplicate key was not collapsed"
+fi
+rm -f "$global_file"
 
 test_start "upsert survives sed metacharacters in value (|, &, \\)"
 config_upsert_kv "db_password" 'p@ss|w&rd\x'
@@ -176,8 +235,27 @@ if config_upsert_kv "db_password" $'safe\nadmin_pass = injected' 2>/dev/null; th
     test_fail "newline value accepted"
 elif grep -qE '^admin_pass[[:space:]]*=' "$(config_user_file)"; then
     test_fail "newline value injected an admin_pass key"
+elif [[ "$(get_config db_password)" != "$roundtrip_value" ]]; then
+    test_fail "newline rejection modified the existing value"
 else
     test_pass
+fi
+
+test_start "upsert rejects carriage-return values"
+if config_upsert_kv "db_password" $'safe\rinjected' 2>/dev/null; then
+    test_fail "carriage-return value accepted"
+else
+    test_pass
+fi
+
+test_start "upsert serializes an empty value explicitly"
+if config_upsert_kv "empty_value" "" \
+   && grep -qxF 'empty_value = ""' "$(config_user_file)" \
+   && _parse_config_file "$(config_user_file)" \
+   && [[ -z "$(get_config empty_value)" ]]; then
+    test_pass
+else
+    test_fail "empty value was not serialized/parsed as empty"
 fi
 
 test_start "upsert rejects invalid config keys"
@@ -255,6 +333,11 @@ test_start "parser strips unquoted comments at the first marker"
 printf 'parser_multi_comment = value # one # two\n' > "$TEST_TEMP_DIR/parser.conf"
 _parse_config_file "$TEST_TEMP_DIR/parser.conf"
 check_value "value" "$(get_config parser_multi_comment)"
+
+test_start "parser treats a value-only hash as an empty value"
+printf 'parser_only_comment = # just a comment\n' > "$TEST_TEMP_DIR/parser.conf"
+_parse_config_file "$TEST_TEMP_DIR/parser.conf"
+check_value "" "$(get_config parser_only_comment)"
 
 test_start "parser trims unquoted values and inline comments"
 printf 'parser_plain = value=123   # trailing comment\n' > "$TEST_TEMP_DIR/parser.conf"

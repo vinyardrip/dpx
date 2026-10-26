@@ -253,6 +253,12 @@ _config_decode_single_quoted() {
 _config_parse_unquoted() {
     local value="$1"
 
+    # A hash as the first non-space token is a comment with no value:
+    # `key = # note` must not turn "# note" into the setting's value.
+    if [[ "$value" == \#* ]]; then
+        value=""
+    fi
+
     # Strip at the FIRST whitespace+# marker. `%%` removes the longest
     # suffix, leaving the shortest prefix, so a value like
     # `abc # comment # more` becomes `abc` rather than `abc # comment`.
@@ -450,30 +456,83 @@ _sed_escape_replacement() {
     printf '%s\n' "$value"
 }
 
-# Upsert `key = value` into the user config, preserving all other
-# lines (comments, custom keys). Creates parent directories.
-config_upsert_kv() {
-    local key="$1" value="$2" serialized
-    local file
+# Shared implementation for both user and canonical global config files.
+#
+# Guarantees:
+#   - the target key has exactly one active assignment after the call;
+#   - legacy duplicate assignments are collapsed, not multiplied;
+#   - the file ends with a newline even when the old file did not;
+#   - comments, blank lines and unrelated keys keep their order;
+#   - values go through the quoting/escaping codec, never raw sed input.
+_config_upsert_file_kv() {
+    local file="$1" key="$2" value="$3"
+    local serialized match_count escaped script line_number line
+    local line_numbers
+    local -a key_lines=()
 
     _config_validate_key "$key" || return 1
     serialized="$(_config_serialize_value "$value")" || return 1
 
-    file="$(config_user_file)"
     ensure_directory "$(dirname "$file")" || return 1
 
     # Create new files owner-only from the very first byte.
     if [[ ! -e "$file" ]]; then
         (umask 077 && : > "$file") || return 1
     fi
+    if [[ ! -f "$file" ]]; then
+        print_error "Config path is not a regular file: $file" >&2
+        return 1
+    fi
 
-    if [[ -f "$file" ]] && grep -qE "^[[:space:]]*${key}[[:space:]]*=" "$file"; then
-        safe_sed_inplace "s|^[[:space:]]*${key}[[:space:]]*=.*|${key} = $(_sed_escape_replacement "$serialized")|" "$file" \
-            || return 1
-    else
+    # Re-secure before reading/writing: legacy 0644 files may already
+    # contain credentials.
+    if ! _config_secure_file "$file"; then
+        print_error "Failed to secure permissions on $file (expected 0600)" >&2
+        return 1
+    fi
+
+    match_count="$(grep -cE "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null)" || true
+    match_count="${match_count//[[:space:]]/}"
+    if [[ ! "$match_count" =~ ^[0-9]+$ ]]; then
+        print_error "Failed to inspect config file: $file" >&2
+        return 1
+    fi
+
+    if (( match_count == 0 )); then
         _config_ensure_trailing_newline "$file" || return 1
         printf '%s = %s\n' "$key" "$serialized" >> "$file" || return 1
+    else
+        # Update the first assignment in place and delete any stale
+        # duplicates. Keep original line numbers: sed deletes later lines
+        # after evaluating the same input record stream.
+        if ! line_numbers="$(grep -nE "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null)"; then
+            print_error "Failed to inspect config file: $file" >&2
+            return 1
+        fi
+        while IFS= read -r line; do
+            [[ -n "$line" ]] || continue
+            line_number="${line%%:*}"
+            if [[ ! "$line_number" =~ ^[0-9]+$ ]]; then
+                print_error "Failed to parse config line numbers: $file" >&2
+                return 1
+            fi
+            key_lines+=("$line_number")
+        done <<< "$line_numbers"
+
+        if (( ${#key_lines[@]} == 0 )); then
+            print_error "Failed to locate existing config key: $key" >&2
+            return 1
+        fi
+
+        escaped="$(_sed_escape_replacement "$serialized")"
+        script="${key_lines[0]}s|^[[:space:]]*${key}[[:space:]]*=.*|${key} = ${escaped}|"
+        local i
+        for (( i=1; i<${#key_lines[@]}; i++ )); do
+            script+=";${key_lines[i]}d"
+        done
+        safe_sed_inplace "$script" "$file" || return 1
     fi
+
     _config_ensure_trailing_newline "$file" || return 1
     if ! _config_secure_file "$file"; then
         print_error "Failed to secure permissions on $file (expected 0600)" >&2
@@ -482,33 +541,14 @@ config_upsert_kv() {
     return 0
 }
 
+# Upsert `key = value` into the user config, preserving all other
+# lines (comments, custom keys). Creates parent directories.
+config_upsert_kv() {
+    _config_upsert_file_kv "$(config_user_file)" "$1" "$2"
+}
+
 config_upsert_global_kv() {
-    local key="$1" value="$2" serialized
-    local file
-
-    _config_validate_key "$key" || return 1
-    serialized="$(_config_serialize_value "$value")" || return 1
-
-    file="$(config_global_file)"
-    ensure_directory "$(dirname "$file")" || return 1
-
-    if [[ ! -e "$file" ]]; then
-        (umask 077 && : > "$file") || return 1
-    fi
-
-    if [[ -f "$file" ]] && grep -qE "^[[:space:]]*${key}[[:space:]]*=" "$file"; then
-        safe_sed_inplace "s|^[[:space:]]*${key}[[:space:]]*=.*|${key} = $(_sed_escape_replacement "$serialized")|" "$file" \
-            || return 1
-    else
-        _config_ensure_trailing_newline "$file" || return 1
-        printf '%s = %s\n' "$key" "$serialized" >> "$file" || return 1
-    fi
-    _config_ensure_trailing_newline "$file" || return 1
-    if ! _config_secure_file "$file"; then
-        print_error "Failed to secure permissions on $file (expected 0600)" >&2
-        return 1
-    fi
-    return 0
+    _config_upsert_file_kv "$(config_global_file)" "$1" "$2"
 }
 
 # Interactive first-run/setup wizard.
