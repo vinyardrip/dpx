@@ -41,7 +41,7 @@ db_get_prefix() {
     fi
 
     local prefix
-    prefix=$(grep -E '^\s*\$table_prefix\s*=' "$config_file" 2>/dev/null \
+    prefix=$(grep -E "^\s*\\\$table_prefix\s*=" "$config_file" 2>/dev/null \
         | grep -oE "['\"].*[\'\"]" | tr -d "'\"" | head -1)
 
     # Fallback for standard installs
@@ -93,7 +93,7 @@ db_get_db_name() {
             config_file="$project_path/configuration.php"
             if [[ -f "$config_file" ]]; then
                 # public $db = 'xyz'; — with any count whitespaces
-                db_name=$(grep -E 'public[[:space:]]+\$db[[:space:]]*=' "$config_file" 2>/dev/null \
+                db_name=$(grep -E "public[[:space:]]+\\\$db[[:space:]]*=" "$config_file" 2>/dev/null \
                     | head -1 \
                     | sed -E "s/.*=[[:space:]]*['\"]([^'\"]*)['\"].*/\\1/")
             fi
@@ -303,16 +303,27 @@ db_sql_count_old_url() {
     local prefix
     prefix=$(db_get_prefix "$project_path") || return 1
 
-    local count=0
-    count=$(cd "$project_path" && ddev mysql -N -B -e "
+    local raw="" count=""
+    if ! raw=$(cd "$project_path" && ddev mysql -N -B -e "
         SELECT (
-            SELECT COUNT(*) FROM ${prefix}options WHERE option_value LIKE '%${old_url_sql}%'
+            SELECT COUNT(*) FROM ${prefix}options WHERE INSTR(option_value, '${old_url_sql}') > 0
         ) + (
-            SELECT COUNT(*) FROM ${prefix}postmeta WHERE meta_value LIKE '%${old_url_sql}%'
-        );" 2>/dev/null \
-        | tail -1)
+            SELECT COUNT(*) FROM ${prefix}postmeta WHERE INSTR(meta_value, '${old_url_sql}') > 0
+        );" 2>/dev/null); then
+        print_error "db_sql_count_old_url: database query failed." >&2
+        return 1
+    fi
 
-    echo "${count:-0}"
+    # The aggregate always returns one row. Empty output means the client
+    # or connection failed even if the command status was misleading; do
+    # not turn that into a successful zero count.
+    count="$(printf '%s\n' "$raw" | tail -1 | tr -d '[:space:]')"
+    if [[ -z "$count" ]]; then
+        print_error "db_sql_count_old_url: database returned no count." >&2
+        return 1
+    fi
+
+    printf '%s\n' "$count"
 }
 
 # =================================================================
@@ -347,6 +358,14 @@ db_import() {
     local sql_file="$1"
     local project_path="$2"
     local pre_flush="${3:-true}"
+
+    # [R-11] Canonicalize before any cd. Callers may pass a path relative
+    # to the current directory; the import helper changes into the project
+    # directory and must still resolve the same dump.
+    if ! sql_file="$(dpx_absolute_path "$sql_file")"; then
+        print_error "db_import: cannot resolve SQL file path: ${1:-<empty>}"
+        return 1
+    fi
 
     # [FIX P-10] Validate BEFORE any cd: a bad path must not mutate CWD.
     validate_file "$sql_file" "SQL file" || return 1
@@ -664,11 +683,10 @@ db_create_snapshot() {
     print_step "auto" "Safety Snapshot: $snapshot_name..." >&2
 
     # Create snapshot, suppress interactive.
-    # IMPORTANT: Ifs $? == 0, means DDEV guarantees, that snapshot consumes.
-    dpx_exec_and_log "$project_path" ddev snapshot --name="$snapshot_name" --yes >/dev/null 2>&1
-    if [[ $? -eq 0 ]]; then
+    # IMPORTANT: rc 0 means DDEV guarantees that the snapshot exists.
+    if dpx_exec_and_log "$project_path" ddev snapshot --name="$snapshot_name" --yes >/dev/null 2>&1; then
         print_success "Snapshot create: $snapshot_name" >&2
-        echo "$snapshot_name" # Return name for caller'and
+        echo "$snapshot_name" # Return name for caller
         return 0
     else
         print_error "CRITICAL: Snapshot creation failed! Mutation database BLOCKED." >&2
@@ -942,6 +960,38 @@ db_smart_replace_tunnel() {
 # v1.4.23: Threes pass — HTTPS -> HTTP -> Bare Domain.
 # =================================================================
 
+# Fail closed after a destructive search-replace pass. The pre-replace
+# snapshot marker is deliberately preserved even when the automatic
+# restore succeeds: an enclosing export/migration transaction still needs
+# a recovery point until it has completed its own verification.
+_db_wp_smart_replace_abort() {
+    local project_path="$1"
+    local snapshot_name="$2"
+    local marker_name="$3"
+    local reason="$4"
+
+    print_error "Smart replace aborted: ${reason}" >&2
+
+    if [[ -n "$snapshot_name" ]]; then
+        print_warning "Attempting automatic restore from snapshot: $snapshot_name..." >&2
+        if db_restore_snapshot "$project_path" "$snapshot_name"; then
+            print_warning "Database restored from snapshot; recovery marker preserved." >&2
+        else
+            print_error "Automatic restore failed. Marker preserved for orphan recovery:" >&2
+            print_error "  ddev snapshot restore $snapshot_name" >&2
+        fi
+    fi
+
+    if [[ -n "$marker_name" ]]; then
+        if ! mkdir -p "${project_path}/.dpx" 2>/dev/null \
+           || ! printf '%s\n' "$marker_name" > "${project_path}/.dpx/current_snapshot" 2>/dev/null; then
+            print_error "CRITICAL: Failed to preserve the recovery snapshot marker." >&2
+        fi
+    fi
+
+    return 1
+}
+
 db_wp_smart_replace() {
     local old_url="$1"
     local new_url="$2"
@@ -1007,54 +1057,74 @@ db_wp_smart_replace() {
     new_bare_domain=$(echo "$new_url" | sed 's|https\?://||;s|/$||')
 
     # Pass 1: HTTPS exact
+    local pass_rc=0
     print_step "auto" "[1/3] Replace HTTPS: $old_url -> $new_url"
     (
         cd "$project_path" || exit 1
         ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" /usr/local/bin/wp search-replace \
             "$old_url" "$new_url" \
             --all-tables --precise --skip-plugins --skip-themes --allow-root 2>/dev/null
-    )
-    if [[ $? -ne 0 ]]; then
-        print_error "Error replaces full URL."
-        # [FIX C-3] Match the tunnel safety posture: attempt automatic
-        # restore of the pre-replace snapshot before exiting. The DB is
-        # left untouched or restored — never partially migrated.
-        if [[ -n "$snapshot_name" ]]; then
-            print_warning "Attempting automatic restore from snapshot: $snapshot_name..."
-            if db_restore_snapshot "$project_path" "$snapshot_name"; then
-                # Restore succeeded: when a keep_marker override was in
-                # play, the exported snapshot name still refers to the
-                # state a LATER crash must roll back to (see the reverse
-                # pass of db_wp_export_safe) — re-point and keep it;
-                # otherwise the replace is fully rolled back, drop it.
-                if [[ -n "$keep_marker" ]]; then
-                    printf '%s\n' "$keep_marker" > "${project_path}/.dpx/current_snapshot" 2>/dev/null
-                else
-                    rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
-                fi
-            else
-                print_error "Automatic restore failed. Marker preserved for orphan recovery:"
-                print_error "  ddev snapshot restore $snapshot_name"
-            fi
-        fi
+    ) || pass_rc=$?
+    if (( pass_rc != 0 )); then
+        _db_wp_smart_replace_abort "$project_path" "$snapshot_name" "$marker_name" \
+            "pass 1 (HTTPS) failed with rc=${pass_rc}"
         return 1
     fi
 
-    # Pass 2: HTTP → HTTPS
+    # Pass 2: HTTP → HTTPS. A failure here leaves protocol-relative or
+    # HTTP-only remnants in the database, so it must abort the transaction.
     if [[ "$old_url" == https://* && -n "$old_bare_domain" ]]; then
+        pass_rc=0
         print_step "auto" "[2/3] Replace HTTP→HTTPS: http://${old_bare_domain} -> $new_url"
         (
             cd "$project_path" || exit 1
             ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" /usr/local/bin/wp search-replace \
                 "http://${old_bare_domain}" "$new_url" \
                 --all-tables --precise --skip-plugins --skip-themes --allow-root 2>/dev/null
-        ) || print_warning "Replace HTTP→HTTPS completion with error."
+        ) || pass_rc=$?
+        if (( pass_rc != 0 )); then
+            _db_wp_smart_replace_abort "$project_path" "$snapshot_name" "$marker_name" \
+                "pass 2 (HTTP→HTTPS) failed with rc=${pass_rc}"
+            return 1
+        fi
     fi
 
-    # Pass 3: Bare domain
+    # Pass 3: Bare domain. This pass is the final catch-all and must not
+    # be allowed to fail silently.
     if [[ -n "$old_bare_domain" ]]; then
+        pass_rc=0
         print_step "auto" "[3/3] Replace bare domain: ${old_bare_domain} -> ${new_bare_domain}"
-        (cd "$project_path" && ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" /usr/local/bin/wp search-replace "${old_bare_domain}" "${new_bare_domain}" --all-tables --precise --skip-plugins --skip-themes --allow-root 2>/dev/null) || true
+        (
+            cd "$project_path" || exit 1
+            ddev exec php -d display_errors=0 -d error_reporting="E_ALL & ~E_DEPRECATED" /usr/local/bin/wp search-replace \
+                "${old_bare_domain}" "${new_bare_domain}" \
+                --all-tables --precise --skip-plugins --skip-themes --allow-root 2>/dev/null
+        ) || pass_rc=$?
+        if (( pass_rc != 0 )); then
+            _db_wp_smart_replace_abort "$project_path" "$snapshot_name" "$marker_name" \
+                "pass 3 (bare domain) failed with rc=${pass_rc}"
+            return 1
+        fi
+    fi
+
+    # Final validation: no old URL may survive any pass. A failed count is
+    # fatal too — silence is not evidence that the replacement succeeded.
+    local remaining=""
+    if ! remaining=$(db_sql_count_old_url "$project_path" "$old_url" 2>/dev/null); then
+        _db_wp_smart_replace_abort "$project_path" "$snapshot_name" "$marker_name" \
+            "final residual URL count failed"
+        return 1
+    fi
+    remaining="${remaining//[[:space:]]/}"
+    if [[ ! "$remaining" =~ ^[0-9]+$ ]]; then
+        _db_wp_smart_replace_abort "$project_path" "$snapshot_name" "$marker_name" \
+            "final residual URL count returned an invalid value: ${remaining:-<empty>}"
+        return 1
+    fi
+    if (( remaining > 0 )); then
+        _db_wp_smart_replace_abort "$project_path" "$snapshot_name" "$marker_name" \
+            "final validation still found ${remaining} row(s) containing the old URL"
+        return 1
     fi
 
     print_success "Triple replace URL completion."

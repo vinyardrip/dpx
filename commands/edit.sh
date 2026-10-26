@@ -186,7 +186,7 @@ cmd_edit() {
     printf "%s\n" "$(t "edit.notes" "${notes:--}")"
     echo ""
 
-    echo "$(t "edit.menu.title")"
+    t "edit.menu.title"
     echo "  $(t "edit.menu.php_max")"
     echo "  $(t "edit.menu.note")"
     echo "  $(t "edit.menu.show")"

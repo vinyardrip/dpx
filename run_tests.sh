@@ -95,6 +95,84 @@ SHELLCHECK_TARGETS=(
     "$TESTS_DIR"/tests/test_*.sh
 )
 
+# Non-blocking ShellCheck codes are limited to checks that cannot be
+# resolved statically in this codebase:
+#   1091 - source file not followed (dynamic DPX_ROOT sources)
+#   2329 - function is never invoked (commands are dispatched dynamically)
+# Everything else, including SC2086 (reported as "info" by current
+# ShellCheck releases), is actionable and fails the gate.
+SHELLCHECK_NONBLOCKING_CODES=(1091 2329)
+
+_shellcheck_actionable_filter() {
+    local code
+    local code_filter="true"
+    for code in "${SHELLCHECK_NONBLOCKING_CODES[@]}"; do
+        code_filter+=" and .code != $code"
+    done
+
+    # The allowlist applies regardless of severity: SC1091/SC2329 cannot
+    # be resolved by this code structure, while every other finding
+    # (including info-level SC2086) must fail the gate.
+    printf '(%s)' "$code_filter"
+}
+
+_shellcheck_count_actionable() {
+    local json="$1"
+    local filter
+    filter="$(_shellcheck_actionable_filter)"
+    jq "[.[] | select($filter)] | length" <<<"$json"
+}
+
+_shellcheck_format_actionable() {
+    local json="$1"
+    local filter
+    filter="$(_shellcheck_actionable_filter)"
+    jq -r ".[] | select($filter) | \"\\(.file):\\(.line):\\(.column): \\(.level): \\(.message) [SC\\(.code)]\"" <<<"$json"
+}
+
+# Self-test: a seeded SC2086 must be reported. Current ShellCheck emits
+# SC2086 at "info" level, which the old gcc/note filter silently dropped.
+_shellcheck_gate_selftest() {
+    local tmp_dir probe json file_rc=0 issues=0
+
+    if ! tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/dpx_shellcheck_probe.XXXXXX")"; then
+        echo "${RED}shellcheck self-test: cannot create temporary directory${RESET}"
+        return 1
+    fi
+    probe="${tmp_dir}/SC2086.sh"
+    printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        "value=\"\$1\"" \
+        "printf \"%s\\n\" \$value" > "$probe"
+
+    json="$(shellcheck -s bash -S style -f json "$probe" 2>&1)" || file_rc=$?
+    if (( file_rc > 1 )); then
+        echo "${RED}shellcheck self-test: shellcheck failed (rc=${file_rc})${RESET}"
+        printf '%s\n' "$json"
+        rm -rf "$tmp_dir"
+        return 1
+    fi
+    if ! issues="$(_shellcheck_count_actionable "$json")"; then
+        echo "${RED}shellcheck self-test: cannot parse JSON output${RESET}"
+        printf '%s\n' "$json"
+        rm -rf "$tmp_dir"
+        return 1
+    fi
+    if ! jq -e 'any(.[]; .code == 2086)' <<<"$json" >/dev/null; then
+        echo "${RED}shellcheck self-test: seeded SC2086 was not reported${RESET}"
+        printf '%s\n' "$json"
+        rm -rf "$tmp_dir"
+        return 1
+    fi
+    rm -rf "$tmp_dir"
+
+    if (( issues < 1 )); then
+        echo "${RED}shellcheck self-test: seeded SC2086 was filtered out${RESET}"
+        return 1
+    fi
+    return 0
+}
+
 run_shellcheck_gate() {
     local target file_output file_rc issues total_issues=0
     local -a failing_output=()
@@ -105,29 +183,44 @@ run_shellcheck_gate() {
         return 0
     fi
 
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "${RED}shellcheck: jq not found - cannot verify findings honestly${RESET}"
+        echo ""
+        TOTAL_FAILED=$((TOTAL_FAILED + 1))
+        return 0
+    fi
+
     echo "${CYAN}>>> Static analysis: shellcheck${RESET}"
     echo "----------------------------------------"
+
+    if ! _shellcheck_gate_selftest; then
+        total_issues=$((total_issues + 1))
+        failing_output+=("shellcheck self-test failed: the gate would report a false green")
+    fi
 
     for target in "${SHELLCHECK_TARGETS[@]}"; do
         [[ -f "$target" ]] || continue
 
-        # -f gcc: findings in format 'file:line:col: severity: msg [SCxxxx]'
-        # Count only actionable findings (warning/error), excluding the
-        # informational "note:" lines (SC1091/SC2329) so the gate does not
-        # fail on non-blocking lint noise.
+        # Parse JSON: severity labels and output layout are not stable
+        # across ShellCheck versions. Count every finding except the two
+        # explicitly non-blocking codes above.
         file_rc=0
-        file_output="$(shellcheck -s bash -S style -f gcc "$target" 2>&1)" || file_rc=$?
-        issues="$(grep -E '\[SC[0-9]+\]' <<<"$file_output" | grep -vcE 'note:')" || true
-        issues="${issues// /}"
-        issues="${issues:-0}"
+        file_output="$(shellcheck -s bash -S style -f json "$target" 2>&1)" || file_rc=$?
+        if (( file_rc > 1 )); then
+            total_issues=$((total_issues + 1))
+            failing_output+=("${target}: shellcheck failed (rc=${file_rc}):"$'\n'"$file_output")
+            continue
+        fi
+
+        if ! issues="$(_shellcheck_count_actionable "$file_output")"; then
+            total_issues=$((total_issues + 1))
+            failing_output+=("${target}: invalid shellcheck JSON output:"$'\n'"$file_output")
+            continue
+        fi
 
         if (( issues > 0 )); then
             total_issues=$((total_issues + issues))
-            failing_output+=("$file_output")
-        elif (( file_rc > 1 )); then
-            # Shellcheck itself failed (not just notes): surface it.
-            total_issues=$((total_issues + 1))
-            failing_output+=("$file_output")
+            failing_output+=("$(_shellcheck_format_actionable "$file_output")")
         fi
     done
 

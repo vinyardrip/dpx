@@ -1282,8 +1282,7 @@ cmd_tunnel() {
         [[ -n "$provider" ]] && print_info "$(t tunnel.provider.configured "$provider")"
     fi
     if [[ -z "$provider" ]]; then
-        provider=$(tunnel_select_provider)
-        if [[ $? -ne 0 ]] || [[ -z "$provider" ]]; then
+        if ! provider=$(tunnel_select_provider) || [[ -z "$provider" ]]; then
             print_error "$(t tunnel.provider.not_found)"
             return 1
         fi

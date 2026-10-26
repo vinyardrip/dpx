@@ -233,11 +233,65 @@ _new_resolve_archive_url() {
     return 1
 }
 
+# Reject archive members that could write outside the extraction root.
+# Both POSIX '/' and ZIP-style '\' separators are handled.
+_new_archive_member_is_safe() {
+    local member="$1"
+
+    [[ -n "$member" ]] || return 1
+    [[ "$member" == /* ]] && return 1
+    [[ "$member" == \\* ]] && return 1
+    [[ "$member" =~ ^[A-Za-z]: ]] && return 1
+    [[ "$member" =~ (^|[/\\])\.\.([/\\]|$) ]] && return 1
+    return 0
+}
+
+_new_archive_list_members() {
+    local archive="$1"
+    local ext="$2"
+
+    case "$ext" in
+        zip)
+            unzip -Z1 "$archive"
+            ;;
+        tar.gz|tgz|gz)
+            tar -tzf "$archive"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+_new_archive_validate_members() {
+    local archive="$1"
+    local ext="$2"
+    local members="" member
+
+    if ! members="$(_new_archive_list_members "$archive" "$ext" 2>/dev/null)"; then
+        print_error "Failed to list archive members: $archive"
+        return 1
+    fi
+
+    while IFS= read -r member; do
+        [[ -z "$member" ]] && continue
+        if ! _new_archive_member_is_safe "$member"; then
+            print_error "Unsafe archive member rejected: ${member}"
+            return 1
+        fi
+    done <<< "$members"
+    return 0
+}
+
 # Download and unpacking archive in workdir + normalization docroot.
 _new_archive_download_unpack() {
     local url="$1" workdir="$2"
 
-    local ext="${url##*.}"
+    # Strip query/fragment before deriving the suffix: signed CDN URLs
+    # commonly append ?token=... after the archive name.
+    local clean_url="${url%%[?#]*}"
+    local ext="${clean_url##*.}"
+    ext="${ext,,}"
     local archive="$workdir/pkg.${ext}"
 
     print_step "auto" "Download archive..."
@@ -251,6 +305,13 @@ _new_archive_download_unpack() {
     size=$(wc -c < "$archive" 2>/dev/null | tr -d ' ')
     if [[ -z "$size" ]] || (( size < 10240 )); then
         print_error "Downloaded file suspicious small (${size:-0} bytes). Cancel."
+        return 1
+    fi
+
+    # [R-12] Never extract an untrusted CMS archive before checking every
+    # member for absolute paths and parent-directory traversal.
+    if ! _new_archive_validate_members "$archive" "$ext"; then
+        print_error "Archive contains unsafe paths; extraction refused."
         return 1
     fi
 

@@ -395,6 +395,11 @@ cmd_restore() {
     if [[ -z "$archive" ]]; then
         archive="$(_restore_pick_archive)" || return 1
     fi
+    local unresolved_archive="$archive"
+    if ! archive="$(dpx_absolute_path "$archive")"; then
+        print_error "Cannot resolve backup archive path: ${unresolved_archive}"
+        return 1
+    fi
     validate_file "$archive" "Backup archive" || return 1
 
     print_step "1" "$(t restore.title)"
@@ -435,11 +440,19 @@ cmd_restore() {
         print_error "$(t restore.snapshot) failed."
         return 1
     }
+    if [[ -z "$pre_restore" ]]; then
+        print_error "$(t restore.snapshot) returned an empty snapshot name."
+        return 1
+    fi
 
     # Register the rollback point immediately: a kill -9 / reboot during
     # unpack/import leaves this marker for boot-time orphan recovery.
-    mkdir -p "${project_path}/.dpx" 2>/dev/null
+    if ! mkdir -p "${project_path}/.dpx" 2>/dev/null; then
+        print_error "Failed to create restore state directory: ${project_path}/.dpx"
+        return 1
+    fi
     if ! printf '%s\n' "$pre_restore" > "${project_path}/.dpx/current_snapshot" 2>/dev/null; then
+        rm -f "${project_path}/.dpx/current_snapshot" 2>/dev/null
         print_error "Failed to register pre-restore snapshot marker."
         return 1
     fi
@@ -544,6 +557,11 @@ cmd_restore() {
             return 1
         fi
         print_step "4" "$(t restore.import)"
+        local unresolved_dump="$dump_file"
+        if ! dump_file="$(dpx_absolute_path "$dump_file")"; then
+            print_error "Cannot resolve database dump path: ${unresolved_dump}"
+            return 1
+        fi
         db_import "$dump_file" "$project_path" || {
             print_error "$(t restore.import) failed."
             return 1

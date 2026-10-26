@@ -142,6 +142,23 @@ validate_project_name() {
     return 0
 }
 
+# Convert a file path to an absolute path without requiring realpath(1)
+# (GNU) or readlink -f (missing on older macOS). The parent directory must
+# exist, which is guaranteed for callers that already validated the file.
+dpx_absolute_path() {
+    local path="$1"
+    local dir base abs_dir
+
+    [[ -n "$path" ]] || return 1
+    dir="$(dirname "$path")"
+    base="$(basename "$path")"
+    abs_dir="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
+    # Avoid a double slash at the filesystem root; some tools treat
+    # leading // specially.
+    [[ "$abs_dir" == "/" ]] && abs_dir=""
+    printf '%s/%s\n' "$abs_dir" "$base"
+}
+
 validate_safe_identifier() {
     local value="$1"
     local description="${2:-identifier}"
@@ -377,7 +394,7 @@ dpx_exec_and_log() {
     # Execute command in context project (subshell for isolations cd)
     # Save code return first process in pipeline
     (cd "$project_path" && "$@") 2>&1 | tee -a "$log_file"
-    return ${PIPESTATUS[0]}
+    return "${PIPESTATUS[0]}"
 }
 
 # =================================================================

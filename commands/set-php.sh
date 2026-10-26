@@ -78,21 +78,51 @@ _open_in_browser() {
     fi
 }
 
-# Restore the previous PHP version from inside the project directory.
-# Used by the automatic rollback paths; reports a failed rollback instead
-# of hiding it behind `|| true`.
+# Restore the previous PHP version. When no project path is supplied the
+# caller is already inside the project (the legacy in-subshell path).
+# Reports a failed rollback instead of hiding it behind `|| true`.
 _set_php_rollback() {
     local php_version="$1"
+    local project_path="${2:-}"
+    local rollback_rc=0
 
-    if ! ddev config --php-version="$php_version" >/dev/null 2>&1; then
-        print_warning "Rollback: failed to restore PHP ${php_version} in DDEV config." >&2
-        return 1
+    if [[ -n "$project_path" ]]; then
+        (
+            cd "$project_path" || exit 1
+            ddev config --php-version="$php_version" >/dev/null 2>&1 || exit 1
+            ddev restart >/dev/null 2>&1 || exit 1
+        ) || rollback_rc=1
+    else
+        ddev config --php-version="$php_version" >/dev/null 2>&1 || rollback_rc=1
+        if (( rollback_rc == 0 )); then
+            ddev restart >/dev/null 2>&1 || rollback_rc=1
+        fi
     fi
-    if ! ddev restart >/dev/null 2>&1; then
-        print_warning "Rollback: DDEV restart failed after restoring PHP ${php_version}." >&2
+
+    if (( rollback_rc != 0 )); then
+        print_warning "Rollback: failed to restore PHP ${php_version} in DDEV." >&2
         return 1
     fi
     return 0
+}
+
+# Signal state must live at file scope: an INT/TERM trap can fire while
+# the command is waiting on the switching subshell.
+_DPX_SET_PHP_PROJECT_PATH=""
+_DPX_SET_PHP_ORIGINAL=""
+_DPX_SET_PHP_ROLLBACK_ARMED=0
+
+_set_php_interrupted() {
+    local sig="$1"
+
+    trap - INT TERM
+    if [[ "${_DPX_SET_PHP_ROLLBACK_ARMED:-0}" == "1" ]]; then
+        _DPX_SET_PHP_ROLLBACK_ARMED=0
+        print_warning "Interrupted (${sig}); restoring PHP ${_DPX_SET_PHP_ORIGINAL}..." >&2
+        _set_php_rollback "$_DPX_SET_PHP_ORIGINAL" "$_DPX_SET_PHP_PROJECT_PATH" \
+            || print_error "Automatic PHP rollback failed; restore PHP ${_DPX_SET_PHP_ORIGINAL} manually." >&2
+    fi
+    exit 130
 }
 
 # =================================================================
@@ -118,8 +148,21 @@ cmd_set_php() {
     fi
     [[ -z "$project_name" ]] && return 1
 
+    # Validate the name and existence BEFORE deriving any path. This
+    # prevents `../`-style names from reaching projects_get_path() or any
+    # later backup/config operation.
+    validate_project_name "$project_name" || return 1
+    if ! projects_exists "$project_name"; then
+        print_error "Project '${project_name}' not found (missing .ddev/config.yaml)."
+        return 1
+    fi
+
     local project_path
     project_path=$(projects_get_path "$project_name")
+    if [[ -z "$project_path" || ! -d "$project_path" ]]; then
+        print_error "Project directory not found: ${project_path:-<empty>}"
+        return 1
+    fi
     local config_file="${project_path}/.ddev/config.yaml"
 
     # --- 2. DYNAMIC LOGIC VERSION ---
@@ -207,6 +250,12 @@ cmd_set_php() {
     marker_file="$(mktemp "${TMPDIR:-/tmp}/dpx_setphp_snap.XXXXXX" 2>/dev/null)" || marker_file=""
 
     if confirm "Switch ${project_name} on PHP ${new_php}?"; then
+        _DPX_SET_PHP_PROJECT_PATH="$project_path"
+        _DPX_SET_PHP_ORIGINAL="$current_php"
+        _DPX_SET_PHP_ROLLBACK_ARMED=1
+        trap '_set_php_interrupted INT' INT
+        trap '_set_php_interrupted TERM' TERM
+
         (
             umask 077
             cd "$project_path" 2>/dev/null || exit 1
@@ -234,7 +283,8 @@ cmd_set_php() {
 
             print_info "Create backup: ${snap_name}"
 
-            if ddev export-db --gzip=false --file="$snap_path" >/dev/null 2>&1; then
+            if ddev export-db --gzip=false --file="$snap_path" >/dev/null 2>&1 \
+                && [[ -s "$snap_path" ]]; then
                 if ! chmod 600 "$snap_path" 2>/dev/null; then
                     print_error "Failed to secure permissions on backup: $snap_path"
                     rm -f "$snap_path" "$marker_file"
@@ -242,8 +292,12 @@ cmd_set_php() {
                 fi
                 print_success "Backup create: $(du -h "$snap_path" | awk '{print $1}')"
             else
-                print_warning "Failed to create backup (possible base empty)"
+                print_warning "Failed to create a database backup (possible empty base)."
                 rm -f "$snap_path" "$marker_file"
+                if ! confirm "Continue WITHOUT a safety backup?"; then
+                    print_error "Aborted: no safety backup was created."
+                    exit 1
+                fi
             fi
 
             core_rotate_backups "$project_name" "$backup_dir" "$type_tag"
@@ -278,11 +332,16 @@ cmd_set_php() {
 
             print_success "PHP $new_php applied"
 
-        ) || {
+        )
+        local switch_rc=$?
+        _DPX_SET_PHP_ROLLBACK_ARMED=0
+        trap - INT TERM
+
+        if (( switch_rc != 0 )); then
             rm -f "$marker_file"
             print_error "Error: $project_path"
             return 1
-        }
+        fi
     else
         rm -f "$marker_file"
         return 0

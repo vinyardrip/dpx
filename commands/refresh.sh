@@ -182,10 +182,10 @@ cmd_refresh() {
 
     # --- Confirmation ---
     print_header "Verify parameters"
-    echo "$(t refresh.verify.project "${project_name}" "$(get_cms_name "$cms_type")")"
-    echo "$(t refresh.verify.source "${source_db_file}")"
+    t refresh.verify.project "${project_name}" "$(get_cms_name "$cms_type")"
+    t refresh.verify.source "${source_db_file}"
     if [[ -n "$backup_file" ]]; then
-        echo "$(t refresh.verify.backup "${backup_file}")"
+        t refresh.verify.backup "${backup_file}"
     fi
     print_separator
     print_warning "$(t refresh.overwrite.warn "$project_name")"

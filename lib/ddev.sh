@@ -131,6 +131,13 @@ ddev_import_db() {
     local project_path="$2"
     local db_file="$3"
 
+    # [R-11] The fallback below changes into the project directory. Resolve
+    # the dump path before that so a relative caller path stays valid.
+    if ! db_file="$(dpx_absolute_path "$db_file")"; then
+        print_error "ddev_import_db: cannot resolve database dump path."
+        return 1
+    fi
+
     validate_file "$db_file" "Database dump" || return 1
 
     # Specification DPX: --name + --src
@@ -327,11 +334,15 @@ ddev_check_http_health() {
 
     # Prefer the real primary URL DDEV knows about (custom domains).
     if [[ -n "$project_path" ]] && command -v ddev >/dev/null 2>&1; then
-        local detected
-        detected=$(cd "$project_path" 2>/dev/null && ddev describe "$project_name" -j 2>/dev/null \
-            | (command -v jq >/dev/null 2>&1 && jq -r '.raw.primary_url // empty' || cat) \
-            2>/dev/null)
-        # Extract https URL from the JSON blob (jq absent fallback).
+        local detected=""
+        if command -v jq >/dev/null 2>&1; then
+            detected=$(cd "$project_path" 2>/dev/null && ddev describe "$project_name" -j 2>/dev/null \
+                | jq -r '.raw.primary_url // empty' 2>/dev/null)
+        else
+            # jq absent: keep the raw JSON (the http* check below then
+            # simply does not match, preserving the computed fallback).
+            detected=$(cd "$project_path" 2>/dev/null && ddev describe "$project_name" -j 2>/dev/null)
+        fi
         if [[ "$detected" == http* ]]; then
             url="$detected"
         fi

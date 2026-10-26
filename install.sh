@@ -235,7 +235,7 @@ get_script_dir() {
         [[ "$source" != /* ]] && source="$dir/$source"
     done
 
-    echo "$(cd -P "$(dirname "$source")" && pwd)"
+    (cd -P "$(dirname "$source")" && pwd)
 }
 
 # =================================================================

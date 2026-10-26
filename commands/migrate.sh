@@ -155,34 +155,68 @@ _migrate_detect_old_url() {
 _DPX_MIGRATE_ENV_DIR=""
 _DPX_MIGRATE_ENV_PHP=""
 _DPX_MIGRATE_ENV_SWAPPED=0
+_DPX_MIGRATE_ENV_HAD_ORIGINAL=0
+_DPX_MIGRATE_ENV_PHP_SWAPPED=0
 
 _migrate_env_rollback() {
     [[ "${_DPX_MIGRATE_ENV_SWAPPED:-0}" == "1" ]] || return 0
-    _DPX_MIGRATE_ENV_SWAPPED=0
 
     local env_dir="${_DPX_MIGRATE_ENV_DIR:-}"
     local env_php="${_DPX_MIGRATE_ENV_PHP:-}"
+    local had_original="${_DPX_MIGRATE_ENV_HAD_ORIGINAL:-0}"
+    local php_swapped="${_DPX_MIGRATE_ENV_PHP_SWAPPED:-0}"
     local restore_rc=0
 
-    if [[ -z "$env_dir" || ! -f "${env_dir}/env.bak" ]]; then
-        return 0
+    if [[ -z "$env_dir" ]]; then
+        print_error "Failed to restore Devilbox .env: state directory is unavailable." >&2
+        return 1
     fi
 
     (
         cd "$env_dir" || exit 1
-        if [[ -f .env && -n "$env_php" ]]; then
-            mv .env ".env-${env_php}" 2>/dev/null || exit 1
+
+        if [[ "$had_original" == "1" ]]; then
+            # env.bak exists only after the original .env was moved.
+            # If it is absent, the original .env is still in place (the
+            # swap aborted before the first mv), so do not touch it.
+            if [[ -f env.bak ]]; then
+                if [[ -f .env && -n "$env_php" ]]; then
+                    mv .env ".env-${env_php}" || exit 1
+                fi
+                mv env.bak .env || exit 1
+            fi
+        else
+            # There was no original .env. Move the activated variant
+            # back and leave the directory in its originally absent state.
+            if [[ "$php_swapped" == "1" && -f .env ]]; then
+                if [[ -z "$env_php" ]]; then
+                    exit 1
+                fi
+                mv .env ".env-${env_php}" || exit 1
+            fi
+            rm -f .env || exit 1
         fi
-        mv env.bak .env 2>/dev/null || exit 1
     ) || restore_rc=1
 
-    if [[ $restore_rc -eq 0 ]]; then
+    if (( restore_rc == 0 )); then
+        _DPX_MIGRATE_ENV_SWAPPED=0
         print_warning "Devilbox .env restored." >&2
     else
-        print_error "Failed to restore Devilbox .env from ${env_dir}/env.bak" >&2
+        print_error "Failed to restore Devilbox .env in ${env_dir}" >&2
     fi
 
-    return $restore_rc
+    return "$restore_rc"
+}
+
+_migrate_env_interrupted() {
+    local sig="$1"
+
+    # The EXIT trap may run after this handler calls exit; disarm the
+    # signal handlers here so the recovery is attempted exactly once.
+    trap - INT TERM
+    _migrate_env_rollback || true
+    print_warning "Interrupted (${sig}); exiting with status 130." >&2
+    exit 130
 }
 
 # =================================================================
@@ -298,7 +332,10 @@ cmd_migrate() {
         print_warning "Project directory '$ddev_path' already exists."
         if has_arg "yes" || confirm "Remove its and ALL data DDEV for result project?"; then
             ddev delete "$project_name" -y 2>/dev/null || true
-            rm -rf "$ddev_path"
+            if ! rm -rf "$ddev_path"; then
+                print_error "Failed to remove existing project directory: $ddev_path"
+                return 1
+            fi
             print_success "Project and its data deleted."
         else
             print_error "Migration cancel."
@@ -395,11 +432,21 @@ cmd_migrate() {
             return 1
         fi
 
-        # Arm rollback for the whole export/import window.
+        # Arm rollback for the whole export/import window. Capture the
+        # original state before the subshell mutates it: in particular,
+        # an absent .env must be restored as absent, not left pointing
+        # at the temporary Devilbox PHP variant.
         _DPX_MIGRATE_ENV_DIR="$devilbox_path"
         _DPX_MIGRATE_ENV_PHP="$devilbox_php_version"
         _DPX_MIGRATE_ENV_SWAPPED=1
-        trap '_migrate_env_rollback' INT TERM EXIT
+        _DPX_MIGRATE_ENV_HAD_ORIGINAL=0
+        [[ -f "${devilbox_path}/.env" ]] && _DPX_MIGRATE_ENV_HAD_ORIGINAL=1
+        _DPX_MIGRATE_ENV_PHP_SWAPPED=0
+        [[ -f "${devilbox_path}/.env-${devilbox_php_version}" ]] && _DPX_MIGRATE_ENV_PHP_SWAPPED=1
+
+        trap '_migrate_env_rollback' EXIT
+        trap '_migrate_env_interrupted INT' INT
+        trap '_migrate_env_interrupted TERM' TERM
 
         # Work with Devilbox in subshell
         (
@@ -494,8 +541,14 @@ cmd_migrate() {
     fi
 
     print_step "$step_num" "Copy project files"
-    mkdir -p "$ddev_path"
-    cp -R "$devilbox_project_path/." "$ddev_path"
+    if ! mkdir -p "$ddev_path"; then
+        print_error "Failed to create project directory: $ddev_path"
+        return 1
+    fi
+    if ! cp -R "$devilbox_project_path/." "$ddev_path"; then
+        print_error "Failed to copy project files into: $ddev_path"
+        return 1
+    fi
     print_success "Files copieds."
 
     # Step 4: Configuration DDEV (in subshell)
@@ -521,7 +574,10 @@ cmd_migrate() {
     # Step 5: Setup configuration files CMS
     if [[ "$has_db" == true ]]; then
         ((step_num++))
-        configure_cms_for_ddev "$ddev_path" "$cms_type" "$local_url"
+        if ! configure_cms_for_ddev "$ddev_path" "$cms_type" "$local_url"; then
+            print_error "Failed to configure CMS files in: $ddev_path"
+            return 1
+        fi
     fi
 
     # Step 6: Released ports and start DDEV
@@ -544,6 +600,13 @@ cmd_migrate() {
 
     # Step 7: Import database
     if [[ "$has_db" == true ]]; then
+        # [R-11] Resolve the dump before any subshell enters the project
+        # directory; a relative db_local_path must not change meaning.
+        local unresolved_backup="$backup_file"
+        if ! backup_file="$(dpx_absolute_path "$backup_file")"; then
+            print_error "Cannot resolve database dump path: ${unresolved_backup}"
+            return 1
+        fi
         print_info "Importing the database..."
 
         if [[ "$cms_type" == "wordpress" ]]; then
@@ -575,7 +638,10 @@ cmd_migrate() {
     if [[ "$has_db" == true ]] && ! has_arg "keep_backup"; then
         print_header "Final step"
         if has_arg "yes" || confirm "Remove file backup ($backup_file)?" "n"; then
-            rm -f "$backup_file"
+            if ! rm -f "$backup_file"; then
+                print_error "Failed to remove backup file: $backup_file"
+                return 1
+            fi
             print_success "File delete."
         else
             print_info "File saved: $backup_file"
@@ -585,8 +651,9 @@ cmd_migrate() {
     # Restore Devilbox configuration and disarm the rollback trap.
     local migrate_restore_rc=0
     if [[ "$has_db" == true ]]; then
+        trap - INT TERM
         _migrate_env_rollback || migrate_restore_rc=1
-        trap - INT TERM EXIT
+        trap - EXIT
     fi
 
     if [[ $migrate_restore_rc -ne 0 ]]; then

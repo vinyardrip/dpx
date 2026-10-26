@@ -143,6 +143,8 @@ devilbox_start_services() {
     devilbox_path=$(get_devilbox_path)
     local php_version="$1"
     local services="${2:-httpd php mysql}"
+    local -a service_args=()
+    read -r -a service_args <<< "$services"
 
     if [[ ! -d "$devilbox_path" ]]; then
         print_error "Devilbox not found: $devilbox_path"
@@ -167,7 +169,7 @@ devilbox_start_services() {
         fi
 
         # Start services
-        if dpx_docker_compose up -d $services 2>&1; then
+        if dpx_docker_compose up -d "${service_args[@]}" 2>&1; then
             print_success "Services Devilbox runs: $services"
             exit 0
         else

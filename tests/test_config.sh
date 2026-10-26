@@ -100,12 +100,46 @@ else
     test_fail "file: $(ls -l "$(config_user_file)" >/dev/null 2>&1; cat "$(config_user_file)" | tr '\n' '|')"
 fi
 
+test_start "upsert separates a new key from a file without trailing newline"
+: > "$(config_user_file)"
+printf 'project_tld = lo' > "$(config_user_file)"
+if config_upsert_kv "default_tunnel_provider" "cloudflare" \
+   && _parse_config_file "$(config_user_file)" \
+   && [[ "$(get_config project_tld)" == "lo" ]] \
+   && [[ "$(get_config default_tunnel_provider)" == "cloudflare" ]]; then
+    test_pass
+else
+    test_fail "append merged with the previous line"
+fi
+
+test_start "upsert leaves a trailing newline after updating the last line"
+: > "$(config_user_file)"
+printf 'project_tld = lo' > "$(config_user_file)"
+if config_upsert_kv "project_tld" "lo3" \
+   && [[ -z "$(tail -c 1 "$(config_user_file)")" ]] \
+   && grep -qxF "project_tld = lo3" "$(config_user_file)"; then
+    test_pass
+else
+    test_fail "updated file does not end with a newline"
+fi
+
 test_start "upsert updates existing key in place"
 config_upsert_kv "project_tld" "lo2"
 if grep -qxF "project_tld = lo2" "$(config_user_file)" && ! grep -qxF "project_tld = lo" "$(config_user_file)"; then
     test_pass
 else
     test_fail "update failed"
+fi
+
+test_start "upsert replaces an indented existing key without duplicating it"
+: > "$(config_user_file)"
+printf '   project_tld = lo\n' > "$(config_user_file)"
+if config_upsert_kv "project_tld" "lo5" \
+   && grep -qxF "project_tld = lo5" "$(config_user_file)" \
+   && [[ "$(grep -cE '^[[:space:]]*project_tld[[:space:]]*=' "$(config_user_file)")" == "1" ]]; then
+    test_pass
+else
+    test_fail "indented key was duplicated or mangled"
 fi
 
 test_start "no duplicate keys after repeated upserts"
@@ -116,13 +150,61 @@ check_value "1" "$count"
 
 test_start "upsert survives sed metacharacters in value (|, &, \\)"
 config_upsert_kv "db_password" 'p@ss|w&rd\x'
-val="$(grep -E '^db_password[[:space:]]*=' "$(config_user_file)" | sed -E 's/^[^=]+=[[:space:]]*//')"
+_parse_config_file "$(config_user_file)"
+val="$(get_config db_password)"
 if [[ "$val" == 'p@ss|w&rd\x' ]] \
    && config_upsert_kv "db_password" 'plain' \
-   && [[ "$(grep -E '^db_password[[:space:]]*=' "$(config_user_file)" | sed -E 's/^[^=]+=[[:space:]]*//')" == 'plain' ]]; then
+   && _parse_config_file "$(config_user_file)" \
+   && [[ "$(get_config db_password)" == 'plain' ]]; then
     test_pass
 else
     test_fail "metacharacter value mangled: '$val'"
+fi
+
+test_start "upsert round-trips whitespace, hash, quotes and backslashes"
+roundtrip_value='  leading # "double" '\''single'\'' \ slash  '
+if config_upsert_kv "db_password" "$roundtrip_value" \
+   && _parse_config_file "$(config_user_file)" \
+   && [[ "$(get_config db_password)" == "$roundtrip_value" ]]; then
+    test_pass
+else
+    test_fail "round-trip mismatch: $(grep -F 'db_password' "$(config_user_file)")"
+fi
+
+test_start "upsert rejects raw newline injection without adding keys"
+if config_upsert_kv "db_password" $'safe\nadmin_pass = injected' 2>/dev/null; then
+    test_fail "newline value accepted"
+elif grep -qE '^admin_pass[[:space:]]*=' "$(config_user_file)"; then
+    test_fail "newline value injected an admin_pass key"
+else
+    test_pass
+fi
+
+test_start "upsert rejects invalid config keys"
+if config_upsert_kv $'bad\nkey' "value" 2>/dev/null; then
+    test_fail "invalid key accepted"
+else
+    test_pass
+fi
+
+test_start "in-memory set_config rejects newline values"
+if set_config "db_password" $'safe\ninjected' 2>/dev/null; then
+    test_fail "newline accepted by set_config"
+else
+    test_pass
+fi
+
+test_start "parser rejects malformed quoted values before later keys"
+cat > "$TEST_TEMP_DIR/malformed.conf" << 'CONF'
+parser_broken = "unterminated
+parser_injected = yes
+CONF
+if _parse_config_file "$TEST_TEMP_DIR/malformed.conf" 2>/dev/null; then
+    test_fail "malformed quoted value accepted"
+elif [[ -n "$(get_config parser_injected)" ]]; then
+    test_fail "later assignment was injected after malformed quote"
+else
+    test_pass
 fi
 
 test_start "upsert returns 0 on success"
@@ -168,6 +250,11 @@ test_start "parser preserves hash inside quoted values"
 printf 'parser_hash = "value#123" # trailing comment\n' > "$TEST_TEMP_DIR/parser.conf"
 _parse_config_file "$TEST_TEMP_DIR/parser.conf"
 check_value "value#123" "$(get_config parser_hash)"
+
+test_start "parser strips unquoted comments at the first marker"
+printf 'parser_multi_comment = value # one # two\n' > "$TEST_TEMP_DIR/parser.conf"
+_parse_config_file "$TEST_TEMP_DIR/parser.conf"
+check_value "value" "$(get_config parser_multi_comment)"
 
 test_start "parser trims unquoted values and inline comments"
 printf 'parser_plain = value=123   # trailing comment\n' > "$TEST_TEMP_DIR/parser.conf"

@@ -146,10 +146,130 @@ _sync_global_path_config() {
     DEFAULT_CONFIG[full_backup_path]="$backups"
 }
 
-# Parsing configuration file
+# Config file value codec.
+#
+# Writers emit `key = value` for simple values so existing configs stay
+# human-readable. Values containing whitespace, '#', quotes, or
+# backslashes are emitted as a double-quoted string with '\\' and '\"'
+# escapes. Newline/CR bytes are rejected outright: they would turn one
+# assignment into additional config lines (key injection).
+_config_validate_key() {
+    local key="$1"
+    if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]; then
+        print_error "Invalid config key: ${key}" >&2
+        return 1
+    fi
+    return 0
+}
+
+_config_ensure_trailing_newline() {
+    local file="$1"
+    local last_byte=""
+
+    [[ -s "$file" ]] || return 0
+    if ! last_byte="$(tail -c 1 "$file" 2>/dev/null)"; then
+        return 1
+    fi
+    # Command substitution strips a trailing newline, so an empty result
+    # means the file already ends with the separator we need.
+    [[ -z "$last_byte" ]] && return 0
+    printf '\n' >> "$file"
+}
+
+_config_serialize_value() {
+    local value="$1"
+
+    if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+        print_error "Config values must not contain newline or carriage-return characters." >&2
+        return 1
+    fi
+
+    if [[ -z "$value" ]]; then
+        printf '""'
+        return 0
+    fi
+
+    local force_quote=0
+    [[ "$value" == *[[:space:]]* ]] && force_quote=1
+    [[ "$value" == *'#'* ]] && force_quote=1
+    [[ "$value" == *'"'* ]] && force_quote=1
+    [[ "$value" == *"'"* ]] && force_quote=1
+    [[ "$value" == *\\* ]] && force_quote=1
+
+    if (( force_quote == 0 )); then
+        printf '%s' "$value"
+        return 0
+    fi
+
+    local escaped="${value//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    printf '"%s"' "$escaped"
+}
+
+# Decode a double-quoted value. $1 includes the opening quote. Unknown
+# backslash escapes are preserved literally instead of being evaluated.
+_config_decode_double_quoted() {
+    local raw="$1"
+    local decoded="" ch remainder
+    local i=1 len=${#raw}
+
+    while (( i < len )); do
+        ch="${raw:i:1}"
+        if [[ "$ch" == "\\" ]]; then
+            i=$((i + 1))
+            (( i < len )) || return 1
+            ch="${raw:i:1}"
+            case "$ch" in
+                "\\"|'"') decoded+="$ch" ;;
+                *) decoded+="\\$ch" ;;
+            esac
+        elif [[ "$ch" == '"' ]]; then
+            remainder="${raw:i+1}"
+            [[ "$remainder" =~ ^[[:space:]]*(#.*)?$ ]] || return 1
+            printf '%s' "$decoded"
+            return 0
+        else
+            decoded+="$ch"
+        fi
+        i=$((i + 1))
+    done
+    return 1
+}
+
+_config_decode_single_quoted() {
+    local raw="$1"
+    local rest remainder value
+
+    [[ "$raw" == \'* ]] || return 1
+    rest="${raw:1}"
+    [[ "$rest" == *"'"* ]] || return 1
+
+    value="${rest%%\'*}"
+    remainder="${rest#*\'}"
+    [[ "$remainder" =~ ^[[:space:]]*(#.*)?$ ]] || return 1
+    printf '%s' "$value"
+}
+
+_config_parse_unquoted() {
+    local value="$1"
+
+    # Strip at the FIRST whitespace+# marker. `%%` removes the longest
+    # suffix, leaving the shortest prefix, so a value like
+    # `abc # comment # more` becomes `abc` rather than `abc # comment`.
+    if [[ "$value" == *[[:space:]]#* ]]; then
+        value="${value%%[[:space:]]#*}"
+    fi
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+# Parsing configuration file. A malformed quoted value aborts parsing:
+# treating the remainder of a broken line as another assignment is what
+# allowed a multi-line value to inject keys in the old parser.
 _parse_config_file() {
     local config_file="$1"
-    local line key value
+    local line key value parsed
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         # Ignore blank lines and comments after trimming leading whitespace.
@@ -161,27 +281,23 @@ _parse_config_file() {
         key="${BASH_REMATCH[1]}"
         value="${BASH_REMATCH[2]}"
 
-        # Quoted values may contain '#'; take the content through the
-        # matching quote and discard only what follows it.
-        if [[ "$value" =~ ^\"([^\"]*)\"[[:space:]]*(#.*)?$ ]]; then
-            value="${BASH_REMATCH[1]}"
-        elif [[ "$value" =~ ^\'([^\']*)\'[[:space:]]*(#.*)?$ ]]; then
-            value="${BASH_REMATCH[1]}"
-        else
-            # For unquoted values, an inline comment starts at whitespace+#.
-            if [[ "$value" =~ ^(.*[^[:space:]])[[:space:]]+#.*$ ]]; then
-                value="${BASH_REMATCH[1]}"
+        if [[ "$value" == \"* ]]; then
+            if ! parsed="$(_config_decode_double_quoted "$value")"; then
+                print_error "Invalid double-quoted value for '${key}' in ${config_file}" >&2
+                return 1
             fi
-            value="${value#"${value%%[![:space:]]*}"}"
-            value="${value%"${value##*[![:space:]]}"}"
-            value="${value%\"}"
-            value="${value#\"}"
-            value="${value%\'}"
-            value="${value#\'}"
+        elif [[ "$value" == \'* ]]; then
+            if ! parsed="$(_config_decode_single_quoted "$value")"; then
+                print_error "Invalid single-quoted value for '${key}' in ${config_file}" >&2
+                return 1
+            fi
+        else
+            parsed="$(_config_parse_unquoted "$value")"
         fi
 
-        DEFAULT_CONFIG["$key"]="$value"
+        DEFAULT_CONFIG["$key"]="$parsed"
     done < "$config_file"
+    return 0
 }
 
 # =================================================================
@@ -197,7 +313,11 @@ get_config() {
 set_config() {
     local key="$1"
     local value="$2"
+
+    _config_validate_key "$key" || return 1
+    _config_serialize_value "$value" >/dev/null || return 1
     DEFAULT_CONFIG["$key"]="$value"
+    return 0
 }
 
 has_config() {
@@ -333,22 +453,28 @@ _sed_escape_replacement() {
 # Upsert `key = value` into the user config, preserving all other
 # lines (comments, custom keys). Creates parent directories.
 config_upsert_kv() {
-    local key="$1" value="$2"
+    local key="$1" value="$2" serialized
     local file
+
+    _config_validate_key "$key" || return 1
+    serialized="$(_config_serialize_value "$value")" || return 1
+
     file="$(config_user_file)"
-    ensure_directory "$(dirname "$file")"
+    ensure_directory "$(dirname "$file")" || return 1
 
     # Create new files owner-only from the very first byte.
     if [[ ! -e "$file" ]]; then
         (umask 077 && : > "$file") || return 1
     fi
 
-    if [[ -f "$file" ]] && grep -qE "^${key}[[:space:]]*=" "$file"; then
-        safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = $(_sed_escape_replacement "$value")|" "$file" \
+    if [[ -f "$file" ]] && grep -qE "^[[:space:]]*${key}[[:space:]]*=" "$file"; then
+        safe_sed_inplace "s|^[[:space:]]*${key}[[:space:]]*=.*|${key} = $(_sed_escape_replacement "$serialized")|" "$file" \
             || return 1
     else
-        printf '%s = %s\n' "$key" "$value" >> "$file" || return 1
+        _config_ensure_trailing_newline "$file" || return 1
+        printf '%s = %s\n' "$key" "$serialized" >> "$file" || return 1
     fi
+    _config_ensure_trailing_newline "$file" || return 1
     if ! _config_secure_file "$file"; then
         print_error "Failed to secure permissions on $file (expected 0600)" >&2
         return 1
@@ -357,21 +483,27 @@ config_upsert_kv() {
 }
 
 config_upsert_global_kv() {
-    local key="$1" value="$2"
+    local key="$1" value="$2" serialized
     local file
+
+    _config_validate_key "$key" || return 1
+    serialized="$(_config_serialize_value "$value")" || return 1
+
     file="$(config_global_file)"
-    ensure_directory "$(dirname "$file")"
+    ensure_directory "$(dirname "$file")" || return 1
 
     if [[ ! -e "$file" ]]; then
         (umask 077 && : > "$file") || return 1
     fi
 
-    if [[ -f "$file" ]] && grep -qE "^${key}[[:space:]]*=" "$file"; then
-        safe_sed_inplace "s|^${key}[[:space:]]*=.*|${key} = $(_sed_escape_replacement "$value")|" "$file" \
+    if [[ -f "$file" ]] && grep -qE "^[[:space:]]*${key}[[:space:]]*=" "$file"; then
+        safe_sed_inplace "s|^[[:space:]]*${key}[[:space:]]*=.*|${key} = $(_sed_escape_replacement "$serialized")|" "$file" \
             || return 1
     else
-        printf '%s = %s\n' "$key" "$value" >> "$file" || return 1
+        _config_ensure_trailing_newline "$file" || return 1
+        printf '%s = %s\n' "$key" "$serialized" >> "$file" || return 1
     fi
+    _config_ensure_trailing_newline "$file" || return 1
     if ! _config_secure_file "$file"; then
         print_error "Failed to secure permissions on $file (expected 0600)" >&2
         return 1

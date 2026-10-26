@@ -482,7 +482,7 @@ mkdir -p "$WP_PROJ"
 
 PRISTINE_LIVE='<?php require_once ABSPATH . "wp-settings.php";'
 PRISTINE_BAK='<?php require_once ABSPATH . "wp-settings.php";'
-PATCHED_LIVE='<?php /** DPX_SMART_TUNNEL */ if (isset($_SERVER["HTTP_HOST"])) {} require_once ABSPATH . "wp-settings.php";'
+PATCHED_LIVE="<?php /** DPX_SMART_TUNNEL */ if (isset(\$_SERVER['HTTP_HOST'])) {} require_once ABSPATH . 'wp-settings.php';"
 
 # Triage matrix helper: writes live+stale pair, runs snapshot, reports.
 wp_triage_probe() { # $1 = live content, $2 = stale bak content; echoes events
@@ -530,25 +530,53 @@ echo "=== Stage 2: smart replace marker + auto-restore (C-3) ==="
 SR_PROJ="$STAGE_TMP/srproj"
 mkdir -p "$SR_PROJ/.dpx"
 
-smart_replace_probe() { # $1 = pass1 rc; echoes events + final marker state
+smart_replace_probe() { # args: pass1 pass2 pass3 count_value count_rc restore_rc
     HOME="$HOME_PROBE" bash -c '
         export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
         source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
         source "$DPX_ROOT/lib/database.sh" >/dev/null 2>&1
         proj="'"$SR_PROJ"'"
         pass1_rc="'"$1"'"
-        # ddev mock: snapshot subcommand returns the scripted rc;
-        # exec search-replace passes inherit it; snapshot restore returns 0.
+        pass2_rc="'"${2:-0}"'"
+        pass3_rc="'"${3:-0}"'"
+        count_value="'"${4:-0}"'"
+        count_rc="'"${5:-0}"'"
+        restore_rc="'"${6:-0}"'"
+        exec_counter="$HOME/exec_calls"
+        printf "0\n" > "$exec_counter"
+
         ddev() {
             case "$1" in
-                snapshot) return "$pass1_rc" ;;
-                exec)    return "$pass1_rc" ;;
-                *)       return 0 ;;
+                snapshot)
+                    if [[ "${2:-}" == "restore" ]]; then
+                        return "$restore_rc"
+                    fi
+                    return 0
+                    ;;
+                exec)
+                    local exec_calls
+                    exec_calls="$(cat "$exec_counter" 2>/dev/null || printf "0")"
+                    exec_calls=$((exec_calls + 1))
+                    printf "%s\n" "$exec_calls" > "$exec_counter"
+                    case "$exec_calls" in
+                        1) return "$pass1_rc" ;;
+                        2) return "$pass2_rc" ;;
+                        3) return "$pass3_rc" ;;
+                    esac
+                    return 0
+                    ;;
+                *) return 0 ;;
             esac
         }
+        db_sql_count_old_url() {
+            printf "%s\n" "$count_value"
+            return "$count_rc"
+        }
+
         db_wp_smart_replace "https://old.lo" "https://new.example.com" "$proj" </dev/null
         sr_rc=$?
         echo "SR_RC=$sr_rc"
+        echo "EXEC_CALLS=$(cat "$exec_counter" 2>/dev/null || printf "0")"
         if [[ -f "$proj/.dpx/current_snapshot" ]]; then
             echo "MARKER=$(tr -d "[:space:]" < "$proj/.dpx/current_snapshot")"
         else
@@ -557,17 +585,59 @@ smart_replace_probe() { # $1 = pass1 rc; echoes events + final marker state
     ' _ "$1" </dev/null 2>/dev/null
 }
 
-test_start "smart replace pass-1 failure auto-restores snapshot, clears marker"
-out="$(smart_replace_probe 1)"
-if grep -qF "SR_RC=1" <<<"$out" && grep -qF "MARKER=none" <<<"$out"; then
+test_start "smart replace pass-1 failure restores snapshot, preserves marker"
+out="$(smart_replace_probe 1 0 0 0 0 0)"
+if grep -qF "SR_RC=1" <<<"$out" \
+   && grep -qF "EXEC_CALLS=1" <<<"$out" \
+   && grep -qF "MARKER=pre_replace_" <<<"$out"; then
     test_pass
 else
-    test_fail "expected rc=1 with marker cleared, got: $out"
+    test_fail "expected rc=1, one pass, preserved marker, got: $out"
+fi
+
+test_start "smart replace pass-2 failure aborts and preserves marker"
+out="$(smart_replace_probe 0 1 0 0 0 0)"
+if grep -qF "SR_RC=1" <<<"$out" \
+   && grep -qF "EXEC_CALLS=2" <<<"$out" \
+   && grep -qF "MARKER=pre_replace_" <<<"$out"; then
+    test_pass
+else
+    test_fail "expected rc=1 after pass 2, preserved marker, got: $out"
+fi
+
+test_start "smart replace pass-3 failure aborts and preserves marker"
+out="$(smart_replace_probe 0 0 1 0 0 0)"
+if grep -qF "SR_RC=1" <<<"$out" \
+   && grep -qF "EXEC_CALLS=3" <<<"$out" \
+   && grep -qF "MARKER=pre_replace_" <<<"$out"; then
+    test_pass
+else
+    test_fail "expected rc=1 after pass 3, preserved marker, got: $out"
+fi
+
+test_start "smart replace final residual URL count is fatal"
+out="$(smart_replace_probe 0 0 0 2 0 0)"
+if grep -qF "SR_RC=1" <<<"$out" \
+   && grep -qF "EXEC_CALLS=3" <<<"$out" \
+   && grep -qF "MARKER=pre_replace_" <<<"$out"; then
+    test_pass
+else
+    test_fail "expected rc=1 for residual rows, preserved marker, got: $out"
+fi
+
+test_start "smart replace residual-count failure is fatal"
+out="$(smart_replace_probe 0 0 0 0 1 0)"
+if grep -qF "SR_RC=1" <<<"$out" && grep -qF "MARKER=pre_replace_" <<<"$out"; then
+    test_pass
+else
+    test_fail "expected rc=1 when count fails, got: $out"
 fi
 
 test_start "smart replace success keeps recovery marker registered"
-out="$(smart_replace_probe 0)"
-if grep -qF "SR_RC=0" <<<"$out" && grep -qF "MARKER=pre_replace_" <<<"$out"; then
+out="$(smart_replace_probe 0 0 0 0 0 0)"
+if grep -qF "SR_RC=0" <<<"$out" \
+   && grep -qF "EXEC_CALLS=3" <<<"$out" \
+   && grep -qF "MARKER=pre_replace_" <<<"$out"; then
     test_pass
 else
     test_fail "expected rc=0 with marker present, got: $out"
@@ -632,6 +702,57 @@ if grep -qF "EXPORT_RC=1" <<<"$out" \
     test_pass
 else
     test_fail "failed rollback must preserve marker, got: $out"
+fi
+
+# The real count helper must not turn a failed mysql call into a
+# successful zero; the final smart-replace validation depends on it.
+cat > "$SR_PROJ/wp-config.php" <<'WPCONF'
+<?php
+$table_prefix = 'wp_';
+WPCONF
+
+count_probe() { # mode: fail | empty | zero
+    HOME="$HOME_PROBE" bash -c '
+        export DPX_ROOT="'"$DPX_ROOT"'" DPX_LANG=en NO_COLOR=1
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        source "$DPX_ROOT/lib/database.sh" >/dev/null 2>&1
+        proj="$1"; mode="$2"
+        ddev() {
+            case "$mode" in
+                fail)  return 1 ;;
+                empty) return 0 ;;
+                zero)  printf "0\n"; return 0 ;;
+            esac
+            return 1
+        }
+        count_value="$(db_sql_count_old_url "$proj" "https://old.lo" 2>/dev/null)"
+        echo "COUNT_RC=$?"
+        echo "COUNT=${count_value:-empty}"
+    ' _ "$SR_PROJ" "$1" </dev/null 2>/dev/null
+}
+
+test_start "db_sql_count_old_url fails closed when mysql fails"
+out="$(count_probe fail)"
+if grep -qF "COUNT_RC=1" <<<"$out"; then
+    test_pass
+else
+    test_fail "expected rc=1, got: $out"
+fi
+
+test_start "db_sql_count_old_url rejects empty mysql output"
+out="$(count_probe empty)"
+if grep -qF "COUNT_RC=1" <<<"$out"; then
+    test_pass
+else
+    test_fail "expected rc=1 for empty output, got: $out"
+fi
+
+test_start "db_sql_count_old_url returns a valid zero count"
+out="$(count_probe zero)"
+if grep -qF "COUNT_RC=0" <<<"$out" && grep -qF "COUNT=0" <<<"$out"; then
+    test_pass
+else
+    test_fail "expected rc=0 count=0, got: $out"
 fi
 
 rm -rf "$STAGE_TMP"

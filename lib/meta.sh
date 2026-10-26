@@ -148,7 +148,7 @@ dpx_meta_set() {
     meta_file=$(dpx_meta_file)
 
     _dpx_meta_write "$meta_file" \
-        '.projects[$name][$k] = $v' \
+        ".projects[\$name][\$k] = \$v" \
         --arg name "$project_name" --arg k "$key" --arg v "$value"
 }
 
@@ -168,7 +168,7 @@ dpx_meta_set_many() {
     local meta_file
     meta_file=$(dpx_meta_file)
 
-    local filter='.projects[$name] = ((.projects[$name] // {}) + {'
+    local filter=".projects[\$name] = ((.projects[\$name] // {}) + {"
     local -a jq_args=(--arg name "$project_name")
     local idx=0
 
@@ -200,7 +200,7 @@ dpx_meta_unset() {
     meta_file=$(dpx_meta_file)
 
     _dpx_meta_write "$meta_file" \
-        'del(.projects[$name][$k])' \
+        "del(.projects[\$name][\$k])" \
         --arg name "$project_name" --arg k "$key"
 }
 
@@ -214,7 +214,7 @@ dpx_meta_delete() {
     meta_file=$(dpx_meta_file)
 
     _dpx_meta_write "$meta_file" \
-        'del(.projects[$name])' \
+        "del(.projects[\$name])" \
         --arg name "$project_name"
 }
 

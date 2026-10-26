@@ -124,6 +124,8 @@ cmd_clean() {
     if has_arg snapshots || has_arg all; then
         if [[ -d "$ddev_snap_dir" ]]; then
             local snap_count snap_size
+            # Counting directory entries; names are not used or parsed.
+            # shellcheck disable=SC2012
             snap_count="$(ls -1A "$ddev_snap_dir" 2>/dev/null | wc -l | tr -d '[:space:]')"
             snap_size="$(du -sh "$ddev_snap_dir" 2>/dev/null | awk '{print $1}')"
             [[ -n "$snap_size" ]] || snap_size="unknown"

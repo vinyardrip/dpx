@@ -395,7 +395,6 @@ cms_flush_advanced_caches() {
         [[ -f "$handler" ]] || continue
         # source internals subshell — isolation: error in handler not kill dispatcher
         (
-            _CMS_HANDLER_PROJECT_PATH="$_CMS_HANDLER_PROJECT_PATH"
             # Runtime-discovered handler path; there is no fixed location.
             # shellcheck disable=SC1090
             source "$handler"

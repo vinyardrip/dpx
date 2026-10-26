@@ -114,7 +114,7 @@ cmd_config() {
 
     if (( ${#updates[@]} > 0 )); then
         if ! has_arg "yes"; then
-            echo "$(t cfg.apply.header)"
+            t cfg.apply.header
             local i shown
             for ((i = 0; i < ${#updates[@]}; i += 2)); do
                 shown="${updates[i + 1]}"

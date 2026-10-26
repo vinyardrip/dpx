@@ -24,7 +24,7 @@ export DPX_ROOT
 # shellcheck source=test_framework.sh
 source "$TESTS_DIR/test_framework.sh"
 
-print_test_header "Unit Tests: Phase 2 hardening" "1.9.1"
+print_test_header "Unit Tests: Phase 2 hardening" "1.9.2"
 setup_temp_dir >/dev/null
 
 run_cli() {
@@ -156,7 +156,7 @@ else
 fi
 
 test_start "migration uses the argv-safe wrapper with parity flags"
-if grep -qF 'ddev_wp_search_replace "$old_url" "$local_url" "$ddev_path"' \
+if grep -qF "ddev_wp_search_replace \"\$old_url\" \"\$local_url\" \"\$ddev_path\"" \
         "$DPX_ROOT/commands/migrate.sh" \
     && grep -qF -- '--precise --skip-plugins --skip-themes' "$DPX_ROOT/commands/migrate.sh" \
     && ! grep -qF 'ddev exec "wp search-replace' "$DPX_ROOT/commands/migrate.sh" \
@@ -194,8 +194,8 @@ else
 fi
 
 test_start "full backups enforce secure directory and archive modes"
-if grep -qF 'chmod 700 "$backup_dir"' "$DPX_ROOT/lib/backup.sh" \
-    && grep -qF 'chmod 600 "$archive_file"' "$DPX_ROOT/lib/backup.sh" \
+if grep -qF "chmod 700 \"\$backup_dir\"" "$DPX_ROOT/lib/backup.sh" \
+    && grep -qF "chmod 600 \"\$archive_file\"" "$DPX_ROOT/lib/backup.sh" \
     && grep -qF 'umask 077' "$DPX_ROOT/lib/backup.sh"; then
     test_pass
 else
@@ -257,7 +257,7 @@ fi
 test_start "new command passes configured credentials to installer"
 if grep -qF "db_user=\$(get_config 'db_user' 'db')" "$DPX_ROOT/commands/new.sh" \
     && grep -qF "db_password=\$(get_config 'db_password' 'db')" "$DPX_ROOT/commands/new.sh" \
-    && grep -qF '"$locale" "$db_user" "$db_password"' "$DPX_ROOT/commands/new.sh"; then
+    && grep -qF "\"\$locale\" \"\$db_user\" \"\$db_password\"" "$DPX_ROOT/commands/new.sh"; then
     test_pass
 else
     test_fail "new.sh does not pass DB credentials"
@@ -366,7 +366,7 @@ echo ""
 echo "${TEST_CYAN}=== Installer and shellcheck gate ===${TEST_RESET}"
 
 test_start "installer has one git pull update path"
-pull_count="$(grep -c 'git -C "$script_dir" pull origin main' "$DPX_ROOT/install.sh" || true)"
+pull_count="$(grep -c "git -C \"\$script_dir\" pull origin main" "$DPX_ROOT/install.sh" || true)"
 if [[ "$pull_count" -eq 1 ]]; then
     test_pass
 else
@@ -376,20 +376,178 @@ fi
 test_start "shellcheck gate covers the complete shell surface"
 ok=true
 for target in \
-    '"$TESTS_DIR"/lib/*.sh' \
-    '"$TESTS_DIR"/commands/*.sh' \
-    '"$TESTS_DIR"/commands/site/*.sh' \
-    '"$TESTS_DIR/dpx.sh"' \
-    '"$TESTS_DIR/install.sh"'; do
+    "\"\$TESTS_DIR\"/lib/*.sh" \
+    "\"\$TESTS_DIR\"/commands/*.sh" \
+    "\"\$TESTS_DIR\"/commands/site/*.sh" \
+    "\"\$TESTS_DIR/dpx.sh\"" \
+    "\"\$TESTS_DIR/install.sh\""; do
     if ! grep -qF "$target" "$DPX_ROOT/run_tests.sh"; then
         ok=false
     fi
 done
 if [[ "$ok" == true ]] \
-    && grep -qF 'for target in "${SHELLCHECK_TARGETS[@]}"' "$DPX_ROOT/run_tests.sh"; then
+    && grep -qF "for target in \"\${SHELLCHECK_TARGETS[@]}\"" "$DPX_ROOT/run_tests.sh"; then
     test_pass
 else
     test_fail "gate target list or per-file loop missing"
+fi
+
+# =================================================================
+# PHASE 4: GATE HONESTY, MIGRATE / SET-PHP / DB-RESTORE EDGE CASES
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== Phase 4 audit edges ===${TEST_RESET}"
+
+test_start "shellcheck gate parses JSON and self-tests SC2086"
+if grep -qF 'shellcheck -s bash -S style -f json' "$DPX_ROOT/run_tests.sh" \
+    && grep -qF '_shellcheck_gate_selftest' "$DPX_ROOT/run_tests.sh" \
+    && grep -qF 'SHELLCHECK_NONBLOCKING_CODES=(1091 2329)' "$DPX_ROOT/run_tests.sh" \
+    && grep -qF 'jq ' "$DPX_ROOT/run_tests.sh" \
+    && ! grep -qF 'grep -vcE' "$DPX_ROOT/run_tests.sh"; then
+    test_pass
+else
+    test_fail "gate still relies on non-JSON/note filtering"
+fi
+
+test_start "SC2086 remains actionable at info level"
+if command -v shellcheck >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    sc_probe="$TEST_TEMP_DIR/sc2086_probe.sh"
+    cat > "$sc_probe" <<'EOF'
+#!/usr/bin/env bash
+value="$1"
+printf "%s\n" $value
+EOF
+    sc_json="$(shellcheck -s bash -S style -f json "$sc_probe" 2>/dev/null || true)"
+    sc_count="$(jq '[.[] | select(.code == 2086)] | length' <<<"$sc_json" 2>/dev/null || echo 0)"
+    if [[ "$sc_count" -gt 0 ]]; then
+        test_pass
+    else
+        test_fail "seeded SC2086 was filtered out"
+    fi
+else
+    test_skip "shellcheck or jq not available"
+fi
+
+mkdir -p "$TEST_TEMP_DIR/home_migrate"
+
+migrate_env_probe() { # dir, absent|original, signal(0|1)
+    local dir="$1" mode="$2" signal="${3:-0}"
+    bash -c '
+        export DPX_ROOT="$1" DPX_LANG=en NO_COLOR=1 HOME="$2"
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        source "$DPX_ROOT/commands/migrate.sh" >/dev/null 2>&1
+        dir="$3"; mode="$4"; signal="$5"
+        mkdir -p "$dir" || exit 9
+        printf "variant\n" > "$dir/.env-7" || exit 9
+        cp "$dir/.env-7" "$dir/.env" || exit 9
+        _DPX_MIGRATE_ENV_DIR="$dir"
+        _DPX_MIGRATE_ENV_PHP="7"
+        _DPX_MIGRATE_ENV_SWAPPED=1
+        _DPX_MIGRATE_ENV_PHP_SWAPPED=1
+        if [[ "$mode" == "original" ]]; then
+            printf "original\n" > "$dir/env.bak" || exit 9
+            _DPX_MIGRATE_ENV_HAD_ORIGINAL=1
+        else
+            _DPX_MIGRATE_ENV_HAD_ORIGINAL=0
+        fi
+        if [[ "$signal" == "1" ]]; then
+            trap "_migrate_env_interrupted INT" INT
+            kill -INT $$
+            echo "NOT_INTERRUPTED"
+            exit 99
+        fi
+        _migrate_env_rollback >/dev/null 2>&1
+        echo "RC=$?"
+        [[ -e "$dir/.env" ]] && echo "ENV=$(cat "$dir/.env")" || echo "ENV=absent"
+        [[ -e "$dir/.env-7" ]] && echo "VARIANT=$(cat "$dir/.env-7")" || echo "VARIANT=absent"
+        [[ -e "$dir/env.bak" ]] && echo "BAK=present" || echo "BAK=absent"
+    ' _ "$DPX_ROOT" "$TEST_TEMP_DIR/home_migrate" "$dir" "$mode" "$signal" 2>/dev/null
+}
+
+test_start "migrate rollback restores an originally absent .env"
+out="$(migrate_env_probe "$TEST_TEMP_DIR/migrate_absent" absent 0)"
+if grep -qF "RC=0" <<<"$out" \
+    && grep -qF "ENV=absent" <<<"$out" \
+    && grep -qF "VARIANT=variant" <<<"$out"; then
+    test_pass
+else
+    test_fail "absent .env not restored: $out"
+fi
+
+test_start "migrate rollback restores the original .env"
+out="$(migrate_env_probe "$TEST_TEMP_DIR/migrate_original" original 0)"
+if grep -qF "RC=0" <<<"$out" \
+    && grep -qF "ENV=original" <<<"$out" \
+    && grep -qF "VARIANT=variant" <<<"$out" \
+    && grep -qF "BAK=absent" <<<"$out"; then
+    test_pass
+else
+    test_fail "original .env not restored: $out"
+fi
+
+test_start "migrate INT trap restores .env and exits 130"
+migrate_env_probe "$TEST_TEMP_DIR/migrate_signal" absent 1 >/dev/null 2>&1
+signal_rc=$?
+if [[ "$signal_rc" -eq 130 && ! -e "$TEST_TEMP_DIR/migrate_signal/.env" ]] \
+    && [[ -f "$TEST_TEMP_DIR/migrate_signal/.env-7" ]]; then
+    test_pass
+else
+    test_fail "expected rc=130 and absent .env, got rc=$signal_rc"
+fi
+
+test_start "set-php validates project names before path derivation"
+if grep -qF "validate_project_name \"\$project_name\"" "$DPX_ROOT/commands/set-php.sh" \
+    && grep -qF "projects_exists \"\$project_name\"" "$DPX_ROOT/commands/set-php.sh" \
+    && grep -qF "trap '_set_php_interrupted INT' INT" "$DPX_ROOT/commands/set-php.sh" \
+    && grep -qF 'Continue WITHOUT a safety backup?' "$DPX_ROOT/commands/set-php.sh" \
+    && grep -qF 'exit 130' "$DPX_ROOT/commands/set-php.sh"; then
+    test_pass
+else
+    test_fail "set-php validation/trap/backup confirmation missing"
+fi
+
+test_start "set-php rejects unsafe project name at runtime"
+mkdir -p "$TEST_TEMP_DIR/home_setphp"
+out="$(
+    DPX_ROOT="$DPX_ROOT" DPX_LANG=en NO_COLOR=1 HOME="$TEST_TEMP_DIR/home_setphp" \
+        bash -c '
+            source "$DPX_ROOT/commands/set-php.sh" >/dev/null 2>&1
+            cmd_set_php "../escape"
+        ' 2>&1
+)"
+setphp_rc=$?
+if [[ "$setphp_rc" -ne 0 ]] && grep -qi 'lowercase' <<<"$out"; then
+    test_pass
+else
+    test_fail "rc=$setphp_rc output=$out"
+fi
+
+test_start "db-restore has pre-import snapshot, traps and canonical paths"
+if grep -qF "db_create_snapshot \"\$project_path\" \"pre_db_restore\"" "$DPX_ROOT/commands/db-restore.sh" \
+    && grep -qF "trap '_dpx_db_restore_interrupted INT' INT" "$DPX_ROOT/commands/db-restore.sh" \
+    && grep -qF 'exit 130' "$DPX_ROOT/commands/db-restore.sh" \
+    && grep -qF "dpx_absolute_path \"\$selected_file\"" "$DPX_ROOT/commands/db-restore.sh"; then
+    test_pass
+else
+    test_fail "db-restore snapshot/trap/path hardening missing"
+fi
+
+test_start "dpx_absolute_path resolves relative dump paths"
+path_root="$TEST_TEMP_DIR/path_root"
+mkdir -p "$path_root/sub"
+: > "$path_root/sub/dump.sql"
+out="$(
+    bash -c '
+        source "$DPX_ROOT/lib/core.sh" >/dev/null 2>&1
+        cd "$2/sub" || exit 1
+        dpx_absolute_path "dump.sql"
+    ' _ "$DPX_ROOT" "$path_root" 2>/dev/null
+)"
+if [[ "$out" == "$path_root/sub/dump.sql" ]]; then
+    test_pass
+else
+    test_fail "expected '$path_root/sub/dump.sql', got '$out'"
 fi
 
 print_test_summary

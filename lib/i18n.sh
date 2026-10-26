@@ -578,6 +578,9 @@ t() {
     fi
 
     local out=""
+    # The translated message is intentionally the printf format string:
+    # all DPX dictionaries use positional %s placeholders.
+    # shellcheck disable=SC2059
     printf -v out -- "$msg" "$@" 2>/dev/null
     printf '%s\n' "$out"
 }

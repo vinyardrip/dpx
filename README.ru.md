@@ -2,9 +2,9 @@
 
 [Читать на английском](README.md)
 
-> **v1.9.1 (Stable)**
+> **v1.9.2 (Stable)**
 
-![Version](https://img.shields.io/badge/version-1.9.1-blue)
+![Version](https://img.shields.io/badge/version-1.9.2-blue)
 ![Bash](https://img.shields.io/badge/Bash-4.0+-green)
 ![DDEV](https://img.shields.io/badge/DDEV-1.21.0+-blue)
 ![Docker](https://img.shields.io/badge/Docker-20.10+-blue)
@@ -365,7 +365,7 @@ bash tests/test_tunnel_patch.sh
 bash tests/test_macos_sim.sh
 ```
 
-В репозитории v1.9.1 есть покрытие Linux и симуляция Darwin. Реальный macOS, WSL2 и полевое тестирование остаются отдельными пунктами roadmap.
+В репозитории v1.9.2 есть покрытие Linux и симуляция Darwin. Реальный macOS, WSL2 и полевое тестирование остаются отдельными пунктами roadmap.
 
 ## Решение проблем
 

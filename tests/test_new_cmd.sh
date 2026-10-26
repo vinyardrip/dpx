@@ -451,6 +451,83 @@ rc_bad=$?
 if [[ "$rc_bad" -ne 0 ]]; then test_pass; else test_fail "invalid name accepted"; fi
 
 # =================================================================
+# SECTION I: CMS archive traversal guard (R-12)
+# =================================================================
+
+echo ""
+echo "${TEST_CYAN}=== archive member validation ===${TEST_RESET}"
+
+ARCH_TMP="$TEST_TEMP_DIR/archive_guard"
+mkdir -p "$ARCH_TMP/root/child" "$ARCH_TMP/work"
+printf 'payload\n' > "$ARCH_TMP/root/payload.txt"
+
+test_start "safe archive member passes validation"
+tar -czf "$ARCH_TMP/good.tar.gz" -C "$ARCH_TMP/root" payload.txt
+if _new_archive_validate_members "$ARCH_TMP/good.tar.gz" "tar.gz" >/dev/null 2>&1; then
+    test_pass
+else
+    test_fail "safe tar member was rejected"
+fi
+
+test_start "absolute archive member is rejected"
+tar -czPf "$ARCH_TMP/absolute.tar.gz" "$ARCH_TMP/root/payload.txt"
+if ! tar -tzf "$ARCH_TMP/absolute.tar.gz" | grep -q '^/'; then
+    test_skip "tar did not preserve an absolute member path"
+elif _new_archive_validate_members "$ARCH_TMP/absolute.tar.gz" "tar.gz" >/dev/null 2>&1; then
+    test_fail "absolute tar member was accepted"
+else
+    test_pass
+fi
+
+test_start "parent-directory archive member is rejected"
+tar -czPf "$ARCH_TMP/traversal.tar.gz" -C "$ARCH_TMP/root/child" ../payload.txt
+if _new_archive_validate_members "$ARCH_TMP/traversal.tar.gz" "tar.gz" >/dev/null 2>&1; then
+    test_fail "tar member with .. was accepted"
+else
+    test_pass
+fi
+
+test_start "ZIP parent-directory member is rejected"
+if command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1; then
+    (cd "$ARCH_TMP/root/child" && zip -q "$ARCH_TMP/traversal.zip" ../payload.txt)
+    if _new_archive_validate_members "$ARCH_TMP/traversal.zip" "zip" >/dev/null 2>&1; then
+        test_fail "zip member with .. was accepted"
+    else
+        test_pass
+    fi
+else
+    test_skip "zip/unzip not available"
+fi
+
+test_start "Windows-style parent/drive members are rejected"
+all_ok=true
+_new_archive_member_is_safe '..\evil.txt' && all_ok=false
+_new_archive_member_is_safe 'C:\evil.txt'   && all_ok=false
+_new_archive_member_is_safe 'C:evil.txt'    && all_ok=false
+_new_archive_member_is_safe './safe.txt'    || all_ok=false
+if [[ "$all_ok" == true ]]; then test_pass; else test_fail "Windows path validation is incomplete"; fi
+
+test_start "unpack aborts before extracting a traversal archive"
+head -c 12000 /dev/urandom > "$ARCH_TMP/root/payload.bin"
+tar -czPf "$ARCH_TMP/big_traversal.tar.gz" -C "$ARCH_TMP/root/child" ../payload.bin
+rm -f "$ARCH_TMP/payload.bin"
+out="$(
+    (
+        _new_archive_fetch() {
+            cp "$ARCH_TMP/big_traversal.tar.gz" "$2" || return 1
+        }
+        _new_archive_download_unpack "https://example.invalid/pkg.tar.gz" "$ARCH_TMP/work"
+    ) 2>&1
+)"
+rc_unpack=$?
+if [[ "$rc_unpack" -ne 0 && ! -e "$ARCH_TMP/payload.bin" ]] \
+    && grep -qF "unsafe" <<<"$out"; then
+    test_pass
+else
+    test_fail "rc=$rc_unpack output=$out escaped=$([[ -e "$ARCH_TMP/payload.bin" ]] && echo yes || echo no)"
+fi
+
+# =================================================================
 # SUMMARIES
 # =================================================================
 
