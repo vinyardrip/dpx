@@ -188,24 +188,32 @@ project_full_backup() {
     local projects_base
     projects_base=$(dirname "$project_path")
 
+    local tar_rc=0
     if [[ -n "$db_dump" ]]; then
         (
             umask 077
             cd "$projects_base" || exit 1
             tar "${tar_args[@]}" "$project_name" -C "$tmpdir" "$(basename "$db_dump")"
         ) >/dev/null 2>&1
+        tar_rc=$?
     else
         (
             umask 077
             cd "$projects_base" || exit 1
             tar "${tar_args[@]}" "$project_name"
         ) >/dev/null 2>&1
+        tar_rc=$?
     fi
 
-    if [[ $? -ne 0 || ! -f "$archive_file" ]]; then
-        print_error "Error create archive: $archive_file"
+    # tar RC 0 = OK, RC 1 = warning (file changed as we read it), RC >= 2 = fatal error
+    if [[ $tar_rc -ge 2 || ! -f "$archive_file" ]]; then
+        print_error "Error create archive: $archive_file (tar exit code: $tar_rc)"
         rm -f "$archive_file" 2>/dev/null
         return 1
+    elif [[ $tar_rc -eq 1 ]]; then
+        print_warning "Warning: some files changed during backup (DDEV is likely running)."
+        print_warning "Archive will be integrity-checked in the next step."
+        # НЕ удаляем архив! Продолжаем выполнение.
     fi
     if ! chmod 600 "$archive_file" 2>/dev/null; then
         print_error "Failed to secure permissions on backup archive: $archive_file"
