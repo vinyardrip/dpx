@@ -24,7 +24,7 @@ export DPX_ROOT
 # shellcheck source=test_framework.sh
 source "$TESTS_DIR/test_framework.sh"
 
-print_test_header "Unit Tests: Phase 2 hardening" "1.9.2"
+print_test_header "Unit Tests: Phase 2 hardening" "1.9.3"
 setup_temp_dir >/dev/null
 
 run_cli() {
