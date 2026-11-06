@@ -401,3 +401,4 @@ Run a new DPX command from the project or inspect `.dpx/current_snapshot`, `.dpx
 [MIT License](https://github.com/vinyardrip/dpx/blob/main/LICENSE)
 
 Copyright (c) 2026 DPX Contributors
+# Test dpx
