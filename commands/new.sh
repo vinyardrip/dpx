@@ -47,6 +47,10 @@ show_new_help() {
                            (alias: --type TYPE, --cms=TYPE, wp/ocs/lara/html)
     --php VERSION          Version PHP (by default from config)
     --db                   Create base data immediately after start container
+    --here                 Scaffold in the CURRENT folder instead of
+                           DPX_PROJECTS_DIR; without a name the folder name
+                           becomes the project name (error if the current
+                           folder is already a DDEV project)
     -y, --yes              Skip confirmations
     -h, --help             Show this help
 
@@ -55,6 +59,7 @@ show_new_help() {
     ${TOOL_NAME} new myshop --cms=laravel --php=8.3 -y
     ${TOOL_NAME} new blog --type wordpress
     ${TOOL_NAME} new russhop --type=ocstore            # ocStore with SEO Pro
+    ${TOOL_NAME} new --here --cms=php -y               # Scaffold in current folder
     ${TOOL_NAME} new-wp mysite                         # compatibility (= new --cms=wordpress)
 EOF
 }
@@ -610,15 +615,32 @@ cmd_new() {
     project_name=$(get_positional_arg 1 "")
     [[ -z "$project_name" ]] && project_name=$(get_arg "project_name" "")
 
-    if [[ -z "$project_name" ]]; then
-        prompt_input "1. Name new project (e.g., my-cool-site)" "" project_name
-    fi
-    validate_project_name "$project_name" || return 1
+    # [v1.9.4] --here: scaffold in the CURRENT folder instead of
+    # PROJECTS_ROOT. Without an explicit name the folder name becomes the
+    # project name (the same default DDEV itself uses).
+    local here_flag=false
+    has_arg "here" && here_flag=true
 
-    local project_path="${PROJECTS_ROOT}/${project_name}"
-    if [[ -d "$project_path" ]]; then
-        print_error "Directory already exists: $project_path"
-        return 1
+    local project_path
+    if [[ "$here_flag" == true ]]; then
+        project_path="$PWD"
+        [[ -z "$project_name" ]] && project_name=$(basename "$project_path")
+        validate_project_name "$project_name" || return 1
+        if [[ -f "${project_path}/.ddev/config.yaml" ]]; then
+            print_error "--here: current directory is already a DDEV project: $project_path"
+            return 1
+        fi
+    else
+        if [[ -z "$project_name" ]]; then
+            prompt_input "1. Name new project (e.g., my-cool-site)" "" project_name
+        fi
+        validate_project_name "$project_name" || return 1
+
+        project_path="${PROJECTS_ROOT}/${project_name}"
+        if [[ -d "$project_path" ]]; then
+            print_error "Directory already exists: $project_path"
+            return 1
+        fi
     fi
 
     # --- Type project: --cms/--type (=value and separate forms), otherwise menu ---
@@ -650,6 +672,7 @@ cmd_new() {
     echo "URL site:        ${COLOR_GREEN}${site_url}${COLOR_RESET}"
     echo "Version PHP:       ${COLOR_GREEN}${php_version}${COLOR_RESET}"
     echo "Base data (--db): ${COLOR_GREEN}$(has_arg 'db' && echo 'yes' || echo 'no')${COLOR_RESET}"
+    echo "Location:          ${COLOR_GREEN}$( [[ "$here_flag" == true ]] && echo 'current folder (--here)' || echo 'projects root' )${COLOR_RESET}"
     echo "Path:             ${COLOR_GREEN}${project_path}${COLOR_RESET}"
     print_separator
 
@@ -683,8 +706,14 @@ cmd_new() {
     esac
 
     if [[ $scaffold_rc -ne 0 ]]; then
-        print_error "Create project fail. Clean director..."
-        rm -rf "$project_path"
+        if [[ "$here_flag" == true ]]; then
+            # [v1.9.4] NEVER delete the user's current directory on a
+            # failed --here scaffold: its contents predate this run.
+            print_error "Create project fail in current folder (left as-is): $project_path"
+        else
+            print_error "Create project fail. Clean director..."
+            rm -rf "$project_path"
+        fi
         return 1
     fi
 

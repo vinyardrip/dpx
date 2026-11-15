@@ -114,6 +114,7 @@ Creates a DDEV project using one of six scaffolders. Without `--cms`, the comman
 | `--type TYPE` | Alias of `--cms` | Compatibility alias |
 | `--php VERSION` | Configuration default, normally `7.4` | DDEV PHP version |
 | `--db` | Off by default | Creates database data immediately after the container starts |
+| `--here` | Off by default | Scaffolds in the current directory instead of `ddev_projects_base_path`; without an explicit name the directory name becomes the project name. Refuses to run when the current directory is already a DDEV project |
 | `-y`, `--yes` | Off by default | Skips confirmations and makes the workflow non-interactive where possible |
 | `--archive` | Not a current `dpx new` option in v1.6.0 | Archive URLs are resolved internally from environment overrides, GitHub releases or source archives; this flag is not parsed by the shipped command |
 | `--non-interactive` | Not a current parser option | Use `-y` for the supported non-interactive confirmation switch |
@@ -217,7 +218,7 @@ The workflow reads supported versions from `ddev debug capabilities`, falls back
 | --- | --- |
 | `dpx list` | `--sort-by name\|php\|php_max\|status`, `--format table\|json\|simple`, `--group` |
 | `dpx edit` | Positional project; `--php-max VERSION`, `--notes TEXT`, `--show`, `--delete` |
-| `dpx ddev` | Passes a DDEV command and arguments; selects a project when called outside one |
+| `dpx ddev` | Passes a DDEV command and arguments; selects a project when called outside one; `--here` pins execution to the current directory (requires `.ddev/config.yaml` there, skips the interactive menu) |
 | `dpx deploy` | `--project-name`, `--cms-type`, `--db-file`, `--prod-url`, `--php-version`, `--db-type`, `--db-version`, `-y` |
 | `dpx migrate` | `--project-name`, `--devilbox-folder`, `--cms-type`, `--php-version`, `--devilbox-php`, `--db-name`, `--db-type`, `--db-version`, `--no-db`, `--keep-backup`, `-y` |
 | `dpx update` | `--check` performs a check only; `-y` skips update confirmation |

@@ -117,6 +117,10 @@ parse_args() {
                 DPX_ARGS["delete"]=1
                 shift
                 ;;
+            --here)
+                DPX_ARGS["here"]=1
+                shift
+                ;;
 
             # Parameters with values
             --php-version)
