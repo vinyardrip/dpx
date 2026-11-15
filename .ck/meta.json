@@ -1,0 +1,11 @@
+{
+  "created_at": "2026-11-15T10:09:38",
+  "project_name": "ddev-project-extend",
+  "created_with_ck": "0.13.3",
+  "tools": {
+    "python3.8+": true,
+    "git": true,
+    "fzf": true,
+    "jq": true
+  }
+}

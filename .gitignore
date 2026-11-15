@@ -40,5 +40,9 @@ db_prod/
 # Node.js (if any tooling is added later)
 node_modules/
 
-PLAN.md
+/PLAN.md
 
+
+# Context Keeper
+.ck/*.bak
+.ck/*.md.gz
